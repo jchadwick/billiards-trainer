@@ -57,6 +57,7 @@ fn run_config(url: String, output_root: std::path::PathBuf) -> StateAuditRunConf
         },
         managed_server: None,
         live_pipeline_timing_audit: None,
+        sample_managed_live_process_resources: false,
     }
 }
 
@@ -87,7 +88,7 @@ async fn repeatable_runner_writes_bounded_reports_details_and_provenance() {
     let summary: Value =
         serde_json::from_slice(&std::fs::read(run_directory.join("summary.json")).unwrap())
             .unwrap();
-    assert_eq!(summary["schema_version"], 4);
+    assert_eq!(summary["schema_version"], 5);
     assert_eq!(summary["mode"], "repeated");
     assert_eq!(summary["measured_runs"].as_array().unwrap().len(), 2);
     assert!(summary["environment"]["working_tree_dirty"].is_boolean());

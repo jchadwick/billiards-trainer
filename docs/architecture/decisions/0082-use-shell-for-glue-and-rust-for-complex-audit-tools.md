@@ -34,6 +34,15 @@ reports. Add Rust functionality incrementally around the live path and its
 existing contracts; do not create a competing harness or translate Python
 internal fixtures mechanically.
 
+For a managed live audit, derive the detector child PID from positive
+`process_id` values in the live timing side channel and run the existing bounded
+resource sampler for each measured state window. Keep this sampling separately
+opt-in. Do not substitute the gateway PID for the inference process. If more
+than one detector PID is observed in a window, or timing/resource evidence is
+incomplete, report the PIDs and mark resource evidence partial or unavailable;
+do not combine samples across process restarts or imply coverage of an
+unsampled replacement process.
+
 Retain the existing Python audit collector and its tests as an off-device,
 independent differential reference during the Rust port. Retire the Python
 collector only after Rust contract fixtures and real-socket tests cover the
@@ -188,6 +197,21 @@ reported explicitly. This removes the Python `psutil` sampling thread from
 Rust live qualification only. The larger Python collector, its generic audit
 modes, and report orchestration remain and must be migrated only after their
 evidence contracts have Rust parity.
+
+The native Rust managed audit runner now also offers
+`--sample-managed-live-process-resources`, independently opt-in alongside
+`--live-pipeline-timing-audit`. It learns the detector child PID from the
+loopback timing records and starts the bounded Rust sampler for each measured
+window. The window report lists sampled and observed detector PIDs. A restart,
+resource-sampling failure, timing loss, or missing identity evidence marks the
+resource result partial or unavailable; post-window footer data is excluded
+from measured-window PID accounting. Runner report schema version 5 adds this
+optional configuration and per-window status. CLI validation, latest-PID
+replacement/timeout behavior, complete-resource summaries, restart handling,
+and footer exclusion have dedicated tests. The all-target Rust tests, strict
+Clippy, formatting check, and ADR validator pass (2026-10-22). The existing
+Python qualification path remains an independent reference and is not retired
+by this managed-runner feature.
 
 Commits `6feb7e7` and `8e74dff` move the server-event summary reducer into the
 Rust library and `billiards-performance-audit-server-summary` command. It

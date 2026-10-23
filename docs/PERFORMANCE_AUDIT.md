@@ -102,7 +102,9 @@ kernel, memory, and effective limits. A managed `--start-live` run adds the
 model, runtime-binary, capture-helper, effective-configuration, and camera
 profile identities described above. External state streams do not disclose
 detector identity; network input-video hashing and accuracy evidence remain
-unavailable in either mode.
+unavailable in either mode. Runner report schema version 5 adds the optional
+managed detector resource-sampling configuration and per-window process
+identity status; state-receiver reports retain their own schema version.
 
 For a managed Rust live server, `--live-pipeline-timing-audit` also enables a
 bounded loopback side channel from the detector. The runner binds the receiver
@@ -138,6 +140,26 @@ bounded JSONL detail file under `runs/`. Missing producer footer, producer or
 receiver loss, or incomplete state/timing identity joins marks evidence
 partial. These records measure detector stages, but do not supply temporal
 ground truth or camera exposure timestamps.
+
+Add `--sample-managed-live-process-resources` to sample the Rust detector
+child's CPU and resident memory during each measured window. This option
+requires `--live-pipeline-timing-audit`; the runner resolves the detector PID
+from positive `process_id` values in the live timing stream and starts the
+existing bounded Rust sampler for that window. The timing summary records the
+sampled PID, all detector PIDs observed during the window, and a resource
+evidence status. If the detector restarts during a window, or the timing stream
+has losses, the resource evidence is marked partial rather than attributing
+the unsampled process to the prior PID. The sampler remains absent unless this
+option or the explicit `--resource-process-id` option is selected.
+
+```bash
+scripts/performance-audit-live.sh \
+  --url ws://127.0.0.1:8001/api/v1/websocket/ws \
+  --server-argument=--start-live \
+  --live-pipeline-timing-audit \
+  --sample-managed-live-process-resources \
+  --warmup-seconds 0 --duration-seconds 30 --repetitions 1
+```
 
 Run a short smoke check or the standard repeated audit with:
 

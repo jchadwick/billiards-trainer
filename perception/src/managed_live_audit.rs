@@ -144,6 +144,11 @@ pub struct ManagedLiveAuditSnapshot {
     pub measurement_clock_domain_id: String,
     /// Current receiver-local monotonic tick, in the same domain as records.
     pub measurement_clock_tick_ns: u64,
+    /// Latest positive producer process ID observed in a valid audit record.
+    pub latest_producer_process_id: Option<u32>,
+    /// Number of times the latest producer PID has changed, including its
+    /// first observation. Repeated records from the same process do not bump it.
+    pub producer_process_id_generation: u64,
     pub stream_counts: ManagedLiveAuditStreamCounts,
     pub producer_footer: Option<Value>,
     pub losses: ManagedLiveAuditLosses,
@@ -158,6 +163,8 @@ pub struct ManagedLiveAuditSnapshot {
 struct ReceiverState {
     stream_counts: ManagedLiveAuditStreamCounts,
     losses: ManagedLiveAuditLosses,
+    latest_producer_pid: Option<u32>,
+    producer_pid_generation: u64,
     producer_footer: Option<Value>,
     retained_records: VecDeque<(ReceivedAuditRecord, usize)>,
     retained_record_bytes: usize,
@@ -169,6 +176,7 @@ struct ReceiverShared {
     clock_origin: Instant,
     maximum_retained_records: usize,
     maximum_retained_bytes: usize,
+    producer_pid_sender: watch::Sender<Option<u32>>,
     state: Mutex<ReceiverState>,
 }
 
@@ -182,6 +190,7 @@ struct PendingRecord {
 /// Owns the loopback listener, connection workers, and bounded retention task.
 pub struct ManagedLiveAuditReceiver {
     shared: std::sync::Arc<ReceiverShared>,
+    producer_pid_receiver: watch::Receiver<Option<u32>>,
     shutdown_sender: watch::Sender<bool>,
     listener_task: Option<JoinHandle<Result<()>>>,
     collector_task: Option<JoinHandle<()>>,
@@ -199,12 +208,14 @@ impl ManagedLiveAuditReceiver {
         })?;
         let address = listener.local_addr()?;
         let clock_origin = Instant::now();
+        let (producer_pid_sender, producer_pid_receiver) = watch::channel(None);
         let shared = std::sync::Arc::new(ReceiverShared {
             address,
             clock_domain_id: format!("managed-live-audit-{}", uuid::Uuid::new_v4()),
             clock_origin,
             maximum_retained_records: config.maximum_retained_records,
             maximum_retained_bytes: config.maximum_retained_bytes,
+            producer_pid_sender,
             state: Mutex::new(ReceiverState::default()),
         });
         let (record_sender, record_receiver) = mpsc::channel(config.queue_capacity);
@@ -228,6 +239,7 @@ impl ManagedLiveAuditReceiver {
 
         Ok(Self {
             shared,
+            producer_pid_receiver,
             shutdown_sender,
             listener_task: Some(listener_task),
             collector_task: Some(collector_task),
@@ -255,6 +267,34 @@ impl ManagedLiveAuditReceiver {
             .checked_duration_since(self.shared.clock_origin)
             .map(|elapsed| u64::try_from(elapsed.as_nanos()).unwrap_or(u64::MAX))
             .unwrap_or(0)
+    }
+
+    /// Return the most recently observed positive producer process ID, if any.
+    pub fn latest_producer_process_id(&self) -> Option<u32> {
+        *self.producer_pid_receiver.borrow()
+    }
+
+    /// Wait at most `timeout` for the first valid producer PID notification.
+    /// The watch channel retains only the latest value, so bursts never create
+    /// an unbounded notification queue or delay the audit-record receiver.
+    pub async fn wait_for_producer_process_id(
+        &self,
+        timeout: std::time::Duration,
+    ) -> Result<Option<u32>> {
+        let mut receiver = self.producer_pid_receiver.clone();
+        Ok(tokio::time::timeout(timeout, async move {
+            loop {
+                if let Some(pid) = *receiver.borrow() {
+                    return Some(pid);
+                }
+                if receiver.changed().await.is_err() {
+                    return None;
+                }
+            }
+        })
+        .await
+        .ok()
+        .flatten())
     }
 
     pub async fn snapshot(&self) -> ManagedLiveAuditSnapshot {
@@ -304,6 +344,8 @@ async fn snapshot(shared: &ReceiverShared) -> ManagedLiveAuditSnapshot {
         listener_address: shared.address,
         measurement_clock_domain_id: shared.clock_domain_id.clone(),
         measurement_clock_tick_ns: monotonic_elapsed_ns(shared.clock_origin),
+        latest_producer_process_id: state.latest_producer_pid,
+        producer_process_id_generation: state.producer_pid_generation,
         stream_counts: state.stream_counts.clone(),
         producer_footer: state.producer_footer.clone(),
         losses: state.losses.clone(),
@@ -553,6 +595,18 @@ async fn enqueue_record(
 ) {
     let mut state = shared.state.lock().await;
     state.stream_counts.valid_records = state.stream_counts.valid_records.saturating_add(1);
+    if let Some(pid) = record
+        .get("process_id")
+        .and_then(Value::as_u64)
+        .and_then(|pid| u32::try_from(pid).ok())
+        .filter(|pid| *pid > 0)
+    {
+        if state.latest_producer_pid != Some(pid) {
+            state.latest_producer_pid = Some(pid);
+            state.producer_pid_generation = state.producer_pid_generation.saturating_add(1);
+            shared.producer_pid_sender.send_replace(Some(pid));
+        }
+    }
     let count = state
         .stream_counts
         .records_by_type
@@ -756,6 +810,58 @@ mod tests {
         assert!(ticks[1] <= snapshot.measurement_clock_tick_ns);
         assert_eq!(snapshot.retained_records[0].record["producer_tick"], 900);
         assert_eq!(snapshot.retained_records[1].record["producer_tick"], 100);
+    }
+
+    #[tokio::test]
+    async fn latest_producer_process_id_is_bounded_and_tracks_only_changes() {
+        let receiver = ManagedLiveAuditReceiver::bind(config()).await.unwrap();
+        assert_eq!(receiver.latest_producer_process_id(), None);
+        let address = receiver.listener_address();
+
+        // Start waiting before the producer record arrives. The watch channel
+        // wakes this caller while retaining only the latest PID under bursts.
+        let observed_pid = {
+            let waiting = receiver.wait_for_producer_process_id(Duration::from_secs(1));
+            tokio::pin!(waiting);
+            send_bytes(
+                address,
+                &framed(br#"{"record_type":"frame","process_id":42}"#),
+            )
+            .await;
+            waiting.await.unwrap()
+        };
+        assert_eq!(observed_pid, Some(42));
+
+        let mut records = Vec::new();
+        for payload in [
+            br#"{"record_type":"frame","process_id":42}"#.as_slice(),
+            br#"{"record_type":"frame","process_id":0}"#.as_slice(),
+            br#"{"record_type":"frame","process_id":-7}"#.as_slice(),
+            br#"{"record_type":"frame","process_id":"84"}"#.as_slice(),
+            br#"{"record_type":"frame","process_id":84}"#.as_slice(),
+        ] {
+            records.extend_from_slice(&framed(payload));
+        }
+        send_bytes(address, &records).await;
+        wait_for_records(&receiver, 6).await;
+
+        assert_eq!(receiver.latest_producer_process_id(), Some(84));
+        let snapshot = receiver.shutdown().await.unwrap();
+        assert_eq!(snapshot.latest_producer_process_id, Some(84));
+        assert_eq!(snapshot.producer_process_id_generation, 2);
+    }
+
+    #[tokio::test]
+    async fn waiting_for_producer_process_id_returns_none_on_timeout() {
+        let receiver = ManagedLiveAuditReceiver::bind(config()).await.unwrap();
+        assert_eq!(
+            receiver
+                .wait_for_producer_process_id(Duration::from_millis(10))
+                .await
+                .unwrap(),
+            None
+        );
+        assert_eq!(receiver.latest_producer_process_id(), None);
     }
 
     #[tokio::test]

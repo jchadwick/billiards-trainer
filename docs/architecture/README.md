@@ -25,7 +25,9 @@ training and annotation workflows remain off-device; complex audit tooling
 migrates to Rust under ADR-0082, with Python retained temporarily as an
 independent differential reference. Rust now samples process resources and
 owns the server-event, delivery-latency, and instrumentation-overhead reducers;
-collector orchestration and remaining report work stay Python for now.
+collector orchestration and remaining report work stay Python for now. Managed
+live audits resolve detector-child resources from the timing stream per
+measured window; restarts and incomplete evidence remain explicitly partial.
 ADR-0064 is superseded because it selected a Rust/WASM browser
 client and permanent Python gateway. ADR-0065 assigns unified configuration
 authority to Rust and preserves current route contracts during the gateway

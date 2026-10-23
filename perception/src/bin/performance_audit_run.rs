@@ -108,6 +108,10 @@ struct Arguments {
     #[arg(long, requires = "server_executable")]
     live_pipeline_timing_audit: bool,
 
+    /// Sample the managed detector process identified by live timing records.
+    #[arg(long, requires = "live_pipeline_timing_audit")]
+    sample_managed_live_process_resources: bool,
+
     /// Bounded receiver and producer queue capacity for live timing records.
     #[arg(long, default_value_t = DEFAULT_LIVE_AUDIT_QUEUE_CAPACITY as u64, value_parser = clap::value_parser!(u64).range(1..=4096))]
     live_audit_queue_capacity: u64,
@@ -180,6 +184,7 @@ async fn main() -> Result<()> {
         },
         managed_server,
         live_pipeline_timing_audit,
+        sample_managed_live_process_resources: arguments.sample_managed_live_process_resources,
     };
     let directory = run_state_audit(&config).await?;
     println!("audit artifacts: {}", directory.display());
@@ -237,6 +242,7 @@ mod tests {
             "target/debug/billiards-server",
             "--server-argument=--start-live",
             "--live-pipeline-timing-audit",
+            "--sample-managed-live-process-resources",
             "--live-audit-queue-capacity",
             "128",
             "--live-audit-max-record-bytes",
@@ -245,7 +251,22 @@ mod tests {
         .unwrap();
 
         assert!(arguments.live_pipeline_timing_audit);
+        assert!(arguments.sample_managed_live_process_resources);
         assert_eq!(arguments.live_audit_queue_capacity, 128);
         assert_eq!(arguments.live_audit_max_record_bytes, 8192);
+    }
+
+    #[test]
+    fn cli_requires_live_timing_for_managed_process_resource_sampling() {
+        let result = Arguments::try_parse_from([
+            "billiards-performance-audit-run",
+            "--url",
+            "ws://127.0.0.1:8080/state",
+            "--server-executable",
+            "target/debug/billiards-server",
+            "--server-argument=--start-live",
+            "--sample-managed-live-process-resources",
+        ]);
+        assert!(result.is_err());
     }
 }

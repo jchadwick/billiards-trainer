@@ -35,7 +35,7 @@ pub const DEFAULT_MEASURED_SECONDS: u64 = 120;
 pub const DEFAULT_REPETITIONS: usize = 3;
 pub const DEFAULT_SOAK_SECONDS: u64 = 1_200;
 pub const DEFAULT_OUTPUT_ROOT: &str = "thoughts/performance-audits";
-pub const RUN_REPORT_SCHEMA_VERSION: u8 = 4;
+pub const RUN_REPORT_SCHEMA_VERSION: u8 = 5;
 pub const DEFAULT_LIVE_AUDIT_QUEUE_CAPACITY: usize = 2_048;
 pub const DEFAULT_LIVE_AUDIT_MAX_RECORD_BYTES: usize = 64 * 1024;
 pub const DEFAULT_LIVE_AUDIT_RETAINED_RECORDS: usize = 200_000;
@@ -59,6 +59,10 @@ pub struct StateAuditRunConfig {
     /// Optional live-detector stage timing side channel. `None` allocates no
     /// listener, queue, tasks, or detailed timing retention.
     pub live_pipeline_timing_audit: Option<LivePipelineTimingAuditConfig>,
+    /// Automatically sample the detector child whose PID is carried by the
+    /// managed live timing stream. This is separate from sampling an
+    /// externally supplied PID through `receiver.resource_sample_process_id`.
+    pub sample_managed_live_process_resources: bool,
     /// Optional application server child. Its first observed localization
     /// gates warm-up and measurements, and the child is always reaped before
     /// this command exits.
@@ -192,6 +196,16 @@ impl StateAuditRunConfig {
                     .any(|argument| argument == "--start-live")
             }) {
                 bail!("live pipeline timing audit requires a managed server with --start-live");
+            }
+        }
+        if self.sample_managed_live_process_resources {
+            if self.live_pipeline_timing_audit.is_none() {
+                bail!(
+                    "managed live process resource sampling requires --live-pipeline-timing-audit"
+                );
+            }
+            if self.receiver.resource_sample_process_id.is_some() {
+                bail!("managed live process resource sampling cannot be combined with an explicit resource process ID");
             }
         }
         if self.measured.is_zero() {
@@ -328,7 +342,17 @@ pub struct EffectiveRunConfiguration {
     pub resource_process_id: Option<u32>,
     pub resource_sample_interval_ms: u128,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub managed_live_process_resource_sampling: Option<EffectiveManagedLiveResourceConfiguration>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub live_pipeline_timing_audit: Option<EffectiveLivePipelineTimingConfiguration>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct EffectiveManagedLiveResourceConfiguration {
+    pub process_role: &'static str,
+    pub sample_interval_ms: u128,
+    pub maximum_samples_per_window: usize,
+    pub process_discovery: &'static str,
 }
 
 #[derive(Debug, Serialize)]
@@ -393,6 +417,8 @@ struct WindowTimingInput {
     repetition: usize,
     started_at_tick_ns: u64,
     ended_at_tick_ns: u64,
+    sampled_process_id: Option<u32>,
+    process_resource_status: Option<String>,
     details_path: PathBuf,
     state_trace_truncated: bool,
 }
@@ -544,6 +570,7 @@ pub async fn run_state_audit(config: &StateAuditRunConfig) -> Result<PathBuf> {
                             timing.maximum_retained_records
                         }),
                     &snapshot.measurement_clock_domain_id,
+                    config.sample_managed_live_process_resources,
                 )?;
                 let (summary_path, details_path) = write_live_timing_artifacts(
                     &run_directory,
@@ -1214,6 +1241,22 @@ async fn run_windows(parameters: WindowRunParameters<'_>) -> Result<RunWindowsOu
         );
         let mut receiver = config.receiver.clone();
         receiver.duration = measured_duration;
+        let selected_managed_process_id = if config.sample_managed_live_process_resources {
+            let audit = live_audit_receiver
+                .context("managed live process sampling has no timing receiver")?;
+            match audit.latest_producer_process_id() {
+                Some(process_id) => Some(process_id),
+                None => audit
+                    .wait_for_producer_process_id(config.receiver.connect_timeout)
+                    .await
+                    .context("could not wait for the managed detector process ID")?,
+            }
+        } else {
+            None
+        };
+        if config.sample_managed_live_process_resources {
+            receiver.resource_sample_process_id = selected_managed_process_id;
+        }
         let output = connect_and_collect(&config.url, &receiver)
             .await
             .with_context(|| format!("state audit measured run {repetition} failed"))?;
@@ -1230,6 +1273,16 @@ async fn run_windows(parameters: WindowRunParameters<'_>) -> Result<RunWindowsOu
         }
         let (report_path, details_path) =
             write_window_artifacts(run_directory, repetition, &output)?;
+        let sampled_process_id = output
+            .report
+            .process_resources
+            .as_ref()
+            .map(|resources| resources.process_id);
+        let process_resource_status = output
+            .report
+            .process_resources
+            .as_ref()
+            .map(|resources| resources.status.to_owned());
         measured_runs.push(MeasuredRunReference {
             repetition,
             report_path,
@@ -1246,6 +1299,8 @@ async fn run_windows(parameters: WindowRunParameters<'_>) -> Result<RunWindowsOu
                 repetition,
                 started_at_tick_ns,
                 ended_at_tick_ns,
+                sampled_process_id,
+                process_resource_status,
                 details_path: run_directory
                     .join("runs")
                     .join(format!("run-{repetition:03}.jsonl")),
@@ -1273,6 +1328,14 @@ async fn run_windows(parameters: WindowRunParameters<'_>) -> Result<RunWindowsOu
         maximum_samples_per_run: config.receiver.maximum_samples,
         resource_process_id: config.receiver.resource_sample_process_id,
         resource_sample_interval_ms: config.receiver.resource_sample_interval.as_millis(),
+        managed_live_process_resource_sampling: config
+            .sample_managed_live_process_resources
+            .then_some(EffectiveManagedLiveResourceConfiguration {
+                process_role: "rust_live_inference_child",
+                sample_interval_ms: config.receiver.resource_sample_interval.as_millis(),
+                maximum_samples_per_window: config.receiver.maximum_samples,
+                process_discovery: "latest_positive_pid_from_live_timing_records",
+            }),
         live_pipeline_timing_audit: config.live_pipeline_timing_audit.as_ref().map(|timing| {
             EffectiveLivePipelineTimingConfiguration {
                 queue_capacity: timing.queue_capacity,
@@ -1300,7 +1363,11 @@ async fn run_windows(parameters: WindowRunParameters<'_>) -> Result<RunWindowsOu
         );
     }
     if config.managed_server.is_some() {
-        limitations.push("Managed-server mode qualifies state delivery and process lifecycle; inference-process resource sampling is not yet included.");
+        if config.sample_managed_live_process_resources {
+            limitations.push("Managed live process sampling follows the latest detector PID in timing records for each measured window; detector restarts during a window are reported as incomplete process-resource evidence.");
+        } else if config.receiver.resource_sample_process_id.is_none() {
+            limitations.push("Managed-server mode qualifies state delivery and process lifecycle; managed detector CPU/RSS sampling is disabled unless --sample-managed-live-process-resources is selected.");
+        }
     }
     if config.live_pipeline_timing_audit.is_some() {
         limitations.push(
@@ -1356,15 +1423,26 @@ fn summarize_live_timing_window(
     input: &WindowTimingInput,
     maximum_samples: usize,
     clock_domain_id: &str,
+    sample_managed_process: bool,
 ) -> Result<(serde_json::Value, Vec<serde_json::Value>)> {
     let mut accumulator = RustLiveTimingAccumulator::new(maximum_samples)?;
     accumulator.begin_measurement(input.started_at_tick_ns);
     let mut detail_records = Vec::new();
+    let mut observed_process_ids = std::collections::BTreeSet::new();
     for received in &snapshot.retained_records {
         if received.received_at_tick_ns < input.started_at_tick_ns
             || received.received_at_tick_ns > input.ended_at_tick_ns
         {
             continue;
+        }
+        if let Some(process_id) = received
+            .record
+            .get("process_id")
+            .and_then(serde_json::Value::as_u64)
+            .and_then(|process_id| u32::try_from(process_id).ok())
+            .filter(|process_id| *process_id > 0)
+        {
+            observed_process_ids.insert(process_id);
         }
         let mut record = received.record.clone();
         if let Some(object) = record.as_object_mut() {
@@ -1419,6 +1497,40 @@ fn summarize_live_timing_window(
             .and_then(|value| value.get("timing_trace_truncated"))
             .and_then(serde_json::Value::as_bool)
             .unwrap_or(false);
+        if sample_managed_process {
+            let unsampled_process_ids = observed_process_ids
+                .iter()
+                .copied()
+                .filter(|process_id| Some(*process_id) != input.sampled_process_id)
+                .collect::<Vec<_>>();
+            let restart_during_window = observed_process_ids.len() > 1;
+            let resource_sampling_status = if input.sampled_process_id.is_none()
+                || input.process_resource_status.as_deref() != Some("available")
+                || !unsampled_process_ids.is_empty()
+                || observed_process_ids.is_empty()
+                || trace_truncated
+                || receiver.status != "complete"
+            {
+                if input.sampled_process_id.is_none() || observed_process_ids.is_empty() {
+                    "unavailable"
+                } else {
+                    "partial"
+                }
+            } else {
+                "complete"
+            };
+            object.insert(
+                "managed_process_resource_sampling".to_owned(),
+                serde_json::json!({
+                    "status": resource_sampling_status,
+                    "sampled_process_id": input.sampled_process_id,
+                    "sampled_process_status": input.process_resource_status.clone(),
+                    "observed_process_ids": observed_process_ids,
+                    "unsampled_process_ids": unsampled_process_ids,
+                    "restart_during_window": restart_during_window,
+                }),
+            );
+        }
         if receiver.status != "complete" || trace_truncated {
             object.insert("status".to_owned(), serde_json::json!("partial"));
         }
@@ -1806,6 +1918,7 @@ mod tests {
             receiver: StateReceiverConfig::default(),
             managed_server: None,
             live_pipeline_timing_audit: None,
+            sample_managed_live_process_resources: false,
         }
     }
 
@@ -1889,6 +2002,36 @@ mod tests {
     }
 
     #[test]
+    fn managed_live_resource_sampling_requires_timing_and_rejects_an_explicit_pid() {
+        let mut invalid = config();
+        invalid.sample_managed_live_process_resources = true;
+        assert!(invalid
+            .validate()
+            .unwrap_err()
+            .to_string()
+            .contains("requires --live-pipeline-timing-audit"));
+
+        invalid.live_pipeline_timing_audit = Some(LivePipelineTimingAuditConfig::default());
+        invalid.managed_server = Some(ManagedServerConfig {
+            executable: PathBuf::from("billiards-server"),
+            arguments: vec!["--start-live".to_owned()],
+            working_directory: None,
+            startup_timeout: Duration::from_secs(60),
+            readiness_probe_interval: Duration::from_millis(250),
+            shutdown_timeout: Duration::from_secs(10),
+        });
+        invalid.receiver.resource_sample_process_id = Some(123);
+        assert!(invalid
+            .validate()
+            .unwrap_err()
+            .to_string()
+            .contains("cannot be combined with an explicit resource process ID"));
+
+        invalid.receiver.resource_sample_process_id = None;
+        assert!(invalid.validate().is_ok());
+    }
+
+    #[test]
     fn managed_live_timing_joins_exact_window_records_to_observed_state_identity() {
         use super::{summarize_live_timing_window, WindowTimingInput};
         use crate::managed_live_audit::{
@@ -1912,6 +2055,7 @@ mod tests {
         .unwrap();
         let record = json!({
             "record_type": "frame",
+            "process_id": 501,
             "engine_instance_id": "engine-a",
             "source_session_id": "session-a",
             "frame_id": "frame-1",
@@ -1922,6 +2066,8 @@ mod tests {
             listener_address: "127.0.0.1:9000".parse().unwrap(),
             measurement_clock_domain_id: "test-clock-domain".to_owned(),
             measurement_clock_tick_ns: 250,
+            latest_producer_process_id: Some(501),
+            producer_process_id_generation: 1,
             stream_counts: ManagedLiveAuditStreamCounts {
                 framed_messages: 2,
                 valid_records: 2,
@@ -1929,6 +2075,7 @@ mod tests {
             },
             producer_footer: Some(json!({
                 "record_type": "footer",
+                "process_id": 999,
                 "export_status": "complete",
                 "dropped_records": 0,
             })),
@@ -1945,6 +2092,8 @@ mod tests {
             repetition: 1,
             started_at_tick_ns: 100,
             ended_at_tick_ns: 200,
+            sampled_process_id: Some(501),
+            process_resource_status: Some("available".to_owned()),
             details_path: state_details,
             state_trace_truncated: false,
         };
@@ -1954,6 +2103,7 @@ mod tests {
             &input,
             100,
             &snapshot.measurement_clock_domain_id,
+            true,
         )
         .unwrap();
 
@@ -1967,6 +2117,56 @@ mod tests {
         assert_eq!(detail_records.len(), 2, "frame plus post-window footer");
         assert_eq!(detail_records[0]["audit_receiver_monotonic_ns"], 150);
         assert_eq!(detail_records[1]["audit_receiver_monotonic_ns"], 250);
+        assert_eq!(
+            summary["managed_process_resource_sampling"]["status"],
+            "complete"
+        );
+        assert_eq!(
+            summary["managed_process_resource_sampling"]["sampled_process_id"],
+            501
+        );
+        assert_eq!(
+            summary["managed_process_resource_sampling"]["observed_process_ids"],
+            json!([501])
+        );
+        assert_eq!(
+            summary["managed_process_resource_sampling"]["restart_during_window"],
+            false
+        );
+
+        let mut restarted_snapshot = snapshot.clone();
+        let mut restarted_record = record;
+        restarted_record["process_id"] = json!(502);
+        restarted_snapshot
+            .retained_records
+            .push(ReceivedAuditRecord {
+                received_at_tick_ns: 175,
+                record: restarted_record,
+            });
+        let (restarted_summary, _) = summarize_live_timing_window(
+            &restarted_snapshot,
+            &input,
+            100,
+            &snapshot.measurement_clock_domain_id,
+            true,
+        )
+        .unwrap();
+        assert_eq!(
+            restarted_summary["managed_process_resource_sampling"]["status"],
+            "partial"
+        );
+        assert_eq!(
+            restarted_summary["managed_process_resource_sampling"]["observed_process_ids"],
+            json!([501, 502])
+        );
+        assert_eq!(
+            restarted_summary["managed_process_resource_sampling"]["unsampled_process_ids"],
+            json!([502])
+        );
+        assert_eq!(
+            restarted_summary["managed_process_resource_sampling"]["restart_during_window"],
+            true
+        );
     }
 
     #[test]
@@ -2099,6 +2299,7 @@ mod tests {
                 maximum_samples_per_run: 10_000,
                 resource_process_id: None,
                 resource_sample_interval_ms: 1_000,
+                managed_live_process_resource_sampling: None,
                 live_pipeline_timing_audit: None,
             },
             environment: collect_environment(),
