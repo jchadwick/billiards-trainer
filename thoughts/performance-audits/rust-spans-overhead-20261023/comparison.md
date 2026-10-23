@@ -2,10 +2,11 @@
 
 ## Result
 
-On the development Mac, enabling the current Rust live timing audit stayed
-within the 2% instrumentation overhead budget for this workload. Across three
-120-second measured windows, unique observed source-state throughput was
-15.339/s with audit off and 15.344/s with audit on (+0.04%). Mean per-run p95
+On the development Mac, enabling Rust frame-span timing stayed within the 2%
+instrumentation overhead budget for this workload. Across three 120-second
+measured windows, unique source-frame update throughput was 22.041/s with audit
+off and 22.066/s with audit on (+0.11%). Ball-observed state updates were
+15.339/s off and 15.344/s on (+0.04%). Mean per-run p95
 read-completion-to-publication age was 78.46 ms off and 77.41 ms on (-1.34%).
 Local state-receive interval p95 averaged 46.31 ms off and 46.16 ms on.
 
@@ -70,18 +71,19 @@ It does not qualify a physical webcam, the Linux target, camera exposure age,
 numbered-ball recognition, motion accuracy, trajectory workload isolation, or
 browser viewer interference. No temporal ground-truth labels were available.
 
-The next useful experiments are:
+The mailbox-residence follow-up is recorded in
+[rust-mailbox-overhead-20261023](../rust-mailbox-overhead-20261023/comparison.md).
+It used the same live workload with the additional audit-only dequeue clock and
+showed that mailbox residence accounts for nearly all of the pre-inference
+delay. The next useful experiments are:
 
-1. Repeat the audit off/on comparison with the current mailbox timing build and
-   write outputs outside the repository, then compare queue residence against
-   the remaining pre-inference interval.
-2. Compare 30 fps with 20 fps and a lower detector input size on the same paced
+1. Compare 30 fps with 20 fps and a lower detector input size on the same paced
    clip, retaining latest-frame behavior and measuring unique observations,
    freshness, and drops. Treat any model-size choice as provisional until
    reviewed temporal labels confirm accuracy during motion and occlusion.
-3. Build a shared-frame fan-out fixture and headless-browser run before making
+2. Build a shared-frame fan-out fixture and headless-browser run before making
    claims about video viewer interference.
-4. Run the separate 20-minute bounded-memory audit and, later, qualify on the
+3. Run the separate 20-minute bounded-memory audit and, later, qualify on the
    Linux target with the physical camera and Coral present.
 
 ## Raw artifacts
