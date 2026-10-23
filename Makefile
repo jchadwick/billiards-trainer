@@ -14,7 +14,7 @@
 #   make deploy        Build production distribution
 #
 
-.PHONY: help install dev install-python-tools install-model-tools python-venv setup-git-hooks setup-dirs test test-all test-rust test-web test-python test-unit test-integration test-system test-coverage lint lint-rust lint-web lint-python format format-rust format-python format-check fix config-check config-example clean clean-logs clean-data clean-frontend clean-all run run-api run-frontend kill-processes docker-build docker-run docker-run-detached docker-stop docker-restart docker-logs docker-shell build build-frontend build-rust deploy deploy-clean deps-update deps-check security-check check-env quickstart docs docs-serve
+.PHONY: help install dev install-python-tools install-model-tools python-venv setup-git-hooks setup-dirs test test-all test-rust test-rust-camera test-web test-python test-unit test-integration test-system test-coverage lint lint-rust lint-web lint-python format format-rust format-python format-check fix config-check config-example clean clean-logs clean-data clean-frontend clean-all run run-api run-frontend kill-processes docker-build docker-run docker-run-detached docker-stop docker-restart docker-logs docker-shell build build-frontend build-rust deploy deploy-clean deps-update deps-check security-check check-env quickstart docs docs-serve
 
 # Default target
 .DEFAULT_GOAL := help
@@ -32,6 +32,7 @@ RUST_FEATURES ?= camera-gstreamer-source
 # default-feature test build must not replace the camera-enabled runtime while
 # it is running.
 RUST_TEST_TARGET_DIR ?= $(CURDIR)/perception/target/test
+RUST_CAMERA_TEST_TARGET_DIR ?= $(CURDIR)/perception/target/test-camera
 RUST_HTTP_BIND ?= 127.0.0.1
 RUST_HTTP_PORT ?= 8001
 RUST_SCENE_BIND ?= 127.0.0.1
@@ -132,10 +133,13 @@ fix: format lint ## Fix code formatting and run linting
 
 test: test-rust test-web ## Run Rust runtime and browser tests
 
-test-all: test test-python ## Run Rust, browser, and retained Python compatibility tests
+test-all: test test-rust-camera test-python ## Run Rust, browser, camera-feature, and retained Python tests
 
 test-rust: ## Run Rust unit, contract, and fixture tests
 	CARGO_TARGET_DIR="$(RUST_TEST_TARGET_DIR)" cargo test --locked --manifest-path $(RUST_MANIFEST) --all-targets
+
+test-rust-camera: ## Test the production GStreamer camera feature (requires GStreamer development libraries)
+	CARGO_TARGET_DIR="$(RUST_CAMERA_TEST_TARGET_DIR)" cargo test --locked --manifest-path $(RUST_MANIFEST) --all-targets --features camera-gstreamer-source
 
 test-web: ## Run browser client tests
 	cd frontend/web && npm test
