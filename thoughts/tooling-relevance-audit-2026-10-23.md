@@ -26,7 +26,7 @@ commands or baselines.
 | Python FastAPI profiler/status endpoints and fake system diagnostics | Retired | They measured the retired Python vision pipeline or returned fixed diagnostic values, had no supported product caller, and could not characterize the Rust runtime. ADR-0088 removes the routes, hooks, configuration, and instrumentation-only tests. |
 | `backend/vision/calibrate_from_grid.py` and its YAML guide | Retire | Automatic corner detection is a removed stub, manual four-corner output targets the retired Python video module, and the YAML does not configure Rust live perception. The command and workflow guides are removed; Rust live calibration remains a separately versioned bundle. |
 | `scripts/performance-audit-*.sh`, `scripts/run-rust-video-audit.sh`, temporal wrappers, deploy build/run/update, MJPEG fixture, development setup verifier | Keep, with distinct boundaries | Thin shell entry points call supported binaries or perform bounded local development/deployment duties. `performance-audit-live.sh` builds release binaries. `serve-test-video-mjpeg.sh` is a manual, one-client network-capture fixture that paces a saved video; it tests the HTTP-MJPEG ingest path but does not simulate camera exposure, driver buffering, or a physical camera. |
-| `tools/export_high_res_model.py` | Keep: ONNX only | The lineage-bound ONNX artifact feeds the supported Rust CPU, auto, and OpenVINO paths. CoreML output served only the offline Python compatibility detector and is retired under ADR-0092. Export alone does not establish parity or accuracy. |
+| `tools/export_high_res_model.py` | Keep: ONNX only | The lineage-bound ONNX artifact feeds the supported Rust CPU, auto, and OpenVINO paths. CoreML output served only the offline Python compatibility detector and is retired under ADR-0092. Overwrite now restores the previous model/manifest pair if either staged promotion fails; the fake exporter verifies this rollback. Export alone does not establish runtime parity or accuracy. |
 | `tools/merge_yolo_datasets.py` | Retired under ADR-0089 | It had no consumer outside its tests and guide, sorted class IDs in a way that could invert Rust cue/ball semantics, and allowed class sets rejected by live inference. The repository has no maintained training pipeline to justify preserving it. |
 | `tools/dataset_creator.py` | Retired under ADR-0087 | No active caller or focused extraction test existed. Random sampling errors when the requested count exceeds the frame count, hybrid sampling divides by zero for count 1, and timestamp/quality fields were heuristic. The source video and reviewed Rust temporal-label workflow remain authoritative. |
 | Python chessboard/table calibration implementation | Keep within the Python compatibility service for now | It still has callers in the compatibility API, streaming, and video modules. It is not part of the Rust live path; the unused bundle-conversion bridge and tests have been retired. The grid-calibration CLI and YAML guide remain removed. |
@@ -66,7 +66,6 @@ commands or baselines.
 | Make targets for Python compatibility tests/lint | Keep as compatibility checks | The user has allowed the Python service/reference to remain for now. Do not mistake its tests for Rust runtime or live-camera qualification. |
 | `scripts/watch-rust-readiness.sh` | Retired | It had no callers, while the managed audit runner has a stronger first-fresh-state readiness gate and lifecycle handling. |
 | `make test-rust-camera` | Keep: production feature test | Runs the all-target Rust suite with the exact physical GStreamer source feature enabled and uses a separate Cargo target directory. `make test-all` includes it; the ordinary feature-free `make test-rust` remains usable without native GStreamer development libraries. |
-| `tools/export_high_res_model.py` | Keep: ONNX only | Creates the verified model artifact consumed by Rust; its unused CoreML branch and model-export dependency were removed under ADR-0092. |
 
 ## Browser client tools
 
@@ -240,6 +239,10 @@ major CSS-framework migration.
    behavior, but no maintained exporter produces new CoreML packages. Remove
    that detector branch with the compatibility reference when the Python
    reference is retired; preserve the historical model and results as evidence.
+7. Exporter tests and Rust runtime tests each validate their own model-manifest
+   side, but no hardware-free check feeds a manifest produced by the exporter
+   into Rust's lineage and class-map validator. Add a cross-language contract
+   fixture or process test; the fake exporter avoids needing model weights.
 
 The retired `frontend/projector/love.js` packager is absent from the tracked
 repository, but this developer checkout still has an ignored nested Git

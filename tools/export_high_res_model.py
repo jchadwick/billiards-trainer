@@ -59,6 +59,11 @@ def _artifact_digest(path: Path) -> tuple[str, list[dict[str, Any]]]:
     ]
 
 
+def _path_exists(path: Path) -> bool:
+    """Include dangling symlinks when protecting existing output paths."""
+    return path.exists() or path.is_symlink()
+
+
 def _class_names(model: Any) -> list[dict[str, Any]] | None:
     """Return model labels in index order without relying on config templates."""
     names = getattr(model, "names", None)
@@ -183,7 +188,8 @@ def export_high_res_model(
         imgsz: Fixed square model input edge length.
         simplify: Request ONNX graph simplification.
         overwrite: Replace an existing artifact and manifest only after a
-            successful export.
+            successful export, restoring the previous pair if either file
+            cannot be promoted.
 
     Returns:
         The exported artifact path. Its companion manifest is named
@@ -204,11 +210,18 @@ def export_high_res_model(
     destination.mkdir(parents=True, exist_ok=True)
     artifact_path = destination / f"{source.stem}{ONNX_SUFFIX}"
     manifest_path = destination / f"{artifact_path.name}.manifest.json"
-    if not overwrite and (artifact_path.exists() or manifest_path.exists()):
+    output_paths = (artifact_path, manifest_path)
+    existing_paths = {path: _path_exists(path) for path in output_paths}
+    if not overwrite and any(existing_paths.values()):
         raise FileExistsError(
             f"Export output already exists: {artifact_path} or {manifest_path}; "
             "pass overwrite=True to replace it after a successful export"
         )
+    for path, exists in existing_paths.items():
+        if exists and (path.is_symlink() or not path.is_file()):
+            raise ValueError(
+                f"Existing export output must be a regular file before overwrite: {path}"
+            )
     if simplify and _package_version("onnxslim") is None:
         raise ValueError(
             "ONNX simplification requires the optional onnxslim package; "
@@ -253,13 +266,73 @@ def export_high_res_model(
             json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
         )
 
-        # Delay replacement until export and manifest generation both succeed.
-        if overwrite:
-            if artifact_path.exists():
-                artifact_path.unlink()
-            manifest_path.unlink(missing_ok=True)
-        shutil.move(str(exported_path), str(artifact_path))
-        staged_manifest.replace(manifest_path)
+        # Keep an existing pair recoverable until both new files are in place.
+        # The two final paths cannot be changed as one filesystem operation, so
+        # a unique same-directory backup lets us roll back if either promotion
+        # fails. The manifest moves last so consumers never validate the new
+        # model against an old manifest after the operation completes.
+        previous_directory: Path | None = None
+        attempted_promotions: set[Path] = set()
+        try:
+            if overwrite and any(existing_paths.values()):
+                previous_directory = Path(
+                    tempfile.mkdtemp(prefix=".yolo-export-previous-", dir=destination)
+                )
+                for path, existed in existing_paths.items():
+                    if existed:
+                        path.replace(previous_directory / path.name)
+
+            attempted_promotions.add(artifact_path)
+            exported_path.replace(artifact_path)
+            attempted_promotions.add(manifest_path)
+            staged_manifest.replace(manifest_path)
+        except BaseException as promotion_error:
+            restoration_errors: list[str] = []
+            for path in reversed(output_paths):
+                backup_path = (
+                    previous_directory / path.name if previous_directory else None
+                )
+                had_previous_file = existing_paths[path]
+                try:
+                    if had_previous_file and backup_path and backup_path.exists():
+                        if _path_exists(path):
+                            path.unlink()
+                        backup_path.replace(path)
+                    elif path in attempted_promotions and _path_exists(path):
+                        path.unlink()
+                except OSError as error:
+                    restoration_errors.append(f"{path.name}: {error}")
+
+            if previous_directory and not restoration_errors:
+                try:
+                    shutil.rmtree(previous_directory)
+                except OSError as error:
+                    print(
+                        "Warning: the prior export was restored, but its temporary "
+                        f"backup remains at {previous_directory}: {error}",
+                        file=sys.stderr,
+                    )
+            if restoration_errors:
+                recovery_location = (
+                    f"; previous files remain recoverable at {previous_directory}"
+                    if previous_directory
+                    else ""
+                )
+                raise RuntimeError(
+                    "Export promotion failed and the prior output pair could not "
+                    f"be fully restored ({'; '.join(restoration_errors)}){recovery_location}"
+                ) from promotion_error
+            raise
+        else:
+            if previous_directory:
+                try:
+                    shutil.rmtree(previous_directory)
+                except OSError as error:
+                    print(
+                        "Warning: new model pair is installed, but the recoverable "
+                        f"previous export remains at {previous_directory}: {error}",
+                        file=sys.stderr,
+                    )
 
     return str(artifact_path)
 

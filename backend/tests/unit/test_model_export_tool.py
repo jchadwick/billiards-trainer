@@ -120,6 +120,74 @@ def test_export_refuses_to_overwrite_without_opt_in(
     assert (output / "chosen-model.onnx").read_bytes() == b"prior export"
 
 
+@pytest.mark.parametrize(
+    "failed_name",
+    ["chosen-model.onnx", "chosen-model.onnx.manifest.json"],
+)
+def test_overwrite_restores_the_previous_pair_when_either_promotion_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    failed_name: str,
+):
+    source = tmp_path / "chosen-model.pt"
+    source.write_bytes(b"new checkpoint")
+    output = tmp_path / "exports"
+    output.mkdir()
+    artifact = output / "chosen-model.onnx"
+    manifest = output / "chosen-model.onnx.manifest.json"
+    artifact.write_bytes(b"previous model")
+    manifest.write_bytes(b"previous manifest")
+    FakeYOLO.instances.clear()
+    monkeypatch.setattr(export_tool, "YOLO", FakeYOLO)
+
+    original_replace = Path.replace
+
+    def fail_staged_promotion(self: Path, target: Path):
+        is_staging_file = self.parent.name.startswith(".yolo-export-") and not (
+            self.parent.name.startswith(".yolo-export-previous-")
+        )
+        if is_staging_file and self.name == failed_name:
+            raise OSError("simulated output promotion failure")
+        return original_replace(self, target)
+
+    monkeypatch.setattr(Path, "replace", fail_staged_promotion)
+
+    with pytest.raises(OSError, match="simulated output promotion failure"):
+        export_tool.export_high_res_model(source, output_dir=output, overwrite=True)
+
+    assert artifact.read_bytes() == b"previous model"
+    assert manifest.read_bytes() == b"previous manifest"
+    assert list(output.glob(".yolo-export-*")) == []
+
+
+def test_successful_overwrite_replaces_model_and_manifest_together(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    source = tmp_path / "chosen-model.pt"
+    source.write_bytes(b"new checkpoint")
+    output = tmp_path / "exports"
+    output.mkdir()
+    artifact = output / "chosen-model.onnx"
+    manifest_path = Path(f"{artifact}.manifest.json")
+    artifact.write_bytes(b"previous model")
+    manifest_path.write_bytes(b"previous manifest")
+    FakeYOLO.instances.clear()
+    monkeypatch.setattr(export_tool, "YOLO", FakeYOLO)
+
+    exported = Path(
+        export_tool.export_high_res_model(source, output_dir=output, overwrite=True)
+    )
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+    assert exported == artifact
+    assert artifact.read_bytes() == b"deterministic onnx artifact"
+    assert (
+        manifest["exported_model"]["sha256"]
+        == hashlib.sha256(artifact.read_bytes()).hexdigest()
+    )
+    assert list(output.glob(".yolo-export-*")) == []
+
+
 def test_export_does_not_silently_install_missing_simplifier(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
