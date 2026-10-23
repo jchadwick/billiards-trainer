@@ -96,20 +96,19 @@ accuracy-before-optimization requirements. Release/cutover criteria are ADR-0018
 
 ## Evidence and implementation tracking
 
-Status is proposed; Rust migration implementation and qualification are planned,
-not completed. This record governs migration stages 0, 2 and 8.
+This superseded record preserves the original cross-runtime acceptance proposal.
+ADR-0085 retired the Python profile benchmark, live collector, and still-image
+equivalence CLI after the Rust live audit and temporal evaluator became the
+supported evidence paths. Their run artifacts remain historical evidence; do
+not use the removed commands as current workflows.
 
 - [Migration plan](../../../thoughts/rust-perception-migration-plan.md).
 - [Architectural review and evidence limitations](../../../thoughts/architectural-review-2026-10-19.md).
-- [Existing backend/tools/benchmark_vision_profiles.py](../../../backend/tools/benchmark_vision_profiles.py).
-- [Existing backend/tools/collect_performance_audit.py](../../../backend/tools/collect_performance_audit.py).
 - [Versioned retained HTTP game-state contract](../../../backend/tests/fixtures/contracts/v1/game_state_http.json), exercised by [test_http_game_state_contract.py](../../../backend/tests/integration/test_http_game_state_contract.py).
 - [Versioned WebSocket state contract](../../../backend/tests/fixtures/contracts/v1/websocket_state.json), exercised through the real replay/socket path by [test_pipeline_replay.py](../../../backend/tests/integration/test_pipeline_replay.py).
 - [Versioned WebSocket control contracts](../../../backend/tests/fixtures/contracts/v1/websocket_controls.json), exercised by [test_websocket_control_contract.py](../../../backend/tests/integration/test_websocket_control_contract.py).
 - [Versioned WebSocket trajectory contract](../../../backend/tests/fixtures/contracts/v1/websocket_trajectory.json), exercised through the real socket by [test_pipeline_replay.py](../../../backend/tests/integration/test_pipeline_replay.py).
-- [Explicit model-output comparison tool](../../../tools/test_backend_equivalence.py), its [usage guide](../../../tools/README_EQUIVALENCE_TEST.md), and regression tests at [test_model_equivalence_tool.py](../../../backend/tests/unit/test_model_equivalence_tool.py). This compares model outputs only; it is not an end-to-end performance or accuracy scorer.
-- The comparison tool accepts the prototype's saved Rust static-image result, verifies its checkpoint/class/settings/source mapping, and records actual provider plus candidate provenance. The [ten-image CPU run](../../../thoughts/performance-audits/rust-inference-prototype-20261020/tool-run/equivalence-20261020T123923.419656Z.json) matched 73 detections with no unmatched outputs and maximum center difference of 0.0325 px. This validates one static replay adapter; it does not yet exercise the live Rust executable, headless subscriber, paced freshness, temporal or physical accuracy, or Linux runtime.
-- The saved-result adapter has 27 focused tests; see the linked test module. Its acceptance scope is intentionally narrower than this ADR's full completion criteria.
+- The retired saved-result adapter's [ten-image CPU run](../../../thoughts/performance-audits/rust-inference-prototype-20261020/tool-run/equivalence-20261020T123923.419656Z.json) matched 73 detections with no unmatched outputs and maximum center difference of 0.0325 px. This validates one static replay experiment; it did not exercise the live Rust executable, headless subscriber, paced freshness, temporal or physical accuracy, or Linux runtime.
 
 Before accepting this decision for implementation, resolve its relevant prototype
 and compatibility questions and record the evidence. Acceptance records commitment;

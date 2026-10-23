@@ -5,12 +5,20 @@
 > browser-client or permanent-Python-gateway destination. ADR-0066 and the
 > current [server migration plan](rust-domain-migration-plan.md) require the
 > deployed server services to move to Rust while the browser remains
-> HTML/JavaScript/CSS. Python model training, annotation, and acceptance tools
-> may remain off-device. Ball-number classification remains excluded.
+> HTML/JavaScript/CSS. Python model training and optional dataset/calibration
+> authoring remain off-device. Live performance and temporal localization
+> evaluation are Rust-owned under ADR-0085. Ball-number classification remains
+> excluded.
 
 ## Outcome and verification strategy
 
-Replace acquisition and primary perception with a focused Rust engine while retaining the existing frontend, Python API, WebSocket delivery, physics, model assets, calibration workflows, and evaluation tools. The engine's first responsibility is fresh, accurate ball locations; number identification and predictions are independently scheduled consumers.
+The original proposal was to replace acquisition and primary perception with a
+focused Rust engine while retaining the frontend, Python API, WebSocket
+delivery, physics, model assets, calibration workflows, and evaluation tools.
+The deployed server and live evaluation ownership later moved to Rust under
+ADR-0066 and ADR-0085. The engine's first responsibility remains fresh, accurate
+ball locations; number identification and predictions are independently
+scheduled consumers.
 
 Implement in small, reversible changes. Verify shared contracts and model equivalence before moving the camera. Switch the default only after both macOS and Linux pass functional, accuracy, freshness, interference and sustained-operation gates. Do not port the existing architecture line by line or require rebuilding every Python component before starting Rust.
 
@@ -420,9 +428,10 @@ mismatch to file decoding, before resize: on the corpus's single JPEG, 695,791
 of 8,294,400 decoded pixels differed in at least one channel between Rust
 `image-rs` and Python OpenCV, with mean absolute channel difference 0.06365/255
 and maximum 3/255. The [diagnostic evidence](performance-audits/rust-inference-prototype-20261020/evidence/raw-jpeg-decoder-comparison.json)
-and reproducible [Rust probe](../perception/examples/decode_rgb_probe.rs) are
-preserved. This narrows the parity issue but does not prove a detection impact
-or justify a decoder dependency; multiple JPEGs and Linux remain to be tested.
+and its measurements are preserved. The one-off Rust probe was retired after
+the finding was recorded; live capture uses GStreamer and does not use that JPEG
+decoder path. This narrows the parity issue but does not prove a detection
+impact or justify a decoder dependency.
 
 **Progress (2026-10-20):** the recorded-image executable now has an opt-in
 `detection-batch v1` JSONL output path requiring explicit engine-instance and
@@ -1336,17 +1345,17 @@ is defensive header redaction, negative tests, and explicitly rejected
 historical ADR rationale. This removes project-owned authentication flows; it
 does not alter host-OS account controls or GitHub's own account system.
 
-Retain the Python tools as the external acceptance harness:
+### Current tool ownership (updated 2026-10-23)
 
-| Tool/test | Adaptation |
-|---|---|
-| `backend/tools/benchmark_vision_profiles.py` | Add Python/Rust engine adapters; preserve scoring/reporting. Keep isolated processing capacity distinct from independently paced production freshness. |
-| `backend/tools/collect_performance_audit.py` | Keep the existing real WebSocket receiver, heartbeat and report shape; extend actual engine/backend/export/config provenance and verified clock semantics. |
-| `tools/benchmark_detectors.py`, annotation utilities | Retain dataset/scoring/export workflows; add Rust result readers where necessary. |
-| `backend/tests/integration/test_pipeline_replay.py` | Keep Python internals tests and reuse observable assertions as black-box contracts against the selected executable/provider. Synthetic detectors test instrumentation/control, not real model performance. |
-| Existing Python Core/API/physics tests | Continue to run for retained production modules. |
-| New Rust tests | Cover frame ownership, bounded scheduling, source time, failure outcomes, geometry, tracking, IPC, config acknowledgement and lifecycle. |
-| Existing frontend tests | Add real adapter/session contracts and shared fixtures, rather than manually repeating adapter logic in tests. |
+The earlier proposal to retain Python performance/evaluation tools was
+superseded by ADR-0085. The Rust live runner owns state-delivery performance
+audits, and the Rust temporal evaluator/importer own reviewed-label scoring.
+The Python profile benchmark, live collector, still-image equivalence utility,
+and their collector-only Rust adapters were retired. The current inventory,
+dispositions, and remaining gaps are recorded in the
+[tooling relevance audit](tooling-relevance-audit-2026-10-23.md). Python remains
+for optional model/data/calibration authoring and tests of retained Python
+compatibility modules.
 
 Qualification requirements:
 
@@ -1948,7 +1957,8 @@ lifecycle is removed. The compatibility module no longer exports a default
 ASGI `app`; its factory remains for in-process contract tests. The retained
 backend suite passes 3,159 tests with two model-dependent skips at 80.24%
 coverage. This closes the Python perception selection path but does not remove
-the offline Python compatibility modules or development/model tools.
+the offline Python compatibility modules or model/data/calibration authoring
+tools.
 
 **Python ASGI entrypoint retirement (2026-10-22):** the Rust runtime module no
 longer assembles or exports a FastAPI application factory. The old route
@@ -1957,17 +1967,18 @@ in-process contract tests; the former minimal development ASGI server has also
 been removed. This closes the normal Uvicorn factory entrypoint while keeping
 legacy tests isolated from the shipped Rust server. The direct camera demo now
 exits with a migration hint without opening a camera. Remaining Python work
-includes offline qualification/evaluation tools and reference modules; those
-require separate replacement or retirement decisions.
+includes offline model/data/calibration authoring and reference modules.
+Standalone live-performance and temporal-evaluation tools were subsequently
+retired or replaced under ADR-0085.
 
 **Python batch-receiver retirement (2026-10-22):** the substantial
 `backend/tools/receive_detection_batches.py` development receiver is replaced
 by a standalone Rust command in the perception crate. It keeps the framed
 detection-batch contract, loopback-only single-producer behavior, bounded
 receipt details, JSONL payloads, and versioned JSON report. Its contract and
-real-socket tests now run in Rust; shared schema fixtures and the model
-equivalence scorer remain Python as independent compatibility/evaluation
-tools. Simple build and test wrappers remain shell/Make tooling.
+real-socket tests now run in Rust; shared schema fixtures remain covered by
+Python compatibility tests. The model-equivalence scorer was later retired
+under ADR-0085. Simple build and test wrappers remain shell/Make tooling.
 
 **Legacy performance watcher retirement (2026-10-22):** the Python watcher
 polled a performance route that is absent from the Rust gateway and advertised

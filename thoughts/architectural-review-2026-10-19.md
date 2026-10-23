@@ -195,7 +195,12 @@ Client implementations diverge. [LiveView](../frontend/web/src/components/video/
 
 The audit currently has excessive observed off/on differences and truncates sustained traces. Its [exporter](../backend/performance_audit.py:105) still takes locks/builds envelopes on producers, and the [writer opens a file for each event](../backend/performance_audit.py:186). An asynchronous queue prevents disk backpressure but does not make instrumentation free.
 
-The paced [profile replay](../backend/tools/benchmark_vision_profiles.py:506) synchronously reads and processes every frame, waiting only when ahead of presentation time. When overloaded it falls behind rather than reproducing independent live capture/latest-frame dropping. Keep it as a useful controlled detector/scheduler benchmark; do not equate it with a complete live freshness experiment. The separate live collector remains necessary.
+The then-current Python profile replay synchronously read and processed every
+frame, waiting only when ahead of presentation time. When overloaded it fell
+behind rather than reproducing independent live capture/latest-frame dropping.
+It was retired under ADR-0085 along with the Python live collector; its
+limitation informed the separate Rust recorded-video replay proposal in
+ADR-0084. Do not treat its historical runs as current live-freshness evidence.
 
 The last full backend run passed 1,145 tests with one skipped but achieved **47.10% coverage against the configured 80% gate**. Formatting, lint and typing passed then. These are prior validation results, not newly rerun during this documentation review. The default [frontend build masks failures with `|| true`](../frontend/web/package.json:8), and CI primarily checks backend paths. Still-image and synthetic tests do not establish real temporal precision.
 

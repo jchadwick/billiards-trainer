@@ -105,7 +105,10 @@ not completed. This record governs migration stages 2.
 - [Model export and asset characterization report](../../../thoughts/performance-audits/model-export-characterization-20261020/report.md) and [machine-readable result](../../../thoughts/performance-audits/model-export-characterization-20261020/result.json).
 - [Static PT/ONNX comparison on four labeled stills](../../../thoughts/performance-audits/pt-onnx-static-equivalence-20261020/report.md) and [machine-readable result](../../../thoughts/performance-audits/pt-onnx-static-equivalence-20261020/result.json).
 - [Explicit-source exporter tests](../../../backend/tests/unit/test_model_export_tool.py).
-- [Repeatable model-output comparison tool](../../../tools/test_backend_equivalence.py), [usage guide](../../../tools/README_EQUIVALENCE_TEST.md), and [focused regression tests](../../../backend/tests/unit/test_model_equivalence_tool.py).
+- The temporary Python still-image comparison utility and focused tests were
+  retired under [ADR-0085](0085-retire-legacy-audit-tooling-in-favor-of-rust-owned-evidence-paths.md).
+  Its historical comparison artifacts remain linked above; there is no current
+  standalone differential evaluator.
 - [Ten-still PT/ONNX comparison JSON](../../../thoughts/performance-audits/pt-onnx-static-equivalence-20261020/tool-run-corpus/equivalence-20261020T042945.248691Z.json) and [summary](../../../thoughts/performance-audits/pt-onnx-static-equivalence-20261020/tool-run-corpus/equivalence-20261020T042945.248691Z.md).
 
 The Stage 0 Python prerequisite now passes the requested device to Ultralytics

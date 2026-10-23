@@ -2,8 +2,11 @@
 
 This review checked current executable entry points, build and setup targets,
 tests, documentation references, dependency manifests, and Rust audit tools.
-Historical reports and ADR rationale remain available as evidence; they are not
-treated as current commands or baselines.
+The same caller, distinct-capability, and meaningful-validation tests were
+applied to already-ported Rust tools; implementation language alone did not
+count as a reason to keep a utility. Historical reports and ADR rationale
+remain available as evidence; they are not treated as current commands or
+baselines.
 
 ## Current tools and disposition
 
@@ -29,7 +32,15 @@ treated as current commands or baselines.
 
 - The Python performance collector, standalone detector profiler benchmark,
   still-image checkpoint-equivalence evaluator, their focused CLI/equivalence
-  tests, and the Rust adapters whose only caller was the Python collector.
+  tests, and the Rust adapters whose only caller was the Python collector. This
+  includes the timing/resource/trajectory summary adapters, server/delivery/
+  overhead reducers, and synthetic capture-transport benchmark; shared Rust
+  accumulators, samplers, and receiver code still used by the canonical runner
+  remain.
+- The duplicate one-window Rust performance-audit CLI was removed because the
+  canonical runner already supports a single zero-warm-up measurement window.
+- The one-off RGB decoder probe was removed after its diagnostic result was
+  recorded; its input path is not used by live GStreamer capture.
 - Old training setup, label-fixing, label-validation, and YOLO training tools
   that encoded a 19-class workflow, clamped labels to 16 classes, or ignored the
   dataset manifest. Ball-number classification remains explicitly outside the
