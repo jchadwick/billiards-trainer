@@ -3,8 +3,8 @@
 //! The session store owns only game mode and lightweight session bookkeeping.
 //! It never stores ball positions, cue geometry, calibration, tracking state, or
 //! predictions. Session reset therefore cannot erase or synthesize a location.
-//! A small locked JSON record lets the transitional Python bridge and the Rust
-//! gateway share one Rust-owned session implementation.
+//! A small locked JSON record lets the Rust gateway share session metadata
+//! across its request handlers and runtime components.
 
 use std::error::Error;
 use std::ffi::OsString;

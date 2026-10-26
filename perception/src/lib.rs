@@ -17,7 +17,10 @@ pub mod capture_session_ack;
 pub mod capture_settings_wire;
 pub mod configuration_authority;
 mod configuration_http;
+pub mod cue_geometry;
+pub mod cue_worker;
 pub mod detection_batch;
+pub mod detector_worker;
 pub mod frame_preview;
 pub mod framing;
 pub mod game_session;
@@ -34,13 +37,16 @@ pub mod live_supervisor;
 pub mod live_timing_accumulator;
 pub mod live_timing_spans;
 pub mod managed_live_audit;
+pub mod motion_monitor;
 pub mod performance_audit_receiver;
 pub mod performance_audit_runner;
+pub mod phase_scheduler;
 pub mod process_resource_sampler;
 pub mod public_state;
 pub mod public_state_lifecycle;
 mod scene_transport;
 pub mod server;
+pub mod table_visibility;
 pub mod temporal_annotation_import;
 pub mod temporal_evaluation;
 pub mod tracking;
@@ -235,6 +241,12 @@ pub enum BallStatus {
 #[serde(deny_unknown_fields)]
 pub struct Measurement {
     pub image_center_px: Point2d,
+    /// Per-axis half-extents from the detector box, when the source detector
+    /// provides a valid ball box. These travel with the observation so the
+    /// live overlay can show the ball's detected footprint instead of relying
+    /// on one assumed radius for every camera position.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image_radius_px: Option<Point2d>,
     pub image_space: ImageSpace,
     pub image_width_px: u32,
     pub image_height_px: u32,
@@ -740,6 +752,20 @@ fn validate_measurement(
         measurement.image_height_px,
         &format!("{path}.image_center_px"),
     )?;
+    if let Some(radius) = &measurement.image_radius_px {
+        if !radius.x.is_finite()
+            || !radius.y.is_finite()
+            || radius.x <= 0.0
+            || radius.y <= 0.0
+            || radius.x > f64::from(measurement.image_width_px)
+            || radius.y > f64::from(measurement.image_height_px)
+        {
+            return Err(ContractValidationError::new(
+                format!("{path}.image_radius_px"),
+                "image radius extents must be positive, finite, and within image dimensions",
+            ));
+        }
+    }
     validate_probability(
         measurement.detector_confidence,
         &format!("{path}.detector_confidence"),

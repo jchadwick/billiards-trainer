@@ -8,12 +8,12 @@ use billiards_perception::performance_audit_receiver::{
     StateReceiverConfig, DEFAULT_MAXIMUM_MESSAGE_BYTES, DEFAULT_MAXIMUM_SAMPLES,
 };
 use billiards_perception::performance_audit_runner::{
-    run_state_audit, GatewayWebSocketTimingAuditConfig, LivePipelineTimingAuditConfig,
-    ManagedServerConfig, StateAuditRunConfig, DEFAULT_LIVE_AUDIT_CONNECT_TIMEOUT,
-    DEFAULT_LIVE_AUDIT_MAX_RECORD_BYTES, DEFAULT_LIVE_AUDIT_QUEUE_CAPACITY,
-    DEFAULT_LIVE_AUDIT_RETAINED_BYTES, DEFAULT_LIVE_AUDIT_RETAINED_RECORDS,
-    DEFAULT_LIVE_AUDIT_WRITE_TIMEOUT, DEFAULT_MEASURED_SECONDS, DEFAULT_OUTPUT_ROOT,
-    DEFAULT_REPETITIONS, DEFAULT_SOAK_SECONDS, DEFAULT_WARMUP_SECONDS,
+    default_output_root, run_state_audit, GatewayWebSocketTimingAuditConfig,
+    LivePipelineTimingAuditConfig, ManagedServerConfig, StateAuditRunConfig,
+    DEFAULT_LIVE_AUDIT_CONNECT_TIMEOUT, DEFAULT_LIVE_AUDIT_MAX_RECORD_BYTES,
+    DEFAULT_LIVE_AUDIT_QUEUE_CAPACITY, DEFAULT_LIVE_AUDIT_RETAINED_BYTES,
+    DEFAULT_LIVE_AUDIT_RETAINED_RECORDS, DEFAULT_LIVE_AUDIT_WRITE_TIMEOUT,
+    DEFAULT_MEASURED_SECONDS, DEFAULT_REPETITIONS, DEFAULT_SOAK_SECONDS, DEFAULT_WARMUP_SECONDS,
 };
 use clap::Parser;
 
@@ -76,9 +76,9 @@ struct Arguments {
     #[arg(long, default_value_t = 1000, value_parser = clap::value_parser!(u64).range(1..))]
     resource_sample_interval_ms: u64,
 
-    /// Root directory for uniquely named run folders.
-    #[arg(long, default_value = DEFAULT_OUTPUT_ROOT)]
-    output_root: PathBuf,
+    /// Root directory for uniquely named run folders (defaults to the system temporary directory).
+    #[arg(long)]
+    output_root: Option<PathBuf>,
 
     /// Start this local application-server executable before waiting for a fresh state.
     #[arg(long, requires = "url")]
@@ -213,7 +213,7 @@ async fn main() -> Result<()> {
         repetitions: arguments.repetitions as usize,
         soak: arguments.soak,
         soak_duration: Duration::from_secs(arguments.soak_seconds),
-        output_root: arguments.output_root,
+        output_root: arguments.output_root.unwrap_or_else(default_output_root),
         receiver: StateReceiverConfig {
             duration: Duration::from_secs(arguments.duration_seconds),
             connect_timeout: Duration::from_secs(arguments.connect_timeout_seconds),

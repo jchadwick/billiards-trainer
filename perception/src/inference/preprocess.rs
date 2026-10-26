@@ -22,6 +22,16 @@ pub struct PreparedInput {
     pub geometry: LetterboxGeometry,
 }
 
+/// NHWC RGB float input for runtimes whose model contract is interleaved.
+///
+/// Coral's TFLite artifact uses this layout. Preparing it directly avoids a
+/// second full-tensor allocation and transpose immediately before inference.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PreparedNhwcInput {
+    pub values: Vec<f32>,
+    pub geometry: LetterboxGeometry,
+}
+
 /// Resize and center-pad an RGB image to the fixed square export shape.
 ///
 /// The sampling coordinates follow OpenCV `INTER_LINEAR`'s half-pixel rule;
@@ -43,6 +53,50 @@ pub fn prepare_rgb8(
     pixels: &[u8],
     model_size: u32,
 ) -> Result<PreparedInput> {
+    let (values, geometry) = prepare_rgb8_layout(
+        source_width,
+        source_height,
+        pixels,
+        model_size,
+        TensorLayout::Nchw,
+    )?;
+    Ok(PreparedInput { values, geometry })
+}
+
+/// Resize and center-pad packed RGB8 pixels into an interleaved NHWC tensor.
+///
+/// This follows the same geometry, half-pixel resize, uint8 rounding, and
+/// `[0, 1]` normalization as [`prepare_rgb8`]. Only the output memory layout
+/// differs.
+pub fn prepare_rgb8_nhwc(
+    source_width: u32,
+    source_height: u32,
+    pixels: &[u8],
+    model_size: u32,
+) -> Result<PreparedNhwcInput> {
+    let (values, geometry) = prepare_rgb8_layout(
+        source_width,
+        source_height,
+        pixels,
+        model_size,
+        TensorLayout::Nhwc,
+    )?;
+    Ok(PreparedNhwcInput { values, geometry })
+}
+
+#[derive(Clone, Copy)]
+enum TensorLayout {
+    Nchw,
+    Nhwc,
+}
+
+fn prepare_rgb8_layout(
+    source_width: u32,
+    source_height: u32,
+    pixels: &[u8],
+    model_size: u32,
+    layout: TensorLayout,
+) -> Result<(Vec<f32>, LetterboxGeometry)> {
     ensure!(
         model_size > 0 && model_size.is_multiple_of(32),
         "image size must be a positive multiple of 32"
@@ -114,15 +168,18 @@ pub fn prepare_rgb8(
             let destination =
                 ((y + pad_top) as usize * model_size as usize) + (x + pad_left) as usize;
             for channel in 0..3 {
-                values[channel * plane_size + destination] =
-                    resized_bytes[source_index + channel] as f32 / 255.0;
+                let output_index = match layout {
+                    TensorLayout::Nchw => channel * plane_size + destination,
+                    TensorLayout::Nhwc => destination * 3 + channel,
+                };
+                values[output_index] = resized_bytes[source_index + channel] as f32 / 255.0;
             }
         }
     }
 
-    Ok(PreparedInput {
+    Ok((
         values,
-        geometry: LetterboxGeometry {
+        LetterboxGeometry {
             source_width,
             source_height,
             resized_width,
@@ -132,7 +189,7 @@ pub fn prepare_rgb8(
             scale: scale as f32,
             model_size,
         },
-    })
+    ))
 }
 
 fn resize_bilinear_rgb8(
@@ -207,7 +264,7 @@ fn resize_bilinear_rgb8(
 
 #[cfg(test)]
 mod tests {
-    use super::{prepare_rgb8, prepare_rgb_image, resize_bilinear_rgb8};
+    use super::{prepare_rgb8, prepare_rgb8_nhwc, prepare_rgb_image, resize_bilinear_rgb8};
     use image::{Rgb, RgbImage};
 
     #[test]
@@ -254,6 +311,28 @@ mod tests {
             prepare_rgb8(image.width(), image.height(), image.as_raw(), 64).unwrap(),
             prepare_rgb_image(&image, 64).unwrap()
         );
+    }
+
+    #[test]
+    fn coral_direct_nhwc_preprocessing_matches_nchw_transpose_with_odd_padding() {
+        let image = RgbImage::from_fn(7, 5, |x, y| {
+            Rgb([(x * 29) as u8, (y * 41) as u8, ((x + y) * 17) as u8])
+        });
+        let nchw = prepare_rgb8(image.width(), image.height(), image.as_raw(), 64).unwrap();
+        let nhwc = prepare_rgb8_nhwc(image.width(), image.height(), image.as_raw(), 64).unwrap();
+        let plane_size = 64 * 64;
+        let expected_nhwc: Vec<f32> = (0..plane_size)
+            .flat_map(|pixel| {
+                [
+                    nchw.values[pixel],
+                    nchw.values[plane_size + pixel],
+                    nchw.values[plane_size * 2 + pixel],
+                ]
+            })
+            .collect();
+
+        assert_eq!(nhwc.geometry, nchw.geometry);
+        assert_eq!(nhwc.values, expected_nhwc);
     }
 
     #[test]

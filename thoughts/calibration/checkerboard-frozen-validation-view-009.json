@@ -1,0 +1,123 @@
+{
+  "purpose": "prospective frozen-lens validation; no activation",
+  "training_view_ids": [
+    "view-001",
+    "view-002",
+    "view-003",
+    "view-004",
+    "view-005",
+    "view-006",
+    "view-007",
+    "view-008"
+  ],
+  "test_view_id": "view-009",
+  "test_source_sha256": "7337b2ce32a2ced2498630267dca12dbf2b10f2f2d4490b68f7b578a0b97ef65",
+  "validation_protocol": "Frozen full-training-set intrinsics and lens parameters; held-out view pose estimated from one corner parity and evaluated on the other, then swapped.",
+  "limitations": "One new image probes projection consistency at one placement. It does not prove table XY/ball-center accuracy, establish physical uncertainty, or justify selecting a more complex model from this result alone.",
+  "models": {
+    "zero": {
+      "frozen_validation_error_px": {
+        "rms": 0.22792216829355189,
+        "median": 0.20375890284776688,
+        "p95": 0.372339579463005,
+        "max": 0.4181831181049347,
+        "count": 54
+      },
+      "camera_matrix": [
+        [
+          696.1731580029823,
+          0.0,
+          644.1755624688407
+        ],
+        [
+          0.0,
+          695.3611772093032,
+          349.67152391690104
+        ],
+        [
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "distortion_k1_k2_p1_p2_k3": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "intrinsics_or_lens_refit": false
+    },
+    "k1": {
+      "frozen_validation_error_px": {
+        "rms": 0.23070862384055546,
+        "median": 0.21145986765623093,
+        "p95": 0.3791317299008369,
+        "max": 0.4140216112136841,
+        "count": 54
+      },
+      "camera_matrix": [
+        [
+          704.0438419118501,
+          0.0,
+          659.202629220873
+        ],
+        [
+          0.0,
+          704.3773545723851,
+          350.345774187288
+        ],
+        [
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "distortion_k1_k2_p1_p2_k3": [
+        0.09418900073202219,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "intrinsics_or_lens_refit": false
+    },
+    "k1k2": {
+      "frozen_validation_error_px": {
+        "rms": 0.22990040538835632,
+        "median": 0.2086413875222206,
+        "p95": 0.3770815268158912,
+        "max": 0.4146983325481415,
+        "count": 54
+      },
+      "camera_matrix": [
+        [
+          703.5417121144701,
+          0.0,
+          659.33376704736
+        ],
+        [
+          0.0,
+          703.9986918748951,
+          349.99970210599116
+        ],
+        [
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "distortion_k1_k2_p1_p2_k3": [
+        0.09854125584523832,
+        -0.00338708872815402,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "intrinsics_or_lens_refit": false
+    }
+  },
+  "frozen_baseline_sha256": "d0bb14b97f87fe13fe296638af726466ee11f4af7e1cd20a964b16f244ccf191",
+  "test_manifest_sha256": "6d109be9ba73b11bbd2165bfdf3ee6f49e6e72ec1107a17de23ad854577b2d69"
+}

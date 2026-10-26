@@ -1,0 +1,79 @@
+{
+  "schema_version": 1,
+  "source_url": "http://192.168.1.31:8001/state",
+  "received_at_utc": "2026-10-26T18:25:31.956486+00:00",
+  "service": {
+    "name": "uStreamer",
+    "version": "5.4",
+    "version_source_url": "http://192.168.1.31:8001/"
+  },
+  "response_subset": {
+    "ok": true,
+    "result": {
+      "source": {
+        "resolution": {
+          "width": 3840,
+          "height": 2160
+        },
+        "online": true,
+        "desired_fps": 20,
+        "captured_fps": 20
+      },
+      "encoder": {
+        "type": "HW",
+        "quality": 0
+      }
+    }
+  },
+  "omitted_fields": "Stream client identifiers, keys and client-specific statistics are intentionally not retained.",
+  "interpretation": {
+    "configured_capture_resolution_px": {
+      "width": 3840,
+      "height": 2160
+    },
+    "higher_native_resolution_support": "Driver advertises UC40M MJPG3840x2160 at20fps and30fps;3840x2160 MJPG20fps is now negotiated and verified.",
+    "encoder_quality_note": "HW encoder reports quality0; this is recorded verbatim, not interpreted as a low JPEG quality score.",
+    "scope": "Authorized reversible stream resolution configuration change; no camera replacement, backend configuration change or full-resolution inference implementation."
+  },
+  "history": [
+    {
+      "received_at_utc": "2026-10-26T18:14:32.162639+00:00",
+      "response_subset": {
+        "ok": true,
+        "result": {
+          "source": {
+            "resolution": {
+              "width": 1280,
+              "height": 720
+            },
+            "online": true,
+            "desired_fps": 20,
+            "captured_fps": 20
+          },
+          "encoder": {
+            "type": "HW",
+            "quality": 0
+          }
+        }
+      },
+      "interpretation": {
+        "configured_capture_resolution_px": {
+          "width": 3840,
+          "height": 2160
+        },
+        "higher_native_resolution_support": "Driver advertises UC40M MJPG3840x2160 at20fps and30fps;3840x2160 MJPG20fps is now negotiated and verified.",
+        "encoder_quality_note": "HW encoder reports quality0; this is recorded verbatim, not interpreted as a low JPEG quality score.",
+        "scope": "Authorized reversible stream resolution configuration change; no camera replacement, backend configuration change or full-resolution inference implementation."
+      }
+    }
+  ],
+  "camera_identity": {
+    "driver_card": "UC40M Audio: UC40M Video",
+    "device": "/dev/video0",
+    "driver": "uvcvideo",
+    "usb_link_mbps": 480,
+    "user_product_reference": "https://www.amazon.com/dp/B08FHBRKSK",
+    "product_reference_note": "User identifies MOKOSE family; exact lens variant unverified."
+  },
+  "change_report": "thoughts/calibration/stream-4k-change.md"
+}

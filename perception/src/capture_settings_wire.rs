@@ -204,8 +204,8 @@ pub struct RequestedCaptureControlsV1 {
     pub buffer_size: u32,
 }
 
-/// Requested lifecycle behavior retained from Python's effective camera
-/// settings. It is not enabled until a Rust provider implements it.
+/// Requested lifecycle behavior retained in the versioned capture contract.
+/// It is not enabled until a Rust provider implements it.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CaptureReconnectPolicyV1 {
@@ -328,11 +328,11 @@ impl Display for CaptureSettingsWireError {
 /// the production supervisor currently supplies no provenance-bound bundle.
 ///
 /// The returned `Value` is serialized with `serde_json::to_string` by the
-/// authority command. The JSON map implementation sorts object keys, matching
-/// Python's compact `sort_keys=True` encoding for the ASCII-only request fields
-/// used by v3. The strict parser is run over those exact bytes before return,
-/// so the request digest in the resolved value is the same digest used by the
-/// capture helper and acknowledgement contract.
+/// authority command. The JSON map implementation sorts object keys, giving
+/// the request a stable encoding for its ASCII-only v3 fields. The strict
+/// parser is run over those exact bytes before return, so the request digest
+/// in the resolved value is the same digest used by the capture helper and
+/// acknowledgement contract.
 pub fn build_capture_settings_v3(configuration: &Value) -> Result<Value, CaptureSettingsWireError> {
     let configuration_revision = config_integer(
         configuration,
@@ -542,9 +542,18 @@ pub fn build_capture_settings_v3(configuration: &Value) -> Result<Value, Capture
         ));
     }
 
+    // Coral inference has substantially higher latency than CPU inference, so
+    // its capture age gate is configured separately. Keep every other
+    // provider on the existing generic capture limit.
+    let maximum_frame_age_path =
+        if config_string(configuration, "perception.rust_live.provider")? == "coral" {
+            "perception.rust_live.coral_runtime.maximum_inference_frame_age_ms"
+        } else {
+            "perception.capture.maximum_frame_age_ms"
+        };
     let maximum_frame_age_ms = config_integer(
         configuration,
-        "perception.capture.maximum_frame_age_ms",
+        maximum_frame_age_path,
         1,
         MAX_SAFE_JSON_INTEGER,
     )?;
@@ -777,10 +786,10 @@ fn valid_pixel_format(value: &str) -> bool {
 impl Error for CaptureSettingsWireError {}
 
 impl CaptureSettingsSnapshotV1 {
-    /// Parse the strict Python v1 request and validate it through Rust domain
+    /// Parse the strict v1 request and validate it through Rust domain
     /// constructors rather than deserializing directly into runtime types.
     /// The digest covers these exact input bytes; live callers must pass
-    /// Python's deterministic `to_json()` output unchanged.
+    /// the deterministic serialized request unchanged.
     pub fn parse_json(json: &str) -> Result<ResolvedCaptureSettingsV1, CaptureSettingsWireError> {
         let request_sha256 = format!("{:x}", Sha256::digest(json.as_bytes()));
         let snapshot: Self = serde_json::from_str(json).map_err(CaptureSettingsWireError::Json)?;
@@ -1244,8 +1253,8 @@ fn validate_reconnect_policy(
 }
 
 fn validate_identifier(value: &str, field: &'static str) -> Result<(), CaptureSettingsWireError> {
-    // Match Python's identifier pattern exactly: bounded ASCII alphanumeric
-    // identifiers with only underscore, period, colon, and hyphen separators.
+    // Keep identifiers bounded and ASCII-only so their serialized form is
+    // stable across tools and operating systems.
     if value.is_empty()
         || value.len() > 128
         || !value
@@ -1330,5 +1339,30 @@ mod tests {
         selector["perception"]["capture"]["device_selector"] =
             json!(format!("gstreamer-device-v1:{}", "a".repeat(64)));
         assert!(build_capture_settings_v3(&selector).is_err());
+    }
+
+    #[test]
+    fn coral_provider_uses_coral_specific_maximum_frame_age() {
+        let mut configuration = remote_stream_configuration("http://127.0.0.1:8001/stream.mjpg");
+        configuration["perception"]["rust_live"]["provider"] = json!("coral");
+        configuration["perception"]["rust_live"]["coral_runtime"]
+            ["maximum_inference_frame_age_ms"] = json!(3_000);
+
+        let settings = build_capture_settings_v3(&configuration).unwrap();
+
+        assert_eq!(settings["requested"]["maximum_frame_age_ms"], json!(3_000));
+    }
+
+    #[test]
+    fn cpu_provider_retains_generic_maximum_frame_age() {
+        let mut configuration = remote_stream_configuration("http://127.0.0.1:8001/stream.mjpg");
+        configuration["perception"]["rust_live"]["provider"] = json!("cpu");
+        configuration["perception"]["capture"]["maximum_frame_age_ms"] = json!(100);
+        configuration["perception"]["rust_live"]["coral_runtime"]
+            ["maximum_inference_frame_age_ms"] = json!(3_000);
+
+        let settings = build_capture_settings_v3(&configuration).unwrap();
+
+        assert_eq!(settings["requested"]["maximum_frame_age_ms"], json!(100));
     }
 }

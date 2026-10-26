@@ -71,6 +71,24 @@
         "scale": { "type": "array", "prefixItems": [{ "type": "number" }, { "type": "number" }], "minItems": 2, "maxItems": 2 }
       }
     },
+    "radiusExtent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "y", "scale"],
+      "properties": {
+        "x": { "type": "number", "exclusiveMinimum": 0 },
+        "y": { "type": "number", "exclusiveMinimum": 0 },
+        "scale": {
+          "type": "array",
+          "prefixItems": [
+            { "type": "number", "exclusiveMinimum": 0 },
+            { "type": "number", "exclusiveMinimum": 0 }
+          ],
+          "minItems": 2,
+          "maxItems": 2
+        }
+      }
+    },
     "sourceObservation": {
       "type": "object",
       "additionalProperties": false,
@@ -109,6 +127,7 @@
       "properties": {
         "id": { "type": "string", "minLength": 1, "maxLength": 128 },
         "position": { "$ref": "#/$defs/position" },
+        "radius_extent": { "$ref": "#/$defs/radiusExtent" },
         "radius": { "type": "number", "exclusiveMinimum": 0 },
         "radius_scale": { "type": "array", "prefixItems": [{ "type": "number" }, { "type": "number" }], "minItems": 2, "maxItems": 2 },
         "radius_unit": { "const": "canonical_pixels" },

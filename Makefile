@@ -13,17 +13,16 @@
 #   make deploy        Build production distribution
 #
 
-.PHONY: help dev install-python-tools install-model-tools python-venv setup-git-hooks setup-dirs test test-all test-rust test-rust-camera test-web test-python test-deploy test-tooling test-unit test-integration test-system test-coverage lint lint-rust lint-web lint-python format format-rust format-python format-check fix config-check config-example clean clean-logs clean-data clean-frontend clean-all run run-api run-frontend docker-build docker-smoke docker-run docker-run-detached docker-stop docker-restart docker-logs docker-shell build build-frontend build-rust deploy deploy-clean deps-update deps-check security-check security-check-rust security-check-web check-env docs
+.PHONY: help dev install-model-tools python-venv setup-git-hooks setup-dirs test test-all test-rust test-rust-camera test-web test-model-export test-deploy test-tooling lint lint-rust lint-web format format-rust format-check fix config-check config-example clean clean-logs clean-data clean-frontend clean-all run run-api run-frontend docker-build docker-smoke docker-run docker-run-detached docker-stop docker-restart docker-logs docker-shell build build-frontend build-rust deploy deploy-clean deps-update deps-check security-check security-check-rust security-check-web check-env docs
 
 # Default target
 .DEFAULT_GOAL := help
 
-# The supported application runtime is Rust. Python remains for compatibility
-# and reference tests plus optional ONNX model export.
+# The application runtime is Rust. Python is optional and used only to export
+# an ONNX model from its PyTorch checkpoint.
 PYTHON_VENV_DIR ?= .venv
 PYTHON ?= $(if $(wildcard $(PYTHON_VENV_DIR)/bin/python),$(PYTHON_VENV_DIR)/bin/python,python3)
 UV ?= uv
-BACKEND_DIR := backend
 RUST_MANIFEST := perception/Cargo.toml
 RUST_FEATURES ?= camera-gstreamer-source
 # Keep `cargo test` artifacts separate from the binaries that `make run` and
@@ -63,16 +62,12 @@ help: ## Show this help message
 
 # ===== Environment Setup =====
 
-install-python-tools: python-venv ## Install retained Python compatibility and reference-test dependencies
-	UV_PROJECT_ENVIRONMENT="$(abspath $(PYTHON_VENV_DIR))" $(UV) sync --locked --extra python-tooling --extra dev
-	@echo "$(GREEN)Optional Python compatibility and reference-test dependencies installed.$(RESET)"
-
 install-model-tools: python-venv ## Install only optional model-export dependencies
 	UV_PROJECT_ENVIRONMENT="$(abspath $(PYTHON_VENV_DIR))" $(UV) sync --locked --inexact --extra model-export
 	@echo "$(GREEN)Optional ONNX model-export dependencies installed.$(RESET)"
 
-python-venv: ## Create the optional Python tooling environment
-	@echo "$(BLUE)Creating optional Python tooling environment...$(RESET)"
+python-venv: ## Create the optional model-export environment
+	@echo "$(BLUE)Creating optional model-export environment...$(RESET)"
 	@command -v "$(UV)" >/dev/null 2>&1 || { echo "uv is required for the locked optional Python tooling environment; install uv first." >&2; exit 1; }
 	@$(UV) venv "$(PYTHON_VENV_DIR)"
 
@@ -104,18 +99,10 @@ lint-rust: ## Run strict Rust lint checks
 lint-web: ## Type-check the browser application
 	cd frontend/web && npm run typecheck
 
-lint-python: ## Lint Python compatibility/offline tools; type-check the backend
-	$(PYTHON) -m ruff check $(BACKEND_DIR) tools
-	$(PYTHON) -m mypy $(BACKEND_DIR)
-
 format: format-rust ## Format Rust source
 
 format-rust: ## Format Rust source
 	cargo fmt --manifest-path $(RUST_MANIFEST) --all
-
-format-python: ## Format retained Python compatibility and offline tooling
-	$(PYTHON) -m black $(BACKEND_DIR) tools
-	$(PYTHON) -m isort $(BACKEND_DIR) tools
 
 format-check: ## Check Rust source formatting
 	cargo fmt --manifest-path $(RUST_MANIFEST) --all -- --check
@@ -126,7 +113,7 @@ fix: format lint ## Fix code formatting and run linting
 
 test: test-rust test-web ## Run Rust runtime and browser tests
 
-test-all: test test-rust-camera test-python test-tooling test-deploy ## Run Rust, browser, camera-feature, retained Python, tooling, and deployment tests
+test-all: test test-rust-camera test-model-export test-tooling test-deploy ## Run Rust, browser, model-export, tooling, and deployment tests
 
 test-rust: ## Run Rust unit, contract, and fixture tests
 	CARGO_TARGET_DIR="$(RUST_TEST_TARGET_DIR)" cargo test --locked --manifest-path $(RUST_MANIFEST) --all-targets
@@ -137,28 +124,13 @@ test-rust-camera: ## Test the production GStreamer camera feature (requires GStr
 test-web: ## Run browser client tests
 	cd frontend/web && npm test
 
-test-python: ## Run retained Python compatibility and model-export tests
-	$(PYTHON) -m pytest
+test-model-export: ## Test the optional ONNX exporter against the Rust manifest contract
+	UV_PROJECT_ENVIRONMENT="$(abspath $(PYTHON_VENV_DIR))" $(UV) sync --locked --group dev
+	UV_PROJECT_ENVIRONMENT="$(abspath $(PYTHON_VENV_DIR))" $(UV) run --locked --no-sync python -m pytest tools/tests -q
 
 test-deploy: ## Exercise Rust distribution packaging, cleanup, and restart scripts
 	bash scripts/deploy/tests/build-dist-smoke.sh
 	bash scripts/deploy/tests/update-smoke.sh
-
-test-unit: ## Run all retained Python unit/core/common tests without the full-suite coverage gate
-	@echo "$(BLUE)Running unit tests...$(RESET)"
-	$(PYTHON) -m pytest backend/tests/unit backend/tests/core backend/tests/common --no-cov
-
-test-integration: ## Run all retained Python integration tests without the full-suite coverage gate
-	@echo "$(BLUE)Running integration tests...$(RESET)"
-	$(PYTHON) -m pytest backend/tests/integration --no-cov
-
-test-system: ## Run retained Python system tests without the full-suite coverage gate
-	@echo "$(BLUE)Running system tests...$(RESET)"
-	$(PYTHON) -m pytest backend/tests/system --no-cov
-
-test-coverage: ## Run tests with coverage report
-	@echo "$(BLUE)Running tests with coverage...$(RESET)"
-	$(PYTHON) -m pytest --cov=backend --cov-report=html --cov-report=term-missing
 
 # ===== Build =====
 
@@ -178,7 +150,7 @@ build: build-frontend build-rust ## Build the Rust application and web client
 
 # ===== Development Server =====
 
-run: build-frontend build-rust setup-dirs ## Build and run Rust server, live detector, and retained web client
+run: build-frontend build-rust setup-dirs ## Build and run the Rust server, live detector, and browser client
 	@echo "$(BLUE)Starting Billiards Trainer Rust server...$(RESET)"
 	cargo run --locked --manifest-path $(RUST_MANIFEST) --features $(RUST_FEATURES) --bin billiards-server -- \
 		--http-bind $(RUST_HTTP_BIND) --http-port $(RUST_HTTP_PORT) \
@@ -211,22 +183,19 @@ config-example: ## Create example configuration files
 		echo "$(RED)$(RUST_CONFIG) already exists; refusing to overwrite it$(RESET)"; exit 1; \
 	fi
 	@cp perception/contracts/configuration/v1/defaults.json "$(RUST_CONFIG)"
+	@node --input-type=module -e 'const fs = await import("node:fs"); const file = process.argv[1]; const config = JSON.parse(fs.readFileSync(file, "utf8")); config.vision.camera.video_file_path = ""; fs.writeFileSync(file, `${JSON.stringify(config, null, 2)}\n`);' "$(RUST_CONFIG)"
 	@echo "$(GREEN)Created $(RUST_CONFIG) from the Rust-owned configuration defaults$(RESET)"
 
 # ===== Cleanup =====
 
-clean: ## Clean local dist, Python caches, coverage reports, and build/; keep Rust and Node dependencies
+clean: ## Clean local build outputs and optional model-tool caches; keep Rust and Node dependencies
 	@echo "$(BLUE)Cleaning build artifacts...$(RESET)"
 	find . -type f -name "*.pyc" -delete
 	find . -type d -name "__pycache__" -delete
 	find . -type d -name "*.egg-info" -exec rm -rf {} +
 	rm -rf build/
 	@bash scripts/deploy/clean-dist.sh
-	rm -rf .coverage
-	rm -rf htmlcov/
 	rm -rf .pytest_cache/
-	rm -rf .mypy_cache/
-	rm -rf .ruff_cache/
 	@echo "$(GREEN)Cleanup complete!$(RESET)"
 
 clean-logs: ## Clean log files

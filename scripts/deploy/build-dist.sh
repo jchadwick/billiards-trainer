@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Build a native Rust server distribution with the retained static web client.
 # The build host and packaged target must have compatible Rust and GStreamer
-# toolchains; this script does not install Python or package Python code.
+# toolchains. Coral inference uses a target-installed Python/TFLite runtime.
 
 set -euo pipefail
 
@@ -9,11 +9,12 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 PROJECT_ROOT="$(cd -- "$SCRIPT_DIR/../.." && pwd -P)"
 CONFIG_SOURCE="${BILLIARDS_CONFIG_SOURCE:-$PROJECT_ROOT/config.json}"
 ONNX_SOURCE="${BILLIARDS_ONNX_MODEL:-}"
+CORAL_SOURCE="${BILLIARDS_CORAL_MODEL:-}"
 CHECKPOINT_SOURCE="${BILLIARDS_SOURCE_CHECKPOINT:-}"
 DIST_DIR="${BILLIARDS_DIST_DIR:-$PROJECT_ROOT/dist}"
 RUST_TARGET="${BILLIARDS_RUST_TARGET:-}"
 RUST_FEATURES="${BILLIARDS_RUST_FEATURES:-camera-gstreamer-source}"
-MANIFEST_SOURCE="${ONNX_SOURCE}.manifest.json"
+ONNX_MANIFEST_SOURCE="${ONNX_SOURCE}.manifest.json"
 DISTRIBUTION_MARKER_SOURCE="$SCRIPT_DIR/distribution-marker.txt"
 
 fail() {
@@ -47,11 +48,31 @@ require_command pkg-config
 require_command jq
 require_file "$DISTRIBUTION_MARKER_SOURCE" "distribution ownership marker"
 require_file "$CONFIG_SOURCE" "Rust application configuration"
-[[ -n "$ONNX_SOURCE" ]] || fail "set BILLIARDS_ONNX_MODEL to the verified ONNX model to include in the distribution"
-[[ -n "$CHECKPOINT_SOURCE" ]] || fail "set BILLIARDS_SOURCE_CHECKPOINT to the source .pt checkpoint matching the ONNX manifest"
-require_file "$ONNX_SOURCE" "ONNX model"
+[[ -n "$CHECKPOINT_SOURCE" ]] || fail "set BILLIARDS_SOURCE_CHECKPOINT to the source .pt checkpoint matching the selected model manifest"
 require_file "$CHECKPOINT_SOURCE" "source model checkpoint"
-require_file "$MANIFEST_SOURCE" "ONNX export manifest"
+
+# The selected inference provider remains owned by the source configuration.
+# Packaging only chooses which verified model artifacts to include and writes
+# their package-relative paths into the staged configuration.
+INFERENCE_PROVIDER="$(jq -er '.perception.rust_live.provider // "cpu"' "$CONFIG_SOURCE")" \
+    || fail "configuration must define a valid perception.rust_live.provider: $CONFIG_SOURCE"
+case "$INFERENCE_PROVIDER" in
+    coral)
+        [[ -n "$CORAL_SOURCE" ]] || fail "set BILLIARDS_CORAL_MODEL to the compiled Coral .tflite model to include in the distribution"
+        [[ "$CORAL_SOURCE" == *.tflite ]] || fail "BILLIARDS_CORAL_MODEL must name a compiled .tflite file: $CORAL_SOURCE"
+        require_file "$CORAL_SOURCE" "compiled Coral model"
+        CORAL_MANIFEST_SOURCE="$(dirname -- "$CORAL_SOURCE")/manifest.json"
+        require_file "$CORAL_MANIFEST_SOURCE" "Coral export manifest"
+        ;;
+    cpu|auto|openvino)
+        [[ -n "$ONNX_SOURCE" ]] || fail "set BILLIARDS_ONNX_MODEL to the verified ONNX model to include in the distribution"
+        require_file "$ONNX_SOURCE" "ONNX model"
+        require_file "$ONNX_MANIFEST_SOURCE" "ONNX export manifest"
+        ;;
+    *)
+        fail "unsupported perception.rust_live.provider '$INFERENCE_PROVIDER' in $CONFIG_SOURCE"
+        ;;
+esac
 
 # Fail before building if the selected config cannot drive the Rust live path.
 # In particular, the Rust camera path requires either an explicit stable
@@ -65,17 +86,37 @@ jq -e '
   )
 ' "$CONFIG_SOURCE" >/dev/null || fail "configuration must clear vision.camera.video_file_path and select a stable GStreamer camera or an HTTP(S) MJPEG URL; update $CONFIG_SOURCE first"
 
-jq -e '
-  .manifest_schema_version == 1 and
-  (.exported_model.sha256 | type == "string" and test("^[0-9a-fA-F]{64}$")) and
-  (.source_model.sha256 | type == "string" and test("^[0-9a-fA-F]{64}$"))
-' "$MANIFEST_SOURCE" >/dev/null || fail "ONNX export manifest has an unsupported or incomplete schema: $MANIFEST_SOURCE"
-expected_onnx_sha="$(jq -er '.exported_model.sha256 | ascii_downcase' "$MANIFEST_SOURCE")"
-expected_checkpoint_sha="$(jq -er '.source_model.sha256 | ascii_downcase' "$MANIFEST_SOURCE")"
-actual_onnx_sha="$(sha256_file "$ONNX_SOURCE")"
-actual_checkpoint_sha="$(sha256_file "$CHECKPOINT_SOURCE")"
-[[ "$actual_onnx_sha" == "$expected_onnx_sha" ]] || fail "ONNX file digest does not match its export manifest: $ONNX_SOURCE"
-[[ "$actual_checkpoint_sha" == "$expected_checkpoint_sha" ]] || fail "source checkpoint digest does not match its ONNX export manifest: $CHECKPOINT_SOURCE"
+if [[ "$INFERENCE_PROVIDER" == coral ]]; then
+    CORAL_MODEL_NAME="$(basename -- "$CORAL_SOURCE")"
+    jq -e --arg model_name "$CORAL_MODEL_NAME" '
+      .artifact_type == "Coral Edge TPU compiled TensorFlow Lite model" and
+      .compiler_result.status == "success" and
+      .compiler_result.compiled_model == $model_name and
+      (.model_contract.output.box_coordinate_space == "normalized_0_1" or
+       .model_contract.output.box_coordinate_space == "model_pixels") and
+      (.source.checkpoint.sha256 | type == "string" and test("^[0-9a-fA-F]{64}$")) and
+      (.files[$model_name].sha256 | type == "string" and test("^[0-9a-fA-F]{64}$"))
+    ' "$CORAL_MANIFEST_SOURCE" >/dev/null \
+        || fail "Coral export manifest is invalid or does not describe $CORAL_MODEL_NAME: $CORAL_MANIFEST_SOURCE"
+    expected_coral_sha="$(jq -er --arg model_name "$CORAL_MODEL_NAME" '.files[$model_name].sha256 | ascii_downcase' "$CORAL_MANIFEST_SOURCE")"
+    expected_checkpoint_sha="$(jq -er '.source.checkpoint.sha256 | ascii_downcase' "$CORAL_MANIFEST_SOURCE")"
+    actual_coral_sha="$(sha256_file "$CORAL_SOURCE")"
+    actual_checkpoint_sha="$(sha256_file "$CHECKPOINT_SOURCE")"
+    [[ "$actual_coral_sha" == "$expected_coral_sha" ]] || fail "compiled Coral model digest does not match its export manifest: $CORAL_SOURCE"
+    [[ "$actual_checkpoint_sha" == "$expected_checkpoint_sha" ]] || fail "source checkpoint digest does not match the Coral export manifest: $CHECKPOINT_SOURCE"
+else
+    jq -e '
+      .manifest_schema_version == 1 and
+      (.exported_model.sha256 | type == "string" and test("^[0-9a-fA-F]{64}$")) and
+      (.source_model.sha256 | type == "string" and test("^[0-9a-fA-F]{64}$"))
+    ' "$ONNX_MANIFEST_SOURCE" >/dev/null || fail "ONNX export manifest has an unsupported or incomplete schema: $ONNX_MANIFEST_SOURCE"
+    expected_onnx_sha="$(jq -er '.exported_model.sha256 | ascii_downcase' "$ONNX_MANIFEST_SOURCE")"
+    expected_checkpoint_sha="$(jq -er '.source_model.sha256 | ascii_downcase' "$ONNX_MANIFEST_SOURCE")"
+    actual_onnx_sha="$(sha256_file "$ONNX_SOURCE")"
+    actual_checkpoint_sha="$(sha256_file "$CHECKPOINT_SOURCE")"
+    [[ "$actual_onnx_sha" == "$expected_onnx_sha" ]] || fail "ONNX file digest does not match its export manifest: $ONNX_SOURCE"
+    [[ "$actual_checkpoint_sha" == "$expected_checkpoint_sha" ]] || fail "source checkpoint digest does not match its ONNX export manifest: $CHECKPOINT_SOURCE"
+fi
 
 pkg-config --exists gstreamer-1.0 gstreamer-app-1.0 gstreamer-video-1.0 || fail "GStreamer development libraries are required for camera-gstreamer-source (gstreamer-1.0, gstreamer-app-1.0, and gstreamer-video-1.0)"
 
@@ -163,24 +204,46 @@ for runtime_library in "$BUILD_DIR"/libonnxruntime*.dylib "$BUILD_DIR"/libonnxru
 done
 shopt -u nullglob
 
-install -m 0644 "$ONNX_SOURCE" "$STAGING/models/billiards-yolov8n.onnx"
-install -m 0644 "$MANIFEST_SOURCE" "$STAGING/models/billiards-yolov8n.onnx.manifest.json"
+if [[ "$INFERENCE_PROVIDER" == coral ]]; then
+    install -m 0644 "$CORAL_SOURCE" "$STAGING/models/$CORAL_MODEL_NAME"
+    install -m 0644 "$CORAL_MANIFEST_SOURCE" "$STAGING/models/manifest.json"
+else
+    install -m 0644 "$ONNX_SOURCE" "$STAGING/models/billiards-yolov8n.onnx"
+    install -m 0644 "$ONNX_MANIFEST_SOURCE" "$STAGING/models/billiards-yolov8n.onnx.manifest.json"
+fi
 install -m 0644 "$CHECKPOINT_SOURCE" "$STAGING/models/billiards-yolov8n.pt"
 
 # Paths are deliberately relative to the package root so the entire bundle can
 # be moved without a host-specific absolute model or executable path.
-jq \
-    --arg model 'models/billiards-yolov8n.onnx' \
-    --arg checkpoint 'models/billiards-yolov8n.pt' \
-    --arg live 'bin/billiards-perception-live' \
-    --arg helper 'bin/billiards-perception-gstreamer-probe' \
-    '.perception.rust_live = (.perception.rust_live // {}) |
-     .perception.rust_live.onnx_path = $model |
-     .perception.rust_live.source_checkpoint_path = $checkpoint |
-     .perception.rust_live.executable_path = $live |
-     .perception.rust_live.capture_helper_executable_path = $helper |
-     .vision.camera.video_file_path = null' \
-    "$CONFIG_SOURCE" > "$STAGING/config.json"
+if [[ "$INFERENCE_PROVIDER" == coral ]]; then
+    jq \
+        --arg model "models/$CORAL_MODEL_NAME" \
+        --arg checkpoint 'models/billiards-yolov8n.pt' \
+        --arg live 'bin/billiards-perception-live' \
+        --arg helper 'bin/billiards-perception-gstreamer-probe' \
+        '.perception.rust_live = (.perception.rust_live // {}) |
+         .perception.rust_live.coral_model_path = $model |
+         .perception.rust_live.onnx_path = "" |
+         .perception.rust_live.source_checkpoint_path = $checkpoint |
+         .perception.rust_live.executable_path = $live |
+         .perception.rust_live.capture_helper_executable_path = $helper |
+         .vision.camera.video_file_path = ""' \
+        "$CONFIG_SOURCE" > "$STAGING/config.json"
+else
+    jq \
+        --arg model 'models/billiards-yolov8n.onnx' \
+        --arg checkpoint 'models/billiards-yolov8n.pt' \
+        --arg live 'bin/billiards-perception-live' \
+        --arg helper 'bin/billiards-perception-gstreamer-probe' \
+        '.perception.rust_live = (.perception.rust_live // {}) |
+         .perception.rust_live.onnx_path = $model |
+         .perception.rust_live.source_checkpoint_path = $checkpoint |
+         .perception.rust_live.executable_path = $live |
+         .perception.rust_live.capture_helper_executable_path = $helper |
+         .vision.camera.video_file_path = ""' \
+        "$CONFIG_SOURCE" > "$STAGING/config.json"
+fi
+printf '%s\n' "$INFERENCE_PROVIDER" > "$STAGING/.billiards-inference-provider"
 [[ -f "$STAGING/frontend/index.html" ]] || fail "packaged frontend is missing index.html after the frontend build"
 install -m 0755 "$SCRIPT_DIR/run.sh" "$STAGING/run.sh"
 install -m 0755 "$SCRIPT_DIR/update.sh" "$STAGING/update.sh"

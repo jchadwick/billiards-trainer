@@ -15,7 +15,7 @@ fn parse_fixture(source: &str) -> SceneSnapshotV1 {
 }
 
 #[test]
-fn python_contract_fixtures_deserialize_validate_and_round_trip() {
+fn scene_contract_fixtures_deserialize_validate_and_round_trip() {
     for fixture in [
         SUCCESS_FIXTURE,
         FAILURE_FIXTURE,
@@ -76,6 +76,19 @@ fn encoder_refuses_semantically_invalid_snapshot_values() {
     assert!(error
         .to_string()
         .contains("inside the declared image dimensions"));
+}
+
+#[test]
+fn scene_measurement_rejects_invalid_image_radius_extents() {
+    let mut snapshot = parse_fixture(SUCCESS_FIXTURE);
+    snapshot.balls[0]
+        .measurement
+        .as_mut()
+        .unwrap()
+        .image_radius_px = Some(billiards_perception::Point2d { x: 0.0, y: 18.0 });
+
+    let error = encode_scene_snapshot_v1(&snapshot).expect_err("zero extent is invalid");
+    assert!(error.to_string().contains("measurement.image_radius_px"));
 }
 
 #[test]

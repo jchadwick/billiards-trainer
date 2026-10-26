@@ -1,0 +1,295 @@
+{
+  "snapshot_path": "thoughts/calibration/table-grid-20261026-114241.jpg",
+  "measurement_date": "2026-10-26",
+  "source": "human physical measurement",
+  "coordinate_convention": {
+    "origin": "upper-left cushion nose intersection",
+    "positive_x": "image-right",
+    "positive_y": "image-down",
+    "units": "mm"
+  },
+  "playing_area_inside_cushion_noses_mm": {
+    "width": 2336.8,
+    "height": 1155.7
+  },
+  "ball_diameter_mm": 57.15,
+  "ball_radius_inches": 1.125,
+  "points": [
+    {
+      "id": "middle-row-center-ball",
+      "measurement_reference_confirmed": true,
+      "nearest_surface_distances_inches": {
+        "left_cushion": 45
+      },
+      "center_from_upper_left_inches": {
+        "x": 46.125,
+        "y": 22.625
+      },
+      "center_from_upper_left_mm": {
+        "x": 1171.575,
+        "y": 574.675
+      },
+      "center_relative_to_table_midpoint_mm": {
+        "x": 3.175,
+        "y": -3.175
+      },
+      "measurement_uncertainty_mm": null,
+      "superseded_vertical_measurements": {
+        "nearest_surface_distances_inches": {
+          "top_cushion": 21.75
+        },
+        "status": "superseded by user-confirmed direct on-center measurement from top cushion"
+      },
+      "direct_center_distances_inches": {
+        "top_cushion": 22.625
+      },
+      "vertical_measurement_status": "user-confirmed direct on-center correction; prior discrepancy resolved",
+      "accepted_as_complete_ground_truth": true
+    },
+    {
+      "id": "far-right-purple-middle-row-ball",
+      "source": "human physical measurement",
+      "reported_touching_right_rail": true,
+      "nearest_surface_distances_inches": {
+        "right_cushion": 0
+      },
+      "vertical_measurement_status": "user-confirmed direct on-center correction; prior discrepancy resolved",
+      "horizontal_derivation": "92-inch playing-area length minus 1.125-inch radius; based on reported right-rail contact, not a separate left-distance measurement",
+      "accepted_as_complete_ground_truth": true,
+      "measurement_uncertainty_mm": null,
+      "superseded_vertical_measurements": {
+        "nearest_surface_distances_inches": {
+          "top_cushion": 21.75,
+          "bottom_cushion": 21.75
+        },
+        "status": "superseded by user-confirmed direct on-center measurement from top cushion",
+        "consistency_check_inches": {
+          "top_gap_plus_diameter_plus_bottom_gap": 45.75,
+          "provided_playing_area_height": 45.5,
+          "excess": 0.25
+        },
+        "inconsistency_mm": 6.35
+      },
+      "direct_center_distances_inches": {
+        "top_cushion": 22.625
+      },
+      "center_from_upper_left_inches": {
+        "x": 90.875,
+        "y": 22.625
+      },
+      "center_from_upper_left_mm": {
+        "x": 2308.225,
+        "y": 574.675
+      },
+      "center_relative_to_table_midpoint_mm": {
+        "x": 1139.825,
+        "y": -3.175
+      },
+      "measurement_reference_confirmed": true
+    },
+    {
+      "id": "far-left-yellow-middle-row-ball",
+      "source": "human physical measurement",
+      "reported_touching_left_rail": true,
+      "nearest_surface_distances_inches": {
+        "left_cushion": 0
+      },
+      "direct_center_distances_inches": {
+        "top_cushion": 22.625
+      },
+      "center_from_upper_left_inches": {
+        "x": 1.125,
+        "y": 22.625
+      },
+      "center_from_upper_left_mm": {
+        "x": 28.575,
+        "y": 574.675
+      },
+      "center_relative_to_table_midpoint_mm": {
+        "x": -1139.825,
+        "y": -3.175
+      },
+      "horizontal_derivation": "1.125-inch radius from reported left-cushion contact; not a separate left-distance measurement",
+      "measurement_reference_confirmed": true,
+      "accepted_as_complete_ground_truth": true,
+      "measurement_uncertainty_mm": null
+    },
+    {
+      "id": "interior-purple-second-left-middle-row-ball",
+      "source": "human physical measurement",
+      "direct_center_distances_inches": {
+        "left_cushion": 22.5,
+        "top_cushion": 22.625
+      },
+      "center_from_upper_left_inches": {
+        "x": 22.5,
+        "y": 22.625
+      },
+      "center_from_upper_left_mm": {
+        "x": 571.5,
+        "y": 574.675
+      },
+      "center_relative_to_table_midpoint_mm": {
+        "x": -596.9,
+        "y": -3.175
+      },
+      "vertical_measurement_status": "user-confirmed direct on-center measurement from top cushion",
+      "accepted_as_complete_ground_truth": true,
+      "measurement_uncertainty_mm": null,
+      "measurement_reference_confirmed": true
+    },
+    {
+      "id": "interior-green-second-right-middle-row-ball",
+      "source": "human physical measurement",
+      "direct_center_distances_inches": {
+        "left_cushion": 68.75,
+        "top_cushion": 22.625
+      },
+      "center_from_upper_left_inches": {
+        "x": 68.75,
+        "y": 22.625
+      },
+      "center_from_upper_left_mm": {
+        "x": 1746.25,
+        "y": 574.675
+      },
+      "center_relative_to_table_midpoint_mm": {
+        "x": 577.85,
+        "y": -3.175
+      },
+      "vertical_measurement_status": "user-confirmed direct on-center measurement from top cushion",
+      "accepted_as_complete_ground_truth": true,
+      "measurement_uncertainty_mm": null,
+      "measurement_reference_confirmed": true
+    },
+    {
+      "id": "top-orange-solid-second-left-ball",
+      "source": "human physical measurement",
+      "reported_touching_top_rail": true,
+      "nearest_surface_distances_inches": {
+        "top_cushion": 0
+      },
+      "direct_center_distances_inches": {
+        "left_cushion": 22.375
+      },
+      "center_from_upper_left_inches": {
+        "x": 22.375,
+        "y": 1.125
+      },
+      "center_from_upper_left_mm": {
+        "x": 568.325,
+        "y": 28.575
+      },
+      "center_relative_to_table_midpoint_mm": {
+        "x": -600.075,
+        "y": -549.275
+      },
+      "vertical_derivation": "1.125-inch radius from confirmed top-cushion contact",
+      "measurement_reference_confirmed": true,
+      "accepted_as_complete_ground_truth": true,
+      "measurement_uncertainty_mm": null
+    },
+    {
+      "id": "top-red-striped-second-right-ball",
+      "source": "human physical measurement",
+      "reported_touching_top_rail": true,
+      "nearest_surface_distances_inches": {
+        "top_cushion": 0
+      },
+      "direct_center_distances_inches": {
+        "left_cushion": 68.75
+      },
+      "center_from_upper_left_inches": {
+        "x": 68.75,
+        "y": 1.125
+      },
+      "center_from_upper_left_mm": {
+        "x": 1746.25,
+        "y": 28.575
+      },
+      "center_relative_to_table_midpoint_mm": {
+        "x": 577.85,
+        "y": -549.275
+      },
+      "vertical_derivation": "1.125-inch radius from confirmed top-cushion contact",
+      "measurement_reference_confirmed": true,
+      "accepted_as_complete_ground_truth": true,
+      "measurement_uncertainty_mm": null,
+      "superseded_horizontal_measurements": {
+        "direct_center_from_left_inches": 62.75,
+        "converted_mm": 1593.85,
+        "status": "superseded typo; user explicitly corrected to 68.75 inches"
+      }
+    },
+    {
+      "id": "bottom-black-second-left-ball",
+      "source": "human physical measurement",
+      "user_response_context": "same; bottom-row horizontal center distances match top orange 22.375 inches and top red-striped 68.75 inches",
+      "reported_touching_bottom_rail": true,
+      "nearest_surface_distances_inches": {
+        "bottom_cushion": 0
+      },
+      "direct_center_distances_inches": {
+        "left_cushion": 22.375
+      },
+      "center_from_upper_left_inches": {
+        "x": 22.375,
+        "y": 44.375
+      },
+      "center_from_upper_left_mm": {
+        "x": 568.325,
+        "y": 1127.125
+      },
+      "center_relative_to_table_midpoint_mm": {
+        "x": -600.075,
+        "y": 549.275
+      },
+      "vertical_derivation": "45.5-inch playing-area height minus 1.125-inch radius from confirmed bottom-cushion contact",
+      "measurement_reference_confirmed": true,
+      "accepted_as_complete_ground_truth": true,
+      "measurement_uncertainty_mm": null
+    },
+    {
+      "id": "bottom-yellow-second-right-ball",
+      "source": "human physical measurement",
+      "user_response_context": "same; bottom-row horizontal center distances match top orange 22.375 inches and top red-striped 68.75 inches",
+      "reported_touching_bottom_rail": true,
+      "nearest_surface_distances_inches": {
+        "bottom_cushion": 0
+      },
+      "direct_center_distances_inches": {
+        "left_cushion": 68.75
+      },
+      "center_from_upper_left_inches": {
+        "x": 68.75,
+        "y": 44.375
+      },
+      "center_from_upper_left_mm": {
+        "x": 1746.25,
+        "y": 1127.125
+      },
+      "center_relative_to_table_midpoint_mm": {
+        "x": 577.85,
+        "y": 549.275
+      },
+      "vertical_derivation": "45.5-inch playing-area height minus 1.125-inch radius from confirmed bottom-cushion contact",
+      "measurement_reference_confirmed": true,
+      "accepted_as_complete_ground_truth": true,
+      "measurement_uncertainty_mm": null
+    }
+  ],
+  "precision_note": "Decimal digits reflect exact inch conversion; physical measurement uncertainty is unknown.",
+  "calibration_status": "exploratory offline fit only; nine complete user-confirmed physical points; six unmeasured pocket-adjacent balls excluded; corner/pocket accuracy unverified; full calibration and independent validation pending",
+  "arrangement_note": "User measurement correction applies to current arrangement associated with the existing snapshot; no new image was taken for this correction.",
+  "rail_contact_statement": {
+    "source": "user confirmation",
+    "statement": "All balls on rails touch the cushion.",
+    "limitation": "Do not infer additional ball coordinates from apparent proximity or pocket jaws; individual contact references and other coordinate measurements remain necessary."
+  },
+  "unmeasured_pocket_adjacent_balls": {
+    "count": 6,
+    "excluded_from_physical_ground_truth": true,
+    "reason": "User cannot accurately measure these pocket-adjacent balls.",
+    "further_pocket_measurements_required_now": false
+  }
+}

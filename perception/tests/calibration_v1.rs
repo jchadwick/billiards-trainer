@@ -7,7 +7,7 @@ use billiards_perception::ImageSpace;
 const CENTER_ORIGIN_FIXTURE: &str =
     include_str!("../contracts/calibration/v1/table-calibration-center-origin.json");
 const SKEWED_PERSPECTIVE_FIXTURE: &str =
-    include_str!("../contracts/calibration/v1/table-calibration-python-export.json");
+    include_str!("../contracts/calibration/v1/table-calibration-perspective.json");
 
 fn calibration() -> TableCalibrationV1 {
     serde_json::from_str(CENTER_ORIGIN_FIXTURE).expect("calibration fixture must decode")

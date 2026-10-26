@@ -1,4 +1,4 @@
-//! Separately launchable Rust localization gateway for side-by-side migration.
+//! Rust application gateway for live localization and browser state delivery.
 
 use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
@@ -18,10 +18,10 @@ use clap::Parser;
     about = "Serve Rust scene localization over local HTTP and WebSocket"
 )]
 struct ServerArgs {
-    /// HTTP interface. Defaults to loopback for side-by-side development.
+    /// HTTP interface. Defaults to loopback for local development.
     #[arg(long, default_value = "127.0.0.1")]
     http_bind: IpAddr,
-    /// HTTP port. Defaults to 8001 so the current gateway can remain on 8000.
+    /// HTTP port used by the local development gateway.
     #[arg(long, default_value_t = 8001)]
     http_port: u16,
     /// Scene ingress interface. Must be loopback.
@@ -49,8 +49,8 @@ struct ServerArgs {
     #[arg(long)]
     stale_after_ms: Option<u64>,
     /// Remove cached locations after this many milliseconds without localization.
-    #[arg(long, default_value_t = 1_000)]
-    expire_after_ms: u64,
+    #[arg(long)]
+    expire_after_ms: Option<u64>,
     /// Disconnect WebSocket clients whose writes exceed this deadline.
     #[arg(long, default_value_t = 250)]
     websocket_send_deadline_ms: u64,
@@ -203,6 +203,7 @@ impl ServerArgs {
 
     fn config(self) -> Result<ServerConfig, String> {
         let stale_after = self.configured_stale_after()?;
+        let expire_after = self.configured_expire_after()?;
         let config = ServerConfig {
             http_bind: self.http_bind,
             http_port: self.http_port,
@@ -214,7 +215,7 @@ impl ServerArgs {
             web_root: self.web_root,
             tcp_read_timeout: Duration::from_millis(self.tcp_read_timeout_ms),
             stale_after,
-            expire_after: Duration::from_millis(self.expire_after_ms),
+            expire_after,
             websocket_send_deadline: Duration::from_millis(self.websocket_send_deadline_ms),
             maximum_websocket_clients: self.maximum_websocket_clients,
             maximum_configuration_requests: self.maximum_configuration_requests,
@@ -228,29 +229,61 @@ impl ServerArgs {
             return Ok(Duration::from_millis(milliseconds));
         }
 
-        let Some(configuration_path) = self.configuration.as_ref() else {
+        let Some(effective) = self.effective_configuration()? else {
             return Ok(ServerConfig::default().stale_after);
+        };
+        let path = if uses_coral_provider(&effective) {
+            "/perception/rust_live/coral_runtime/maximum_observation_age_seconds"
+        } else {
+            "/perception/freshness/maximum_observation_age_seconds"
+        };
+        let seconds = effective
+            .pointer(path)
+            .and_then(serde_json::Value::as_f64)
+            .ok_or_else(|| format!("configuration is missing {path}"))?;
+        if !seconds.is_finite() || seconds <= 0.0 {
+            return Err(format!("{path} must be finite and positive"));
+        }
+        Duration::try_from_secs_f64(seconds)
+            .map_err(|error| format!("{path} is out of range: {error}"))
+    }
+
+    fn configured_expire_after(&self) -> Result<Duration, String> {
+        if let Some(milliseconds) = self.expire_after_ms {
+            return Ok(Duration::from_millis(milliseconds));
+        }
+
+        let Some(effective) = self.effective_configuration()? else {
+            return Ok(ServerConfig::default().expire_after);
+        };
+        if !uses_coral_provider(&effective) {
+            return Ok(ServerConfig::default().expire_after);
+        }
+
+        let path = "/perception/rust_live/coral_runtime/expire_after_ms";
+        let milliseconds = effective
+            .pointer(path)
+            .and_then(serde_json::Value::as_u64)
+            .filter(|value| *value > 0)
+            .ok_or_else(|| format!("{path} must be a positive integer"))?;
+        Ok(Duration::from_millis(milliseconds))
+    }
+
+    fn effective_configuration(&self) -> Result<Option<serde_json::Value>, String> {
+        let Some(configuration_path) = self.configuration.as_ref() else {
+            return Ok(None);
         };
         let authority =
             ConfigurationAuthority::new(configuration_path.clone(), AuthorityLimits::default())?;
-        let effective = authority.effective_configuration()?;
-        let seconds = effective
-            .pointer("/perception/freshness/maximum_observation_age_seconds")
-            .and_then(serde_json::Value::as_f64)
-            .ok_or_else(|| {
-                "configuration is missing perception.freshness.maximum_observation_age_seconds"
-                    .to_owned()
-            })?;
-        if !seconds.is_finite() || seconds <= 0.0 {
-            return Err(
-                "perception.freshness.maximum_observation_age_seconds must be finite and positive"
-                    .to_owned(),
-            );
-        }
-        Duration::try_from_secs_f64(seconds).map_err(|error| {
-            format!("perception.freshness.maximum_observation_age_seconds is out of range: {error}")
-        })
+        Ok(Some(authority.effective_configuration()?))
     }
+}
+
+fn uses_coral_provider(configuration: &serde_json::Value) -> bool {
+    configuration
+        .pointer("/perception/rust_live/provider")
+        .and_then(serde_json::Value::as_str)
+        == Some("coral")
 }
 
 #[tokio::main]
@@ -526,6 +559,28 @@ mod tests {
             args.config().unwrap().stale_after,
             Duration::from_millis(250)
         );
+    }
+
+    #[test]
+    fn coral_provider_uses_its_inference_freshness_and_expiry_budgets() {
+        let directory = tempfile::tempdir().unwrap();
+        let config_path = directory.path().join("config.json");
+        let mut document: Value = serde_json::from_str(include_str!(
+            "../../contracts/configuration/v1/defaults.json"
+        ))
+        .unwrap();
+        document["perception"]["rust_live"]["provider"] = serde_json::json!("coral");
+        fs::write(&config_path, serde_json::to_vec(&document).unwrap()).unwrap();
+
+        let args = ServerArgs::try_parse_from([
+            "billiards-server",
+            "--config",
+            config_path.to_str().unwrap(),
+        ])
+        .unwrap();
+        let config = args.config().unwrap();
+        assert_eq!(config.stale_after, Duration::from_millis(9_000));
+        assert_eq!(config.expire_after, Duration::from_millis(18_000));
     }
 
     #[test]

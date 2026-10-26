@@ -1,1 +1,0 @@
-SUPERSEDED by run5 as the canonical result. The 3,000-frame measurement used the corrected setup-only payload method, but schema 2 labeled logical payload volume as payload MiB/s without clearly distinguishing zero-copy ownership transfer from physical byte movement.

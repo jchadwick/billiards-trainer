@@ -17,7 +17,7 @@ enum CaptureSessionOutcome {
     Compatible,
 }
 
-/// A compatible source report bound to the exact Python capture request.
+/// A compatible source report bound to the exact capture request.
 ///
 /// Construction requires a `CaptureSessionCompatibility`, which can only be
 /// produced after Rust compared the opened source report with requested
@@ -43,7 +43,7 @@ impl CaptureSessionAcknowledgementV1 {
         );
         let request_sha256 = compatibility
             .request_sha256()
-            .context("live acknowledgement requires Python request bytes")?;
+            .context("live acknowledgement requires capture request bytes")?;
         ensure!(
             compatibility.source_report().session_id() == compatibility.session_id(),
             "capture compatibility report session identity is inconsistent"
@@ -96,7 +96,7 @@ impl CaptureSessionAcknowledgementV2 {
         );
         let request_sha256 = compatibility
             .request_sha256()
-            .context("live acknowledgement requires Python request bytes")?;
+            .context("live acknowledgement requires capture request bytes")?;
         ensure!(
             compatibility.source_report().session_id() == compatibility.session_id(),
             "capture compatibility report session identity is inconsistent"

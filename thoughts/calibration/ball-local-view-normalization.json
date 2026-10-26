@@ -1,0 +1,873 @@
+{
+  "K_frozen_zero_radial": [
+    [
+      696.17,
+      0.0,
+      644.18
+    ],
+    [
+      0.0,
+      695.36,
+      349.67
+    ],
+    [
+      0.0,
+      0.0,
+      1.0
+    ]
+  ],
+  "physical_diameter_mm": 57.15,
+  "scope": "local 2D point homography only; no ball depth/height fit, no variable physical radius",
+  "method_note": "Gradient points are preselected by previous free-ellipse consensus; comparisons isolate circle constraint rather than independent edge selection. Segment convex hull can bridge invalid arcs. Local radius is image pixels only.",
+  "balls": [
+    {
+      "id": "top-left-pocket-ball",
+      "physical_ground_truth_available": false,
+      "source_segmentation_aspect": 1.658464074454972,
+      "source_gradient_aspect": 1.3141631921587085,
+      "review_flags": [
+        "segmentation likely selected an internal highlight/fragment rather than full ball",
+        "segmentation threshold sensitivity exceeds 1 px",
+        "methods disagree by more than 2 px; neither establishes true center",
+        "gradient center sensitive to omitted arc",
+        "no physical XY ground truth; pocket/jaw silhouette may be occluded"
+      ],
+      "segmentation": {
+        "source_center_px": [
+          109.00811443638253,
+          99.46685577134053
+        ],
+        "local_circle_radius_px": 3.1182155403015823,
+        "local_circle_rms_px": 0.45837916161612563,
+        "local_ellipse_axis_ratio": 1.3263895218127766,
+        "iteration_center_shifts_px": [
+          8.929328418804358,
+          0.00020002507399724515,
+          4.5467800690458e-09
+        ],
+        "source_center_vs_free_ellipse_offset_px": 0.1307553155162365,
+        "source_free_ellipse_center_px": [
+          108.91069030761719,
+          99.37964630126953
+        ]
+      },
+      "gradient": {
+        "source_center_px": [
+          102.19257455881213,
+          106.31813972273494
+        ],
+        "local_circle_radius_px": 10.577492803976678,
+        "local_circle_rms_px": 0.3167763989653038,
+        "local_ellipse_axis_ratio": 1.0779222048593642,
+        "iteration_center_shifts_px": [
+          1.332437417307822,
+          0.00030492493166815705,
+          6.920026887310215e-08
+        ],
+        "source_center_vs_free_ellipse_offset_px": 0.26250801693788206,
+        "source_free_ellipse_center_px": [
+          101.95158386230469,
+          106.42222595214844
+        ]
+      }
+    },
+    {
+      "id": "top-orange-solid-second-left-ball",
+      "physical_ground_truth_available": true,
+      "source_segmentation_aspect": 1.156389618825626,
+      "source_gradient_aspect": 1.1755799047675404,
+      "review_flags": [],
+      "segmentation": {
+        "source_center_px": [
+          352.5408021581563,
+          96.65313240552015
+        ],
+        "local_circle_radius_px": 13.071330806826003,
+        "local_circle_rms_px": 0.24312946467150262,
+        "local_ellipse_axis_ratio": 1.0256644858856545,
+        "iteration_center_shifts_px": [
+          0.6427101606428095,
+          0.00022752291761712925,
+          8.066499520644367e-08
+        ],
+        "source_center_vs_free_ellipse_offset_px": 0.1507000431564876,
+        "source_free_ellipse_center_px": [
+          352.43511962890625,
+          96.54570007324219
+        ]
+      },
+      "gradient": {
+        "source_center_px": [
+          352.2060471841788,
+          96.78112852536337
+        ],
+        "local_circle_radius_px": 12.022888637650114,
+        "local_circle_rms_px": 0.20482737688032152,
+        "local_ellipse_axis_ratio": 1.0289850399586777,
+        "iteration_center_shifts_px": [
+          0.30068822957321334,
+          8.8580847609222e-05,
+          2.611924291904633e-08
+        ],
+        "source_center_vs_free_ellipse_offset_px": 0.09487212958748975,
+        "source_free_ellipse_center_px": [
+          352.135498046875,
+          96.71769714355469
+        ]
+      }
+    },
+    {
+      "id": "top-middle-pocket-ball",
+      "physical_ground_truth_available": false,
+      "source_segmentation_aspect": 1.2145861610014688,
+      "source_gradient_aspect": 1.0782779380805607,
+      "review_flags": [
+        "methods disagree by more than 2 px; neither establishes true center",
+        "no physical XY ground truth; pocket/jaw silhouette may be occluded"
+      ],
+      "segmentation": {
+        "source_center_px": [
+          641.8961901680414,
+          92.85732990253666
+        ],
+        "local_circle_radius_px": 16.30513632529557,
+        "local_circle_rms_px": 1.2201097506990688,
+        "local_ellipse_axis_ratio": 1.1433830047281464,
+        "iteration_center_shifts_px": [
+          4.146478457806689,
+          0.002509504155825804,
+          1.5134639421696656e-06
+        ],
+        "source_center_vs_free_ellipse_offset_px": 0.3297911490573619,
+        "source_free_ellipse_center_px": [
+          641.8814086914062,
+          92.52787017822266
+        ]
+      },
+      "gradient": {
+        "source_center_px": [
+          641.4038281982915,
+          97.20175124724165
+        ],
+        "local_circle_radius_px": 12.804407294524301,
+        "local_circle_rms_px": 0.25527331757964006,
+        "local_ellipse_axis_ratio": 1.0156938355664074,
+        "iteration_center_shifts_px": [
+          0.6295963281542953,
+          0.00021227012553287815,
+          7.17736121147544e-08
+        ],
+        "source_center_vs_free_ellipse_offset_px": 0.13367183127263862,
+        "source_free_ellipse_center_px": [
+          641.4094848632812,
+          97.06819915771484
+        ]
+      }
+    },
+    {
+      "id": "top-red-striped-second-right-ball",
+      "physical_ground_truth_available": true,
+      "source_segmentation_aspect": 1.1408315267621332,
+      "source_gradient_aspect": 1.1715936398846507,
+      "review_flags": [],
+      "segmentation": {
+        "source_center_px": [
+          927.6631202399368,
+          93.58299955497087
+        ],
+        "local_circle_radius_px": 13.01945660345902,
+        "local_circle_rms_px": 0.19728982896088906,
+        "local_ellipse_axis_ratio": 1.0291497505934677,
+        "iteration_center_shifts_px": [
+          0.5362643250104056,
+          0.00018855690697939175,
+          6.615653329762579e-08
+        ],
+        "source_center_vs_free_ellipse_offset_px": 0.180389701462972,
+        "source_free_ellipse_center_px": [
+          927.8120727539062,
+          93.48124694824219
+        ]
+      },
+      "gradient": {
+        "source_center_px": [
+          927.4989341154555,
+          93.65968336359973
+        ],
+        "local_circle_radius_px": 12.099239334524054,
+        "local_circle_rms_px": 0.24070200752407148,
+        "local_ellipse_axis_ratio": 1.0273120378365372,
+        "iteration_center_shifts_px": [
+          0.6058892261761681,
+          0.00018107353535605709,
+          5.423965183240531e-08
+        ],
+        "source_center_vs_free_ellipse_offset_px": 0.19040947858715226,
+        "source_free_ellipse_center_px": [
+          927.6590576171875,
+          93.55664825439453
+        ]
+      }
+    },
+    {
+      "id": "top-right-cue-pocket-ball",
+      "physical_ground_truth_available": false,
+      "source_segmentation_aspect": 1.0966479032871268,
+      "source_gradient_aspect": 1.3276196701119654,
+      "review_flags": [
+        "methods disagree by more than 2 px; neither establishes true center",
+        "no physical XY ground truth; pocket/jaw silhouette may be occluded"
+      ],
+      "segmentation": {
+        "source_center_px": [
+          1197.8364830575579,
+          93.88457354092037
+        ],
+        "local_circle_radius_px": 12.598138609974361,
+        "local_circle_rms_px": 1.1571249517954316,
+        "local_ellipse_axis_ratio": 1.2141527057250807,
+        "iteration_center_shifts_px": [
+          3.617568140946524,
+          0.0011480775594316316,
+          3.733101401025611e-07
+        ],
+        "source_center_vs_free_ellipse_offset_px": 0.1713626989663387,
+        "source_free_ellipse_center_px": [
+          1197.8917236328125,
+          93.72235870361328
+        ]
+      },
+      "gradient": {
+        "source_center_px": [
+          1195.89602220431,
+          96.50636162457438
+        ],
+        "local_circle_radius_px": 10.429178551649606,
+        "local_circle_rms_px": 0.1409859019532497,
+        "local_ellipse_axis_ratio": 1.0022686472546787,
+        "iteration_center_shifts_px": [
+          0.504583555498219,
+          0.00011333640922848577,
+          2.5449163971488988e-08
+        ],
+        "source_center_vs_free_ellipse_offset_px": 0.22939289142072056,
+        "source_free_ellipse_center_px": [
+          1196.1051025390625,
+          96.4119873046875
+        ]
+      }
+    },
+    {
+      "id": "far-left-yellow-middle-row-ball",
+      "physical_ground_truth_available": true,
+      "source_segmentation_aspect": 1.2673299925179833,
+      "source_gradient_aspect": 1.2814422552981586,
+      "review_flags": [],
+      "segmentation": {
+        "source_center_px": [
+          95.61233800598858,
+          361.94647172405405
+        ],
+        "local_circle_radius_px": 11.674731349757304,
+        "local_circle_rms_px": 0.4282276125199871,
+        "local_ellipse_axis_ratio": 1.0531433324726884,
+        "iteration_center_shifts_px": [
+          0.39144935142097526,
+          0.00010925192516535724,
+          3.053503006837922e-08
+        ],
+        "source_center_vs_free_ellipse_offset_px": 0.4082085005807707,
+        "source_free_ellipse_center_px": [
+          95.23236083984375,
+          361.79730224609375
+        ]
+      },
+      "gradient": {
+        "source_center_px": [
+          95.67166011285582,
+          362.0563233879569
+        ],
+        "local_circle_radius_px": 10.572990432215322,
+        "local_circle_rms_px": 0.16957722311985085,
+        "local_ellipse_axis_ratio": 1.012309035418961,
+        "iteration_center_shifts_px": [
+          0.33321290737463627,
+          7.720951786844703e-05,
+          1.7883935294358573e-08
+        ],
+        "source_center_vs_free_ellipse_offset_px": 0.17509725412152988,
+        "source_free_ellipse_center_px": [
+          95.49854278564453,
+          362.08258056640625
+        ]
+      }
+    },
+    {
+      "id": "interior-purple-second-left-middle-row-ball",
+      "physical_ground_truth_available": true,
+      "source_segmentation_aspect": 1.0600430770554745,
+      "source_gradient_aspect": 1.3638952117698013,
+      "review_flags": [
+        "methods disagree by more than 2 px; neither establishes true center"
+      ],
+      "segmentation": {
+        "source_center_px": [
+          357.8365642822272,
+          363.5297158092953
+        ],
+        "local_circle_radius_px": 12.779545047292272,
+        "local_circle_rms_px": 0.24755443071978714,
+        "local_ellipse_axis_ratio": 1.0265627439490803,
+        "iteration_center_shifts_px": [
+          1.9225225991274804,
+          0.0006454293620443307,
+          2.1648949781282838e-07
+        ],
+        "source_center_vs_free_ellipse_offset_px": 0.12359420819902796,
+        "source_free_ellipse_center_px": [
+          357.7143859863281,
+          363.5483703613281
+        ]
+      },
+      "gradient": {
+        "source_center_px": [
+          357.8992056100444,
+          361.8017046337261
+        ],
+        "local_circle_radius_px": 11.026384766685519,
+        "local_circle_rms_px": 0.9960667764703505,
+        "local_ellipse_axis_ratio": 1.272561627699264,
+        "iteration_center_shifts_px": [
+          1.1188070006556043,
+          0.0002950921614414699,
+          7.751648863566113e-08
+        ],
+        "source_center_vs_free_ellipse_offset_px": 1.0807229691407545,
+        "source_free_ellipse_center_px": [
+          358.9623107910156,
+          361.60736083984375
+        ]
+      }
+    },
+    {
+      "id": "middle-row-center-ball",
+      "physical_ground_truth_available": true,
+      "source_segmentation_aspect": 1.0127030290091064,
+      "source_gradient_aspect": 1.2735832556514286,
+      "review_flags": [
+        "methods disagree by more than 2 px; neither establishes true center"
+      ],
+      "segmentation": {
+        "source_center_px": [
+          643.3873252640666,
+          361.2721726506268
+        ],
+        "local_circle_radius_px": 13.781233329483092,
+        "local_circle_rms_px": 0.2021628421694224,
+        "local_ellipse_axis_ratio": 1.012237165182575,
+        "iteration_center_shifts_px": [
+          0.47357899177057894,
+          0.0001883067123579889,
+          7.475340467346973e-08
+        ],
+        "source_center_vs_free_ellipse_offset_px": 0.022992305378161652,
+        "source_free_ellipse_center_px": [
+          643.3884887695312,
+          361.2951354980469
+        ]
+      },
+      "gradient": {
+        "source_center_px": [
+          644.2294261639138,
+          358.5690347477485
+        ],
+        "local_circle_radius_px": 10.72430026773395,
+        "local_circle_rms_px": 1.2551554709996275,
+        "local_ellipse_axis_ratio": 1.2765796191336896,
+        "iteration_center_shifts_px": [
+          2.7247899686304766,
+          0.0006242876444626957,
+          1.4296607083759123e-07
+        ],
+        "source_center_vs_free_ellipse_offset_px": 0.8092746878267887,
+        "source_free_ellipse_center_px": [
+          644.9482421875,
+          358.9408264160156
+        ]
+      }
+    },
+    {
+      "id": "interior-green-second-right-middle-row-ball",
+      "physical_ground_truth_available": true,
+      "source_segmentation_aspect": 1.1029660835331991,
+      "source_gradient_aspect": 2.038927482932614,
+      "review_flags": [
+        "gradient center sensitive to omitted arc"
+      ],
+      "segmentation": {
+        "source_center_px": [
+          924.8554163425009,
+          361.63040932550473
+        ],
+        "local_circle_radius_px": 12.712552394289611,
+        "local_circle_rms_px": 1.061256724399523,
+        "local_ellipse_axis_ratio": 1.1908576882691608,
+        "iteration_center_shifts_px": [
+          0.6470083343832387,
+          0.00023152340624699776,
+          8.286257712127394e-08
+        ],
+        "source_center_vs_free_ellipse_offset_px": 0.1297807880183998,
+        "source_free_ellipse_center_px": [
+          924.9716796875,
+          361.6880798339844
+        ]
+      },
+      "gradient": {
+        "source_center_px": [
+          927.5160733046829,
+          361.71383516336675
+        ],
+        "local_circle_radius_px": 9.233373406056332,
+        "local_circle_rms_px": 1.9406166707483963,
+        "local_ellipse_axis_ratio": 1.894950180149708,
+        "iteration_center_shifts_px": [
+          2.615898047662483,
+          0.0005240478766004301,
+          1.0470659934268712e-07
+        ],
+        "source_center_vs_free_ellipse_offset_px": 3.150266400238125,
+        "source_free_ellipse_center_px": [
+          924.3916015625,
+          361.3115234375
+        ]
+      }
+    },
+    {
+      "id": "far-right-purple-middle-row-ball",
+      "physical_ground_truth_available": true,
+      "source_segmentation_aspect": 1.2519592035004312,
+      "source_gradient_aspect": 1.3358160400915597,
+      "review_flags": [],
+      "segmentation": {
+        "source_center_px": [
+          1199.0246384375378,
+          362.750062308542
+        ],
+        "local_circle_radius_px": 11.044707317539766,
+        "local_circle_rms_px": 0.5103302188706794,
+        "local_ellipse_axis_ratio": 1.0417799017993017,
+        "iteration_center_shifts_px": [
+          1.6166351704074484,
+          0.0003963889761806348,
+          9.755094368799463e-08
+        ],
+        "source_center_vs_free_ellipse_offset_px": 0.5016337450821217,
+        "source_free_ellipse_center_px": [
+          1199.4954833984375,
+          362.5770263671875
+        ]
+      },
+      "gradient": {
+        "source_center_px": [
+          1197.3025260538736,
+          362.11637133887956
+        ],
+        "local_circle_radius_px": 11.210436569454,
+        "local_circle_rms_px": 0.30801021701848147,
+        "local_ellipse_axis_ratio": 1.0452401979947206,
+        "iteration_center_shifts_px": [
+          2.00913426606884,
+          0.0005213786284148134,
+          1.3312208962293873e-07
+        ],
+        "source_center_vs_free_ellipse_offset_px": 0.2765487862252077,
+        "source_free_ellipse_center_px": [
+          1197.558837890625,
+          362.22021484375
+        ]
+      }
+    },
+    {
+      "id": "bottom-left-pocket-ball",
+      "physical_ground_truth_available": false,
+      "source_segmentation_aspect": 1.189415961952018,
+      "source_gradient_aspect": 1.3221916517795083,
+      "review_flags": [
+        "methods disagree by more than 2 px; neither establishes true center",
+        "no physical XY ground truth; pocket/jaw silhouette may be occluded"
+      ],
+      "segmentation": {
+        "source_center_px": [
+          104.14053572439929,
+          620.4750370122695
+        ],
+        "local_circle_radius_px": 12.788063408215544,
+        "local_circle_rms_px": 0.9641085029588876,
+        "local_ellipse_axis_ratio": 1.1327323257896085,
+        "iteration_center_shifts_px": [
+          2.620907279007615,
+          0.0008913973888926965,
+          3.034898019564771e-07
+        ],
+        "source_center_vs_free_ellipse_offset_px": 0.4697893621442242,
+        "source_free_ellipse_center_px": [
+          103.87836456298828,
+          620.8648681640625
+        ]
+      },
+      "gradient": {
+        "source_center_px": [
+          105.75571703219973,
+          617.0988080850803
+        ],
+        "local_circle_radius_px": 10.094177219804626,
+        "local_circle_rms_px": 0.17329254030241262,
+        "local_ellipse_axis_ratio": 1.0110575116465172,
+        "iteration_center_shifts_px": [
+          1.1763646948723692,
+          0.0002460875574051237,
+          5.159581286118092e-08
+        ],
+        "source_center_vs_free_ellipse_offset_px": 0.21843003848565093,
+        "source_free_ellipse_center_px": [
+          105.55913543701172,
+          617.1940307617188
+        ]
+      }
+    },
+    {
+      "id": "bottom-black-second-left-ball",
+      "physical_ground_truth_available": true,
+      "source_segmentation_aspect": 1.0081533008536578,
+      "source_gradient_aspect": 1.2676264415599487,
+      "review_flags": [
+        "segmentation threshold sensitivity exceeds 1 px"
+      ],
+      "segmentation": {
+        "source_center_px": [
+          362.4150659806074,
+          626.8535563749562
+        ],
+        "local_circle_radius_px": 11.609036329897723,
+        "local_circle_rms_px": 1.0465653456082222,
+        "local_ellipse_axis_ratio": 1.147225035697912,
+        "iteration_center_shifts_px": [
+          0.6031579049735125,
+          0.00017079276950002337,
+          4.776470509413087e-08
+        ],
+        "source_center_vs_free_ellipse_offset_px": 0.7151605443410559,
+        "source_free_ellipse_center_px": [
+          362.78363037109375,
+          627.4664306640625
+        ]
+      },
+      "gradient": {
+        "source_center_px": [
+          362.2082038377252,
+          626.5078424514019
+        ],
+        "local_circle_radius_px": 11.966364001494133,
+        "local_circle_rms_px": 0.5062992285527073,
+        "local_ellipse_axis_ratio": 1.105699968337916,
+        "iteration_center_shifts_px": [
+          0.9325587177838485,
+          0.0002712419244011592,
+          7.773666897175833e-08
+        ],
+        "source_center_vs_free_ellipse_offset_px": 0.653136087247846,
+        "source_free_ellipse_center_px": [
+          361.5634460449219,
+          626.6121215820312
+        ]
+      }
+    },
+    {
+      "id": "bottom-middle-pocket-ball",
+      "physical_ground_truth_available": false,
+      "source_segmentation_aspect": 1.1131231181364423,
+      "source_gradient_aspect": 1.362881109570339,
+      "review_flags": [
+        "no physical XY ground truth; pocket/jaw silhouette may be occluded"
+      ],
+      "segmentation": {
+        "source_center_px": [
+          641.1725879561827,
+          634.4993357900747
+        ],
+        "local_circle_radius_px": 16.140765644481707,
+        "local_circle_rms_px": 1.099757769959437,
+        "local_ellipse_axis_ratio": 1.0368154394278077,
+        "iteration_center_shifts_px": [
+          4.505157442719215,
+          0.0025143311097340234,
+          1.4011595226558048e-06
+        ],
+        "source_center_vs_free_ellipse_offset_px": 0.3103036342639023,
+        "source_free_ellipse_center_px": [
+          641.1703491210938,
+          634.8096313476562
+        ]
+      },
+      "gradient": {
+        "source_center_px": [
+          641.2324379477219,
+          633.2238820576406
+        ],
+        "local_circle_radius_px": 12.352608395847014,
+        "local_circle_rms_px": 1.2565685248710723,
+        "local_ellipse_axis_ratio": 1.368746325017288,
+        "iteration_center_shifts_px": [
+          3.233162451636911,
+          0.0009131010720483059,
+          2.646016507664231e-07
+        ],
+        "source_center_vs_free_ellipse_offset_px": 0.8684016288434068,
+        "source_free_ellipse_center_px": [
+          640.388671875,
+          633.4292602539062
+        ]
+      }
+    },
+    {
+      "id": "bottom-yellow-second-right-ball",
+      "physical_ground_truth_available": true,
+      "source_segmentation_aspect": 1.0755733388620161,
+      "source_gradient_aspect": 1.1776876638836629,
+      "review_flags": [],
+      "segmentation": {
+        "source_center_px": [
+          925.0476599666757,
+          630.765641553005
+        ],
+        "local_circle_radius_px": 13.236366740205785,
+        "local_circle_rms_px": 1.375505687682523,
+        "local_ellipse_axis_ratio": 1.1807770868043863,
+        "iteration_center_shifts_px": [
+          0.7673854762834225,
+          0.00026206977647565897,
+          9.014590446339137e-08
+        ],
+        "source_center_vs_free_ellipse_offset_px": 0.8842080183560457,
+        "source_free_ellipse_center_px": [
+          924.3880004882812,
+          631.3544311523438
+        ]
+      },
+      "gradient": {
+        "source_center_px": [
+          925.2205363913952,
+          630.1091146835214
+        ],
+        "local_circle_radius_px": 11.907231621298111,
+        "local_circle_rms_px": 0.23613144824504195,
+        "local_ellipse_axis_ratio": 1.0234016338741039,
+        "iteration_center_shifts_px": [
+          0.24612597058560953,
+          7.251768252148979e-05,
+          2.1354453428415506e-08
+        ],
+        "source_center_vs_free_ellipse_offset_px": 0.16533126506181686,
+        "source_free_ellipse_center_px": [
+          925.2743530273438,
+          630.2654418945312
+        ]
+      }
+    },
+    {
+      "id": "bottom-right-pocket-ball",
+      "physical_ground_truth_available": false,
+      "source_segmentation_aspect": 1.1881413499961557,
+      "source_gradient_aspect": 1.4135599304372222,
+      "review_flags": [
+        "methods disagree by more than 2 px; neither establishes true center",
+        "no physical XY ground truth; pocket/jaw silhouette may be occluded"
+      ],
+      "segmentation": {
+        "source_center_px": [
+          1195.1851166170707,
+          631.6630091179786
+        ],
+        "local_circle_radius_px": 12.716719722544712,
+        "local_circle_rms_px": 1.1393707866415375,
+        "local_ellipse_axis_ratio": 1.1694677531519202,
+        "iteration_center_shifts_px": [
+          3.668906023553359,
+          0.0012258772388648639,
+          4.128897715602701e-07
+        ],
+        "source_center_vs_free_ellipse_offset_px": 0.3037506839903894,
+        "source_free_ellipse_center_px": [
+          1195.48876953125,
+          631.6707153320312
+        ]
+      },
+      "gradient": {
+        "source_center_px": [
+          1190.316876216437,
+          627.2999364171123
+        ],
+        "local_circle_radius_px": 9.920611805393497,
+        "local_circle_rms_px": 0.39684371494197584,
+        "local_ellipse_axis_ratio": 1.075261283183736,
+        "iteration_center_shifts_px": [
+          4.7361356876852785,
+          0.0009767132984719203,
+          2.0291202747060992e-07
+        ],
+        "source_center_vs_free_ellipse_offset_px": 0.5183758863256017,
+        "source_free_ellipse_center_px": [
+          1190.0172119140625,
+          626.876953125
+        ]
+      }
+    }
+  ],
+  "nine_point_diagnostics": {
+    "segmentation_free_ellipse": {
+      "training_rms_mm": 3.9696102950695655,
+      "leave_one_position_out_rms_mm": 8.948455288023201,
+      "held_out_errors_mm": {
+        "top-orange-solid-second-left-ball": 10.687943058670749,
+        "top-red-striped-second-right-ball": 7.449154730825547,
+        "far-left-yellow-middle-row-ball": 13.100470786744447,
+        "interior-purple-second-left-middle-row-ball": 2.621414065456608,
+        "middle-row-center-ball": 9.071750165429433,
+        "interior-green-second-right-middle-row-ball": 2.9220785750486886,
+        "far-right-purple-middle-row-ball": 2.16024953491663,
+        "bottom-black-second-left-ball": 14.636044509483087,
+        "bottom-yellow-second-right-ball": 7.920973274179194
+      }
+    },
+    "segmentation_local_circle": {
+      "training_rms_mm": 3.775783485055694,
+      "leave_one_position_out_rms_mm": 8.47147815228336,
+      "held_out_errors_mm": {
+        "top-orange-solid-second-left-ball": 9.860190284518817,
+        "top-red-striped-second-right-ball": 8.418959810170602,
+        "far-left-yellow-middle-row-ball": 11.374138226655049,
+        "interior-purple-second-left-middle-row-ball": 2.9183730651398005,
+        "middle-row-center-ball": 9.092504047499052,
+        "interior-green-second-right-middle-row-ball": 2.8024117896646663,
+        "far-right-purple-middle-row-ball": 3.9261220889020887,
+        "bottom-black-second-left-ball": 12.676774752047278,
+        "bottom-yellow-second-right-ball": 8.559271336930857
+      }
+    },
+    "gradient_free_ellipse": {
+      "training_rms_mm": 3.810775488047239,
+      "leave_one_position_out_rms_mm": 8.007653471994509,
+      "held_out_errors_mm": {
+        "top-orange-solid-second-left-ball": 7.970286182930191,
+        "top-red-striped-second-right-ball": 10.861713129398654,
+        "far-left-yellow-middle-row-ball": 9.429202220448094,
+        "interior-purple-second-left-middle-row-ball": 3.384897509324779,
+        "middle-row-center-ball": 8.746888122144721,
+        "interior-green-second-right-middle-row-ball": 2.5341784533548677,
+        "far-right-purple-middle-row-ball": 5.751321321017031,
+        "bottom-black-second-left-ball": 8.660844804000606,
+        "bottom-yellow-second-right-ball": 10.208571184582212
+      }
+    },
+    "gradient_local_circle": {
+      "training_rms_mm": 4.30450963005819,
+      "leave_one_position_out_rms_mm": 8.459836885035381,
+      "held_out_errors_mm": {
+        "top-orange-solid-second-left-ball": 8.890380499101168,
+        "top-red-striped-second-right-ball": 8.246759346274445,
+        "far-left-yellow-middle-row-ball": 6.946473021807426,
+        "interior-purple-second-left-middle-row-ball": 0.5322160316791829,
+        "middle-row-center-ball": 11.25086632478764,
+        "interior-green-second-right-middle-row-ball": 4.882416955194617,
+        "far-right-purple-middle-row-ball": 10.368978539861805,
+        "bottom-black-second-left-ball": 10.477690791681653,
+        "bottom-yellow-second-right-ball": 8.989839038747625
+      }
+    }
+  },
+  "synthetic_exact_tangent_cone_tests": [
+    {
+      "known_center_px": [
+        644.18,
+        349.67
+      ],
+      "noise_sigma_px": 0.0,
+      "source_aspect": 1.001165184413144,
+      "normalized_aspect": 1.0,
+      "recovered_center_error_px": 0.0
+    },
+    {
+      "known_center_px": [
+        644.18,
+        349.67
+      ],
+      "noise_sigma_px": 0.3,
+      "source_aspect": 1.001165184413144,
+      "normalized_aspect": 1.0103892172555335,
+      "recovered_center_error_px": 0.04954112152494537
+    },
+    {
+      "known_center_px": [
+        95,
+        362
+      ],
+      "noise_sigma_px": 0.0,
+      "source_aspect": 1.2754596400718938,
+      "normalized_aspect": 1.0,
+      "recovered_center_error_px": 7.105427357601002e-14
+    },
+    {
+      "known_center_px": [
+        95,
+        362
+      ],
+      "noise_sigma_px": 0.3,
+      "source_aspect": 1.2754596400718938,
+      "normalized_aspect": 1.003160325122787,
+      "recovered_center_error_px": 0.015302235433261098
+    },
+    {
+      "known_center_px": [
+        1198,
+        364
+      ],
+      "noise_sigma_px": 0.0,
+      "source_aspect": 1.2796484188643527,
+      "normalized_aspect": 1.0,
+      "recovered_center_error_px": 5.684341886080802e-14
+    },
+    {
+      "known_center_px": [
+        1198,
+        364
+      ],
+      "noise_sigma_px": 0.3,
+      "source_aspect": 1.2796484188643527,
+      "normalized_aspect": 1.0089567019527896,
+      "recovered_center_error_px": 0.027246394967472987
+    },
+    {
+      "known_center_px": [
+        105,
+        618
+      ],
+      "noise_sigma_px": 0.0,
+      "source_aspect": 1.3235308689782814,
+      "normalized_aspect": 1.0,
+      "recovered_center_error_px": 7.105427357601002e-14
+    },
+    {
+      "known_center_px": [
+        105,
+        618
+      ],
+      "noise_sigma_px": 0.3,
+      "source_aspect": 1.3235308689782814,
+      "normalized_aspect": 1.0052461741610883,
+      "recovered_center_error_px": 0.04039854840487817
+    }
+  ],
+  "source_image": "/Users/jchadwick/repos/jchadwick/billiards-trainer/thoughts/calibration/table-grid-20261026-114241.jpg",
+  "production_changes": false
+}

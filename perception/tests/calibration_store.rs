@@ -10,6 +10,10 @@ use billiards_perception::calibration::{
 use billiards_perception::calibration_store::{
     CalibrationCaptureContextV1, CalibrationStore, CalibrationStoreError, CalibrationStoreSnapshot,
 };
+use billiards_perception::table_visibility::{
+    FeatureLayout, NormalizedPoint, RgbFeature, TableRegion, TableVisibilityConfig,
+    TableVisibilityReference,
+};
 use billiards_perception::ImageSpace;
 use fs2::FileExt;
 
@@ -57,6 +61,49 @@ fn write_store_json(path: &std::path::Path, contents: &str) {
     fs::write(path, contents).expect("test store fixture should be writable");
 }
 
+fn visibility_reference(width: u32, height: u32) -> TableVisibilityReference {
+    let config = TableVisibilityConfig::default();
+    let cloth_count = usize::from(config.cloth_grid_width) * usize::from(config.cloth_grid_height);
+    let rail_count = 4
+        * usize::from(config.rail_profiles_per_side)
+        * usize::from(config.rail_profile_depth_samples);
+    TableVisibilityReference {
+        schema_version: 1,
+        source_width: width,
+        source_height: height,
+        table_region: TableRegion::new([
+            NormalizedPoint { x: 0.1, y: 0.1 },
+            NormalizedPoint { x: 0.9, y: 0.1 },
+            NormalizedPoint { x: 0.9, y: 0.9 },
+            NormalizedPoint { x: 0.1, y: 0.9 },
+        ]),
+        feature_layout: FeatureLayout {
+            cloth_grid_width: config.cloth_grid_width,
+            cloth_grid_height: config.cloth_grid_height,
+            cloth_inset_fraction: config.cloth_inset_fraction,
+            rail_profiles_per_side: config.rail_profiles_per_side,
+            rail_profile_depth_samples: config.rail_profile_depth_samples,
+            rail_profile_half_width_fraction: config.rail_profile_half_width_fraction,
+        },
+        cloth_features: vec![
+            RgbFeature {
+                red: 42,
+                green: 132,
+                blue: 54,
+            };
+            cloth_count
+        ],
+        rail_features: vec![
+            RgbFeature {
+                red: 106,
+                green: 72,
+                blue: 42,
+            };
+            rail_count
+        ],
+    }
+}
+
 #[test]
 fn cross_process_lock_holder_test_entry() {
     let Ok(lock_path) = std::env::var("BILLIARDS_TEST_CALIBRATION_LOCK_PATH") else {
@@ -90,6 +137,7 @@ fn missing_path_has_no_revision_and_first_save_round_trips_with_revision_one() {
             revision: None,
             calibration: None,
             binding_context: None,
+            visibility_reference: None,
         }
     );
 
@@ -118,17 +166,25 @@ fn capture_binding_is_persisted_and_must_match_the_solved_calibration() {
         calibration_revision: 0,
         rectification_revision: 4,
     };
+    let reference = visibility_reference(context.source_width_px, context.source_height_px);
     let saved = store
-        .save_with_context(None, fixture_input(), Some(context.clone()))
+        .save_with_context_and_visibility(
+            None,
+            fixture_input(),
+            Some(context.clone()),
+            Some(reference.clone()),
+        )
         .unwrap();
     assert_eq!(saved.binding_context, Some(context));
+    assert_eq!(saved.visibility_reference, Some(reference.clone()));
     let serialized: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
-    assert_eq!(serialized["schema_version"], 2);
+    assert_eq!(serialized["schema_version"], 3);
+    assert_eq!(serialized["visibility_reference"]["schema_version"], 1);
     assert_eq!(store.load().unwrap(), saved);
 
     let mut mismatched = CalibrationCaptureContextV1 {
         camera_profile_id: "other-camera".to_owned(),
-        ..saved.binding_context.unwrap()
+        ..saved.binding_context.clone().unwrap()
     };
     mismatched.source_frame_id = "frame-b".to_owned();
     let before = fs::read(&path).unwrap();
@@ -137,6 +193,19 @@ fn capture_binding_is_persisted_and_must_match_the_solved_calibration() {
         Err(CalibrationStoreError::InvalidCaptureContext)
     ));
     assert_eq!(fs::read(&path).unwrap(), before);
+
+    let mut malformed_reference = reference;
+    malformed_reference.source_width += 1;
+    assert!(matches!(
+        store.save_with_context_and_visibility(
+            saved.revision,
+            fixture_input(),
+            Some(saved.binding_context.clone().unwrap()),
+            Some(malformed_reference),
+        ),
+        Err(CalibrationStoreError::InvalidVisibilityReference)
+    ));
+    assert_eq!(store.load().unwrap(), saved);
 }
 
 #[test]

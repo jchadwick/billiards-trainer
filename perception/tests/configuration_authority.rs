@@ -56,6 +56,17 @@ fn snapshot_schema_and_defaults_are_embedded_and_use_temporary_store_path() {
         defaults["configuration"]["metadata"]["configuration_revision"],
         1
     );
+    assert!(
+        schema["schema"]["properties"]["perception"]["properties"]["rust_live"]["properties"]
+            ["provider"]["enum"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("coral"))
+    );
+    assert_eq!(
+        defaults["configuration"]["perception"]["rust_live"]["coral_python_executable"],
+        "python3"
+    );
 }
 
 #[test]
@@ -109,12 +120,12 @@ fn capture_settings_operation_resolves_v3_defaults_and_preserves_profile_hash() 
     assert_eq!(response["ok"], true);
     assert_eq!(response["operation"], "capture_settings");
     assert_eq!(response["revision"], 2);
-    let mut python_v3_golden: Value = serde_json::from_str(include_str!(
+    let mut capture_settings_v3_golden: Value = serde_json::from_str(include_str!(
         "../contracts/capture-settings/v3/capture-settings-default.json"
     ))
     .unwrap();
-    python_v3_golden["configuration_revision"] = json!(2);
-    assert_eq!(response["capture_settings"], python_v3_golden);
+    capture_settings_v3_golden["configuration_revision"] = json!(2);
+    assert_eq!(response["capture_settings"], capture_settings_v3_golden);
     assert_eq!(response["capture_settings"]["schema_version"], 3);
     assert_eq!(response["capture_settings"]["configuration_revision"], 2);
     let requested = &response["capture_settings"]["requested"];

@@ -1,10 +1,9 @@
 # Detection batch v1
 
-This contract carries the complete detector output for one source frame. It is
-the Stage 2 Rust inference boundary; it does not claim tracking or physical-ball
-identity. The tracked scene contract remains
+This contract carries the complete detector output for one source frame. It
+does not claim tracking or physical-ball identity. The tracked scene contract is
 [`../../v1/scene-snapshot.schema.json`](../../v1/scene-snapshot.schema.json)
-and is produced only after real cross-frame association exists.
+and is produced after cross-frame association.
 
 `engine_instance_id` distinguishes engine restarts. `source.session_id` and
 `source.frame_id` identify the exact input observation. `batch_sequence` orders
@@ -40,7 +39,7 @@ represents a completed observation with no detections. Failed and skipped
 batches carry a reason and no detections, so they cannot clear a previously
 valid state as if the table were observed empty.
 
-The JSON Schema defines structural constraints. Rust validation additionally
-checks source/image bounds, center-to-box consistency, model class references,
+The JSON Schema defines structural constraints. Rust validation also checks
+source/image bounds, center-to-box consistency, model class references,
 batch-local index order, limits, and comparable inference clock ordering. The
-shared fixtures are the language-neutral examples for both runtimes.
+shared fixtures are exercised by Rust contract tests.

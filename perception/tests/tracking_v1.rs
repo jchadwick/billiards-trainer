@@ -127,15 +127,20 @@ fn process(
 #[test]
 fn first_measurement_is_published_immediately_without_identity_guessing() {
     let mut tracker = SceneTrackerV1::new(config());
-    let snapshot = process(
-        &mut tracker,
-        &frame(
-            1,
-            1_000_000_000,
-            &[(1, 1882.4, 1024.7, 0.97), (0, 500.0, 400.0, 0.88)],
-        ),
-    )
-    .unwrap();
+    let mut batch = frame(
+        1,
+        1_000_000_000,
+        &[(1, 1882.4, 1024.7, 0.97), (0, 500.0, 400.0, 0.88)],
+    );
+    // This fixture represents a 64 px detector box; match its geometry so the
+    // full scene output remains a meaningful differential contract check.
+    batch.detections[0].bbox_image_px = billiards_perception::detection_batch::BoundingBox {
+        left: 1850.4,
+        top: 992.7,
+        right: 1914.4,
+        bottom: 1056.7,
+    };
+    let snapshot = process(&mut tracker, &batch).unwrap();
 
     assert_eq!(snapshot.outcome, Outcome::Success);
     assert_eq!(snapshot.balls.len(), 1);
@@ -149,6 +154,15 @@ fn first_measurement_is_published_immediately_without_identity_guessing() {
             .image_center_px
             .x,
         1882.4
+    );
+    assert_eq!(
+        snapshot.balls[0]
+            .measurement
+            .as_ref()
+            .unwrap()
+            .image_radius_px,
+        Some(billiards_perception::Point2d { x: 32.0, y: 32.0 }),
+        "the track retains the detector box half-extents"
     );
     assert_eq!(
         snapshot.balls[0]

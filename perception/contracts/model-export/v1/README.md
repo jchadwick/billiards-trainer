@@ -16,7 +16,7 @@ not export correctness, preprocessing parity, model accuracy, or performance.
 Run the producer contract test with:
 
 ```bash
-.venv/bin/python -m pytest backend/tests/unit/test_model_export_tool.py -q --no-cov
+make test-model-export
 ```
 
 Run the Rust consumer contract test with:

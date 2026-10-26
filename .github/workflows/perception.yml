@@ -6,30 +6,12 @@ on:
     paths:
       - "Makefile"
       - "perception/**"
-      - "backend/perception/**"
-      - "backend/config.py"
-      - "backend/config_schema_defaults.json"
-      - "backend/tests/unit/test_capture_configuration.py"
-      - "backend/tests/unit/test_capture_acknowledgement.py"
-      - "backend/tests/unit/test_rust_live_supervisor.py"
-      - "backend/tests/unit/test_scene_snapshot_ingress.py"
-      - "backend/tests/unit/test_perception_scene_contract.py"
-      - "backend/tests/unit/test_perception_detection_batch_contract.py"
       - ".github/workflows/perception.yml"
   pull_request:
     branches: [main, develop]
     paths:
       - "Makefile"
       - "perception/**"
-      - "backend/perception/**"
-      - "backend/config.py"
-      - "backend/config_schema_defaults.json"
-      - "backend/tests/unit/test_capture_configuration.py"
-      - "backend/tests/unit/test_capture_acknowledgement.py"
-      - "backend/tests/unit/test_rust_live_supervisor.py"
-      - "backend/tests/unit/test_scene_snapshot_ingress.py"
-      - "backend/tests/unit/test_perception_scene_contract.py"
-      - "backend/tests/unit/test_perception_detection_batch_contract.py"
       - ".github/workflows/perception.yml"
   workflow_dispatch:
 

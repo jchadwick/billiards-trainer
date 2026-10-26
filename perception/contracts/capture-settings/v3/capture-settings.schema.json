@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://billiards-trainer.local/contracts/capture-settings/v3/capture-settings.schema.json",
   "title": "Billiards Capture Settings Request v3",
-  "description": "Python-owned capture request with an explicit source-default or strict camera-control policy. This document is not a device-application acknowledgment.",
+  "description": "Rust-validated capture settings request with an explicit source-default or strict camera-control policy. This document is not a device-application acknowledgment.",
   "type": "object",
   "additionalProperties": false,
   "required": [

@@ -563,8 +563,7 @@ fn identity_key(event: &Value, timing: bool) -> Option<Identity> {
     };
     let frame = nonempty_string(event.get(frame_field)?)?;
     let sequence = event.get(sequence_field)?;
-    // `Value::as_u64` and `Value::as_i64` reject JSON booleans, as the source
-    // implementation rejects Python bool despite bool being an int subclass.
+    // JSON booleans are not valid numeric sequence identifiers.
     let sequence = sequence
         .as_i64()
         .map(Sequence::Signed)
@@ -653,7 +652,7 @@ fn percentile_object(values: &[f64], sample_limit: Option<usize>) -> Value {
     Value::Object(summary)
 }
 
-/// Python collector parity: ceil(rank * n) - 1, clamped into the sample range.
+/// Nearest-rank percentile index: ceil(rank * n) - 1, clamped to the sample range.
 fn nearest_rank(ordered: &[f64], rank: f64) -> Option<f64> {
     if ordered.is_empty() {
         return None;

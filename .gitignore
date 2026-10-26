@@ -1,305 +1,43 @@
-# Byte-compiled / optimized / DLL files
+# Rust build output
+**/target/
+
+# Browser build output and dependencies
+frontend/web/node_modules/
+frontend/web/dist/
+backend/static/
+
+# Optional ONNX export tooling
+.venv/
 __pycache__/
-*.py[codz]
-*$py.class
-
-# C extensions
-*.so
-
-# Distribution / packaging
-.Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-!frontend/projector/lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-share/python-wheels/
+*.py[cod]
 *.egg-info/
-.installed.cfg
-*.egg
-MANIFEST
-
-# PyInstaller
-#  Usually these files are written by a python script from a template
-#  before PyInstaller builds the exe, so as to inject date/other infos into it.
-*.manifest
-*.spec
-
-# Installer logs
-pip-log.txt
-pip-delete-this-directory.txt
-
-# Unit test / coverage reports
-htmlcov/
-coverage-html/
-.tox/
-.nox/
-.coverage
-.coverage.*
-.cache
-nosetests.xml
-coverage.xml
-junit*.xml
-test-report.html
-*.cover
-*.py.cover
-.hypothesis/
 .pytest_cache/
-cover/
 
-# Translations
-*.mo
-*.pot
-
-# Django stuff:
-*.log
-local_settings.py
-db.sqlite3
-db.sqlite3-journal
-
-# Flask stuff:
-instance/
-.webassets-cache
-
-# Scrapy stuff:
-.scrapy
-
-# Sphinx documentation
-docs/_build/
-
-# PyBuilder
-.pybuilder/
-target/
-
-# Jupyter Notebook
-.ipynb_checkpoints
-
-# IPython
-profile_default/
-ipython_config.py
-
-# pyenv
-#   For a library or package, you might want to ignore these files since the code is
-#   intended to run in multiple environments; otherwise, check them in:
-# .python-version
-
-# pipenv
-#   According to pypa/pipenv#598, it is recommended to include Pipfile.lock in version control.
-#   However, in case of collaboration, if having platform-specific dependencies or dependencies
-#   having no cross-platform support, pipenv may install dependencies that don't work, or not
-#   install all needed dependencies.
-#Pipfile.lock
-
-# UV
-#   Similar to Pipfile.lock, it is generally recommended to include uv.lock in version control.
-#   This is especially recommended for binary packages to ensure reproducibility, and is more
-#   commonly ignored for libraries.
-#uv.lock
-
-# poetry
-#   Similar to Pipfile.lock, it is generally recommended to include poetry.lock in version control.
-#   This is especially recommended for binary packages to ensure reproducibility, and is more
-#   commonly ignored for libraries.
-#   https://python-poetry.org/docs/basic-usage/#commit-your-poetrylock-file-to-version-control
-#poetry.lock
-#poetry.toml
-
-# pdm
-#   Similar to Pipfile.lock, it is generally recommended to include pdm.lock in version control.
-#   pdm recommends including project-wide configuration in pdm.toml, but excluding .pdm-python.
-#   https://pdm-project.org/en/latest/usage/project/#working-with-version-control
-#pdm.lock
-#pdm.toml
-.pdm-python
-.pdm-build/
-
-# pixi
-#   Similar to Pipfile.lock, it is generally recommended to include pixi.lock in version control.
-#pixi.lock
-#   Pixi creates a virtual environment in the .pixi directory, just like venv module creates one
-#   in the .venv directory. It is recommended not to include this directory in version control.
-.pixi
-
-# PEP 582; used by e.g. github.com/David-OConnor/pyflow and github.com/pdm-project/pdm
-__pypackages__/
-
-# Celery stuff
-celerybeat-schedule
-celerybeat.pid
-
-# SageMath parsed files
-*.sage.py
-
-# Environments
-.env
-.env.local
-.env.production
-.env.staging
-.envrc
-.venv
-env/
-venv/
-ENV/
-env.bak/
-venv.bak/
-
-# Spyder project settings
-.spyderproject
-.spyproject
-
-# Rope project settings
-.ropeproject
-
-# mkdocs documentation
-/site
-
-# mypy
-.mypy_cache/
-.dmypy.json
-dmypy.json
-
-# Pyre type checker
-.pyre/
-
-# pytype static type analyzer
-.pytype/
-
-# Cython debug symbols
-cython_debug/
-
-# PyCharm
-#  JetBrains specific template is maintained in a separate JetBrains.gitignore that can
-#  be found at https://github.com/github/gitignore/blob/main/Global/JetBrains.gitignore
-#  and can be added to the global gitignore or merged into this file.  For a more nuclear
-#  option (not recommended) you can uncomment the following to ignore the entire idea folder.
-#.idea/
-
-# Abstra
-# Abstra is an AI-powered process automation framework.
-# Ignore directories containing user credentials, local state, and settings.
-# Learn more at https://abstra.io/docs
-.abstra/
-
-# Visual Studio Code
-#  Visual Studio Code specific template is maintained in a separate VisualStudioCode.gitignore
-#  that can be found at https://github.com/github/gitignore/blob/main/Global/VisualStudioCode.gitignore
-#  and can be added to the global gitignore or merged into this file. However, if you prefer,
-#  you could uncomment the following to ignore the entire vscode folder
-# .vscode/
-
-# Ruff stuff:
-.ruff_cache/
-
-# PyPI configuration file
-.pypirc
-
-# Cursor
-#  Cursor is an AI-powered code editor. `.cursorignore` specifies files/directories to
-#  exclude from AI features like autocomplete and code analysis. Recommended for sensitive data
-#  refer to https://docs.cursor.com/context/ignore-files
-.cursorignore
-.cursorindexingignore
-
-# Marimo
-marimo/_static/
-marimo/_lsp/
-__marimo__/
-
-# Project-specific ignores
-# Configuration files with sensitive data
-config/production.json
-config/secrets.json
-
-# Data and output directories
-/data/
+# Local application state and generated reports
 /logs/
+/data/
 /temp/
-/debug_images/
+/dist/
+/build/
+/repomix-output.xml
 
-# Model files and large data
+# Local environment and machine-specific settings
+.env
+.env.*
+!.env.example
+*.local.json
+
+# External model and training artifacts
+*.onnx
+*.pt
 *.model
 *.weights
-*.onnx
 *.pkl
 
-# Keep compact performance reports and result JSON in version control, while
-# leaving high-volume per-event traces and replay/model inputs local to the run.
-thoughts/performance-audits/**/*.jsonl
-thoughts/performance-audits/**/frames/*.jpg
-thoughts/performance-audits/**/*.pt
-thoughts/performance-audits/**/*.so
-thoughts/performance-audits/**/billiards-perception-infer
-thoughts/performance-audits/**/raw/*.json
-thoughts/performance-audits/rust-live-trained-model-export-20261021/camera-qualification-*/**/summary.json
-thoughts/performance-audits/rust-live-trained-model-export-20261021/target-linux-replay-20261021/full-table-segment-paced-report.json
-
-# Camera and video files
-*.mp4
-*.avi
-*.mov
-*.mkv
-
-# Calibration data
-calibration_*.json
-backend/calibration_data/game_session.json.lock
-camera_matrix.json
-distortion_coefficients.json
-
-# Performance profiling
-*.prof
-*.pstats
-
-# IDE and editor files
-.vscode/settings.json
-.vscode/launch.json
+# Editor and operating-system files
+.DS_Store
+.idea/
+.vscode/
 *.swp
 *.swo
 *~
-
-# macOS specific
-.DS_Store
-.AppleDouble
-.LSOverride
-
-# Thumbnails
-._*
-
-# PyCharm additional
-.idea/workspace.xml
-.idea/tasks.xml
-.idea/dictionaries/
-.idea/shelf/
-
-# Frontend build output
-backend/static/
-frontend/web/dist/
-
-.playwright-mcp/
-
-*.local.*
-
-# ignore demo videos and other large binary files
-assets/
-*.mp4
-
-# Model training
-benchmark_output/
-dataset
-datasets/
-runs/
-training_images/
-*.pt
-debug_output/
-
-config/backups/
-*.backup
-
-.thinking/

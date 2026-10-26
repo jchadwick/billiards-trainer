@@ -34,7 +34,6 @@ pub const DEFAULT_WARMUP_SECONDS: u64 = 30;
 pub const DEFAULT_MEASURED_SECONDS: u64 = 120;
 pub const DEFAULT_REPETITIONS: usize = 3;
 pub const DEFAULT_SOAK_SECONDS: u64 = 1_200;
-pub const DEFAULT_OUTPUT_ROOT: &str = "thoughts/performance-audits";
 pub const RUN_REPORT_SCHEMA_VERSION: u8 = 8;
 pub const DEFAULT_LIVE_AUDIT_QUEUE_CAPACITY: usize = 2_048;
 pub const DEFAULT_LIVE_AUDIT_MAX_RECORD_BYTES: usize = 64 * 1024;
@@ -44,6 +43,11 @@ pub const DEFAULT_LIVE_AUDIT_CONNECT_TIMEOUT: Duration = Duration::from_millis(1
 pub const DEFAULT_LIVE_AUDIT_WRITE_TIMEOUT: Duration = Duration::from_millis(1_000);
 const MAXIMUM_REPETITIONS: usize = 1_000;
 const PROVENANCE_HASH_BUFFER_SIZE: usize = 64 * 1024;
+
+/// Keep generated audit reports outside the source tree by default.
+pub fn default_output_root() -> PathBuf {
+    std::env::temp_dir().join("billiards-performance-audits")
+}
 
 /// Settings for one repeatable state delivery audit.
 #[derive(Debug, Clone)]
@@ -2601,12 +2605,12 @@ mod tests {
         collect_environment, managed_live_provenance, render_markdown,
         GatewayWebSocketTimingAuditConfig, LivePipelineTimingAuditConfig, ManagedLiveProvenance,
         ManagedServerConfig, ManagedServerRunMetadata, ManagedServerShutdown, StateAuditRunConfig,
-        StateAuditRunReport, DEFAULT_MEASURED_SECONDS, DEFAULT_OUTPUT_ROOT, DEFAULT_REPETITIONS,
-        DEFAULT_SOAK_SECONDS, DEFAULT_WARMUP_SECONDS, RUN_REPORT_SCHEMA_VERSION,
+        StateAuditRunReport, DEFAULT_MEASURED_SECONDS, DEFAULT_REPETITIONS, DEFAULT_SOAK_SECONDS,
+        DEFAULT_WARMUP_SECONDS, RUN_REPORT_SCHEMA_VERSION,
     };
     use crate::performance_audit_receiver::StateReceiverConfig;
     use serde_json::{json, Value};
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
     use std::time::Duration;
 
     fn config() -> StateAuditRunConfig {
@@ -2617,7 +2621,7 @@ mod tests {
             repetitions: DEFAULT_REPETITIONS,
             soak: false,
             soak_duration: Duration::from_secs(DEFAULT_SOAK_SECONDS),
-            output_root: PathBuf::from(DEFAULT_OUTPUT_ROOT),
+            output_root: super::default_output_root(),
             receiver: StateReceiverConfig::default(),
             managed_server: None,
             live_pipeline_timing_audit: None,
@@ -2638,6 +2642,17 @@ mod tests {
             config.receiver.maximum_samples,
             super::super::performance_audit_receiver::DEFAULT_MAXIMUM_SAMPLES
         );
+    }
+
+    #[test]
+    fn default_audit_output_root_is_outside_the_source_tree() {
+        let repository_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("perception crate has a repository root");
+        let output_root = super::default_output_root();
+
+        assert!(!output_root.starts_with(repository_root));
+        assert!(output_root.ends_with("billiards-performance-audits"));
     }
 
     #[test]

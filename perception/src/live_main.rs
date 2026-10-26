@@ -16,10 +16,11 @@ use billiards_perception::gstreamer_capture_source::{
 };
 use billiards_perception::inference::ProviderSelection;
 use billiards_perception::live_application::{
-    read_capture_settings, run_live_application_with_audit, scene_transport_config,
-    LiveApplicationSettings,
+    parse_phase_schedule_json, read_capture_settings, run_live_application_with_audit,
+    scene_transport_config, LiveApplicationSettings,
 };
 use billiards_perception::live_audit::LiveAuditConfig;
+use billiards_perception::table_visibility::TableVisibilityConfig;
 use billiards_perception::ImageSpace;
 use clap::{ArgAction, Parser, ValueEnum};
 
@@ -28,6 +29,7 @@ enum ProviderArgument {
     Cpu,
     Auto,
     Openvino,
+    Coral,
 }
 
 impl From<ProviderArgument> for ProviderSelection {
@@ -36,6 +38,7 @@ impl From<ProviderArgument> for ProviderSelection {
             ProviderArgument::Cpu => Self::Cpu,
             ProviderArgument::Auto => Self::Auto,
             ProviderArgument::Openvino => Self::Openvino,
+            ProviderArgument::Coral => Self::Coral,
         }
     }
 }
@@ -73,13 +76,33 @@ impl From<ImageSpaceArgument> for ImageSpace {
     long_about = "Consumes one exact capture-settings JSON request from stdin and runs the live detector, tracker and protocol-v3 scene transport. A platform capture adapter must be compiled into this executable before it can open a camera."
 )]
 struct Arguments {
-    /// Explicit ONNX export. Its sibling manifest and source checkpoint must match.
+    /// Explicit ONNX export for CPU, auto, and OpenVINO providers.
     #[arg(long)]
-    onnx: PathBuf,
+    onnx: Option<PathBuf>,
 
     /// Explicit source .pt checkpoint whose digest is recorded in the export manifest.
     #[arg(long)]
     source_checkpoint: PathBuf,
+
+    /// Compiled Edge TPU TensorFlow Lite artifact for the Coral provider.
+    #[arg(long)]
+    coral_model: Option<PathBuf>,
+
+    /// Target Python executable with standalone or TensorFlow Lite support.
+    #[arg(long)]
+    coral_python: Option<PathBuf>,
+
+    /// Coral Edge TPU delegate shared library name or path.
+    #[arg(long)]
+    coral_delegate: Option<String>,
+
+    /// Delay before recreating the Coral interpreter after an inference error.
+    #[arg(long)]
+    coral_worker_restart_backoff_ms: u64,
+
+    /// Maximum Coral worker restarts allowed for one failed frame.
+    #[arg(long)]
+    coral_maximum_worker_restarts_per_frame: usize,
 
     /// Select ONNX Runtime CPU, native OpenVINO CPU, or ONNX Runtime's max-efficiency policy.
     #[arg(long, value_enum)]
@@ -116,6 +139,14 @@ struct Arguments {
     /// Maximum bytes accepted from the one-shot capture-settings stdin request.
     #[arg(long)]
     capture_settings_max_bytes: usize,
+
+    /// Compact, validated phase-specific motion/ball/cue scheduling configuration.
+    #[arg(long)]
+    phase_schedule_json: String,
+
+    /// Compact, validated calibrated-table visibility policy.
+    #[arg(long)]
+    table_visibility_config_json: Option<String>,
 
     /// Physical capture remains unavailable unless explicitly selected.
     #[arg(long, value_enum, default_value_t = CaptureSourceArgument::Unavailable)]
@@ -165,7 +196,7 @@ struct Arguments {
     #[arg(long)]
     engine_instance_id: String,
 
-    /// Source-session identity allocated by the Python gateway.
+    /// Source-session identity allocated by the Rust gateway.
     #[arg(long)]
     source_session_id: String,
 
@@ -351,6 +382,13 @@ fn main() -> Result<()> {
     let settings = LiveApplicationSettings {
         onnx_path: arguments.onnx,
         source_checkpoint_path: arguments.source_checkpoint,
+        coral_model_path: arguments.coral_model,
+        coral_python_executable: arguments.coral_python.unwrap_or_default(),
+        coral_delegate_library: arguments.coral_delegate.unwrap_or_default(),
+        coral_worker_restart_backoff: Duration::from_millis(
+            arguments.coral_worker_restart_backoff_ms,
+        ),
+        coral_maximum_worker_restarts_per_frame: arguments.coral_maximum_worker_restarts_per_frame,
         provider: arguments.provider.into(),
         image_size: arguments.image_size,
         confidence: arguments.confidence,
@@ -374,6 +412,11 @@ fn main() -> Result<()> {
         tracking_recent_observation_capacity: arguments.tracking_recent_observation_capacity,
         tracking_configuration_revision: arguments.tracking_configuration_revision,
         tracking_rectification_revision: arguments.tracking_rectification_revision,
+        phase_schedule: parse_phase_schedule_json(&arguments.phase_schedule_json)
+            .context("invalid live phase schedule")?,
+        table_visibility: parse_table_visibility_config(
+            arguments.table_visibility_config_json.as_deref(),
+        )?,
         scene_transport: scene_transport_config(
             arguments.scene_snapshots_tcp,
             arguments.scene_snapshots_max_message_bytes,
@@ -511,6 +554,7 @@ fn build_frame_preview_config(arguments: &Arguments) -> Result<Option<FramePrevi
             arguments
                 .frame_preview_calibration_max_request_bytes
                 .expect("validated above"),
+            parse_table_visibility_config(arguments.table_visibility_config_json.as_deref())?,
         )?)
     } else {
         None
@@ -544,6 +588,18 @@ fn build_frame_preview_config(arguments: &Arguments) -> Result<Option<FramePrevi
     };
     config.validate()?;
     Ok(Some(config))
+}
+
+fn parse_table_visibility_config(json: Option<&str>) -> Result<TableVisibilityConfig> {
+    let config = match json {
+        Some(json) => serde_json::from_str::<TableVisibilityConfig>(json)
+            .context("table visibility configuration is invalid JSON")?,
+        None => TableVisibilityConfig::default(),
+    };
+    config
+        .validate()
+        .context("table visibility configuration is invalid")?;
+    Ok(config)
 }
 
 enum LiveCaptureSourceFactory {
@@ -739,11 +795,14 @@ impl CaptureSourceFactory for UnavailableCaptureSourceFactory {
 #[cfg(test)]
 mod tests {
     use clap::Parser;
+    use std::path::PathBuf;
+    use std::time::Duration;
 
     use super::{
         build_capture_source_factory, build_frame_preview_config, build_live_audit_config,
         Arguments, CaptureSourceArgument, LiveCaptureSourceFactory, ProviderArgument,
     };
+    use billiards_perception::live_application::parse_phase_schedule_json;
 
     #[test]
     fn live_cli_accepts_the_explicit_supervisor_process_contract() {
@@ -758,6 +817,28 @@ mod tests {
         assert_eq!(arguments.poll_interval_ms, 25);
         assert_eq!(arguments.graceful_stop_timeout_ms, 2_000);
         assert_eq!(arguments.capture_source, CaptureSourceArgument::Unavailable);
+        let schedule = parse_phase_schedule_json(&arguments.phase_schedule_json).unwrap();
+        assert_eq!(schedule.recovering.motion_hz, 15.0);
+        assert_eq!(schedule.recovering.ball_hz, 5.0);
+        assert_eq!(schedule.recovering.cue_hz, 5.0);
+        assert_eq!(schedule.pre_shot.motion_hz, 15.0);
+        assert_eq!(schedule.pre_shot.ball_hz, 1.0);
+        assert_eq!(schedule.pre_shot.cue_hz, 5.0);
+        assert_eq!(schedule.aiming.motion_hz, 15.0);
+        assert_eq!(schedule.aiming.ball_hz, 1.0);
+        assert_eq!(schedule.aiming.cue_hz, 5.0);
+        assert_eq!(schedule.shot.motion_hz, 15.0);
+        assert_eq!(schedule.shot.ball_hz, 0.0);
+        assert_eq!(schedule.shot.cue_hz, 0.0);
+        assert_eq!(schedule.quiet_dwell, Duration::from_millis(800));
+        assert_eq!(schedule.layout_consensus_count, 3);
+        assert_eq!(schedule.layout_position_tolerance_px, 4.0);
+        assert_eq!(schedule.motion_evidence_expiry, Duration::from_millis(200));
+        assert_eq!(schedule.cue_evidence_expiry, Duration::from_millis(250));
+        assert_eq!(
+            schedule.layout_evidence_expiry,
+            Duration::from_millis(1_500)
+        );
         assert!(matches!(
             build_capture_source_factory(&arguments, &[], false).unwrap(),
             LiveCaptureSourceFactory::Unavailable(_)
@@ -778,6 +859,42 @@ mod tests {
         assert_eq!(
             billiards_perception::inference::ProviderSelection::from(parsed.provider),
             billiards_perception::inference::ProviderSelection::Openvino
+        );
+    }
+
+    #[test]
+    fn live_cli_accepts_coral_with_a_compiled_tflite_model() {
+        let mut arguments = supervisor_arguments();
+        let onnx_position = arguments
+            .iter()
+            .position(|argument| *argument == "--onnx")
+            .unwrap();
+        arguments.drain(onnx_position..=onnx_position + 1);
+        let provider_position = arguments
+            .iter()
+            .position(|argument| *argument == "--provider")
+            .unwrap();
+        arguments[provider_position + 1] = "coral";
+        arguments.extend([
+            "--coral-model",
+            "/models/detector_edgetpu.tflite",
+            "--coral-python",
+            "python3.11",
+            "--coral-delegate",
+            "libedgetpu.so.1",
+        ]);
+
+        let parsed = Arguments::try_parse_from(arguments).unwrap();
+        assert!(matches!(parsed.provider, ProviderArgument::Coral));
+        assert_eq!(
+            parsed.coral_model,
+            Some(PathBuf::from("/models/detector_edgetpu.tflite"))
+        );
+        assert_eq!(parsed.coral_python, Some(PathBuf::from("python3.11")));
+        assert_eq!(parsed.coral_delegate.as_deref(), Some("libedgetpu.so.1"));
+        assert_eq!(
+            billiards_perception::inference::ProviderSelection::from(parsed.provider),
+            billiards_perception::inference::ProviderSelection::Coral
         );
     }
 
@@ -893,6 +1010,17 @@ mod tests {
             .position(|argument| *argument == "--capture-settings-stdin")
             .unwrap();
         arguments.remove(flag_position);
+        assert!(Arguments::try_parse_from(arguments).is_err());
+    }
+
+    #[test]
+    fn live_cli_requires_the_complete_phase_schedule_json_argument() {
+        let mut arguments = supervisor_arguments();
+        let flag_position = arguments
+            .iter()
+            .position(|argument| *argument == "--phase-schedule-json")
+            .unwrap();
+        arguments.drain(flag_position..=flag_position + 1);
         assert!(Arguments::try_parse_from(arguments).is_err());
     }
 
@@ -1060,6 +1188,10 @@ mod tests {
             "/models/detector.pt",
             "--provider",
             "cpu",
+            "--coral-worker-restart-backoff-ms",
+            "250",
+            "--coral-maximum-worker-restarts-per-frame",
+            "2",
             "--image-size",
             "640",
             "--confidence",
@@ -1075,6 +1207,8 @@ mod tests {
             "--capture-settings-stdin",
             "--capture-settings-max-bytes",
             "32768",
+            "--phase-schedule-json",
+            r#"{"recovering":{"motion_hz":15,"ball_hz":5,"cue_hz":5},"pre_shot":{"motion_hz":15,"ball_hz":1,"cue_hz":5},"aiming":{"motion_hz":15,"ball_hz":1,"cue_hz":5},"shot":{"motion_hz":15,"ball_hz":0,"cue_hz":0},"quiet_dwell_ms":800,"layout_consensus_count":3,"layout_position_tolerance_px":4.0,"motion_evidence_expiry_ms":200,"cue_evidence_expiry_ms":250,"layout_evidence_expiry_ms":1500}"#,
             "--source-image-space",
             "raw",
             "--engine-instance-id",

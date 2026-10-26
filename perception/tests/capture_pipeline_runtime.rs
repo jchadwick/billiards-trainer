@@ -392,6 +392,7 @@ fn pipeline_config(
         capture_configuration_revision: 1,
         image_space,
         maximum_frame_age,
+        phase_schedule: None,
         calibration,
         scene_transport: SceneTransportConfig {
             address: SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 9),
@@ -502,6 +503,7 @@ fn fake_capture_to_anonymous_loopback_scene_delivery_runs_end_to_end() {
             capture_configuration_revision: 1,
             image_space: ImageSpace::Raw,
             maximum_frame_age: Duration::from_secs(2),
+            phase_schedule: None,
             calibration: Some(applied_calibration()),
             scene_transport: SceneTransportConfig {
                 address,

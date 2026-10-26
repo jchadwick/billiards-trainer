@@ -30,7 +30,11 @@ use crate::live_audit::{
 };
 use crate::live_config::{CaptureSessionCompatibility, ExpectedCaptureSettings};
 use crate::live_timing_spans::{FrameTimingContext, SpanGuard, SpanId};
-use crate::public_state_lifecycle::{PublicStateDeliveryV1, SceneStateLifecycle};
+use crate::phase_scheduler::SchedulerConfig;
+use crate::public_state_lifecycle::{
+    PerceptionStateV1, PublicStateDeliveryV1, PublicStateDeliveryV2, SceneStateLifecycle,
+    SourceStateMetadata,
+};
 use crate::scene_transport::{LatestSceneWriter, SceneTransportConfig, SceneTransportStats};
 use crate::tracking::{SceneTrackerV1, TrackingConfigV1};
 use crate::{
@@ -120,6 +124,10 @@ pub struct CapturePipelineConfig {
     pub image_space: BatchImageSpace,
     /// Maximum allowed host read-completion-to-publication age.
     pub maximum_frame_age: Duration,
+    /// Optional fixed phase schedule for the live coordinator. Replay and
+    /// deterministic one-shot callers can omit it and retain synchronous
+    /// processing semantics.
+    pub phase_schedule: Option<SchedulerConfig>,
     /// Calibration acknowledged by the runtime for this image geometry.
     /// When absent, scenes explicitly report table coordinates as unavailable.
     pub calibration: Option<AppliedCaptureCalibration>,
@@ -195,6 +203,16 @@ pub enum CaptureSkipReason {
     StaleAfterInference,
     DuplicateSourceFrame,
     NonIncreasingSourceTime,
+    /// The deterministic phase scheduler reserved this observation for a
+    /// later processing interval or disabled the job in the current phase.
+    AnalysisNotScheduled,
+    /// A due inference was skipped because the single-flight detector was
+    /// still working; no frame was queued for a catch-up run.
+    DetectorOverloaded,
+    /// Motion or context changed before the detector result was consumed.
+    ObsoleteInference,
+    /// The isolated detector returned an error or panicked for this frame.
+    DetectorFailed,
 }
 
 /// A frame rejected by an explicit validated-session binding before inference.
@@ -285,7 +303,9 @@ struct SourceOrderKey {
 /// `CameraReadComplete` timestamp in this run's domain. That fallback is never
 /// labeled as sensor exposure.
 pub struct CaptureScenePipeline<D: Rgb8FrameDetector> {
-    detector: D,
+    detector: Option<D>,
+    detector_model: ModelIdentity,
+    detector_settings: crate::detection_batch::InferenceSettings,
     tracker: SceneTrackerV1,
     writer: LatestSceneWriter,
     /// Optional side-channel recorder; `None` creates no audit worker or queue.
@@ -306,6 +326,8 @@ pub struct CaptureScenePipeline<D: Rgb8FrameDetector> {
     tracking_configuration_revision: u64,
     clock_origin: Instant,
     next_batch_sequence: u64,
+    next_delivery_sequence: u64,
+    latest_perception_state: Option<PerceptionStateV1>,
     current_session_id: Option<String>,
     recent_frame_ids: VecDeque<String>,
     recent_frame_id_set: HashSet<String>,
@@ -345,6 +367,8 @@ impl<D: Rgb8FrameDetector> CaptureScenePipeline<D> {
         );
         validate_config(&config, &tracking)?;
         let recent_frame_capacity = tracking.recent_observation_capacity();
+        let detector_model = detector.model_identity().clone();
+        let detector_settings = detector.inference_settings().clone();
         let tracking_camera_profile_id = tracking.camera_profile_id().to_owned();
         let tracking_configuration_revision = tracking.configuration_revision();
         let tracking_rectification_revision = tracking.rectification_revision();
@@ -355,7 +379,9 @@ impl<D: Rgb8FrameDetector> CaptureScenePipeline<D> {
         let tracker = SceneTrackerV1::new(tracking);
         let writer = LatestSceneWriter::start_with_audit(config.scene_transport, audit.clone())?;
         Ok(Self {
-            detector,
+            detector: Some(detector),
+            detector_model,
+            detector_settings,
             tracker,
             writer,
             audit,
@@ -369,6 +395,8 @@ impl<D: Rgb8FrameDetector> CaptureScenePipeline<D> {
             tracking_rectification_revision,
             clock_origin: Instant::now(),
             next_batch_sequence: 1,
+            next_delivery_sequence: 1,
+            latest_perception_state: None,
             current_session_id: None,
             recent_frame_ids: VecDeque::with_capacity(recent_frame_capacity),
             recent_frame_id_set: HashSet::with_capacity(recent_frame_capacity),
@@ -524,13 +552,31 @@ impl<D: Rgb8FrameDetector> CaptureScenePipeline<D> {
     /// after it validates and enters the bounded writer slot. The writer's
     /// queue replaces older pending scenes and never waits for socket I/O.
     pub fn process(&mut self, frame: &RgbFrameEnvelope) -> Result<CapturePipelineOutcome> {
-        self.process_with_receiver_queue_wait(frame, None)
+        self.process_with_receiver_queue_wait(frame, None, None)
+    }
+
+    /// Complete coordinator-owned publication for one inference result
+    /// produced by the dedicated detector worker. Tracking, calibration, and
+    /// state publication remain on the caller's thread.
+    pub fn process_inference_result(
+        &mut self,
+        frame: &RgbFrameEnvelope,
+        inference: FrameInferenceOutput,
+        inference_started: Instant,
+        inference_completed: Instant,
+    ) -> Result<CapturePipelineOutcome> {
+        self.process_with_receiver_queue_wait(
+            frame,
+            None,
+            Some((inference, inference_started, inference_completed)),
+        )
     }
 
     fn process_with_receiver_queue_wait(
         &mut self,
         frame: &RgbFrameEnvelope,
         receiver_queue_wait_ns: Option<u64>,
+        completed_inference: Option<(FrameInferenceOutput, Instant, Instant)>,
     ) -> Result<CapturePipelineOutcome> {
         let capture_timing = receiver_queue_wait_ns
             .map(|queue_wait_ns| {
@@ -603,6 +649,10 @@ impl<D: Rgb8FrameDetector> CaptureScenePipeline<D> {
                 | CaptureSkipReason::StaleAfterInference => {
                     self.stats.stale_frames = self.stats.stale_frames.saturating_add(1);
                 }
+                CaptureSkipReason::AnalysisNotScheduled
+                | CaptureSkipReason::DetectorOverloaded
+                | CaptureSkipReason::ObsoleteInference
+                | CaptureSkipReason::DetectorFailed => {}
             }
             self.audit_skip(frame, None, reason);
             return Ok(CapturePipelineOutcome::Skipped(reason));
@@ -642,7 +692,10 @@ impl<D: Rgb8FrameDetector> CaptureScenePipeline<D> {
         }
 
         let source = frame.source();
-        let inference_started = Instant::now();
+        let inference_started = completed_inference
+            .as_ref()
+            .map(|(_, started, _)| *started)
+            .unwrap_or_else(Instant::now);
         let parent_record_read_complete_to_inference_start_ms =
             match frame_age(frame.host_read_completed_at(), inference_started) {
                 Ok(age) => age.as_secs_f64() * 1_000.0,
@@ -652,24 +705,35 @@ impl<D: Rgb8FrameDetector> CaptureScenePipeline<D> {
                 }
             };
         self.stats.inference_started = self.stats.inference_started.saturating_add(1);
-        let detector_span =
-            start_timing_child_span(timing_context.as_ref(), "detector", frame_span_id);
-        let inference_timing_parent = detector_span.as_ref().map(SpanGuard::id);
-        let inference = match self.detector.infer_rgb8_with_timing(
-            source.width_px,
-            source.height_px,
-            frame.rgb8(),
-            timing_context.as_ref().zip(inference_timing_parent),
-        ) {
-            Ok(output) => output,
-            Err(error) => {
-                self.stats.inference_failures = self.stats.inference_failures.saturating_add(1);
-                self.audit_failure(frame, None, "inference", "inference_failed");
-                return Err(error).context("RGB8 inference failed for captured frame");
-            }
+        let (inference, inference_completed) = if let Some((output, _, completed)) =
+            completed_inference
+        {
+            (output, completed)
+        } else {
+            let detector_span =
+                start_timing_child_span(timing_context.as_ref(), "detector", frame_span_id);
+            let inference_timing_parent = detector_span.as_ref().map(SpanGuard::id);
+            let Some(detector) = self.detector.as_mut() else {
+                anyhow::bail!(
+                    "synchronous inference requested after detector ownership moved to worker"
+                );
+            };
+            let inference = match detector.infer_rgb8_with_timing(
+                source.width_px,
+                source.height_px,
+                frame.rgb8(),
+                timing_context.as_ref().zip(inference_timing_parent),
+            ) {
+                Ok(output) => output,
+                Err(error) => {
+                    self.stats.inference_failures = self.stats.inference_failures.saturating_add(1);
+                    self.audit_failure(frame, None, "inference", "inference_failed");
+                    return Err(error).context("RGB8 inference failed for captured frame");
+                }
+            };
+            drop(detector_span);
+            (inference, Instant::now())
         };
-        drop(detector_span);
-        let inference_completed = Instant::now();
         if inference.source_width_px != source.width_px
             || inference.source_height_px != source.height_px
         {
@@ -841,6 +905,7 @@ impl<D: Rgb8FrameDetector> CaptureScenePipeline<D> {
                 frame_span_id,
             )
         });
+        let mut public_delivery_sequence = None;
         let payload = if let Some(lifecycle) = self.state_lifecycle.as_mut() {
             let state_assembly_started = self.audit.as_ref().map(|_| Instant::now());
             let session_id = &scene.source.session_id;
@@ -850,12 +915,28 @@ impl<D: Rgb8FrameDetector> CaptureScenePipeline<D> {
                     .context("failed to activate Rust public-state producer epoch")?;
                 self.state_lifecycle_session_id = Some(session_id.clone());
             }
-            let received_ns =
+            let captured_ns =
                 monotonic_elapsed_ns(self.clock_origin, frame.host_read_completed_at())?;
             let now = Instant::now();
             let now_ns = monotonic_elapsed_ns(self.clock_origin, now)?;
+            // A phase-only event can be delivered while this frame is still
+            // in native inference. Order the completed scene at inference
+            // publication time, but carry its capture-to-publication delay as
+            // age offsets so localization and ball freshness remain anchored
+            // to the original camera frame.
+            let processing_age_ns = now_ns.saturating_sub(captured_ns);
+            let source_metadata = SourceStateMetadata {
+                localization_age_offset_ns: processing_age_ns,
+                ball_age_offsets_ns: scene
+                    .balls
+                    .iter()
+                    .filter(|ball| ball.last_observation.frame_id == scene.source.frame_id)
+                    .map(|ball| (ball.track_id.clone(), processing_age_ns))
+                    .collect(),
+                ..SourceStateMetadata::default()
+            };
             lifecycle
-                .ingest(&scene, received_ns, now_ns, None, None)
+                .ingest_with_source_metadata(&scene, now_ns, now_ns, source_metadata)
                 .context("Rust public-state lifecycle rejected a captured scene")?;
             let current_state = lifecycle
                 .current(now_ns)
@@ -866,14 +947,40 @@ impl<D: Rgb8FrameDetector> CaptureScenePipeline<D> {
                 }
             }
             let envelope_serialization_started = self.audit.as_ref().map(|_| Instant::now());
-            let event = PublicStateDeliveryV1::new(&scene, current_state.as_ref());
+            let event_payload = if let Some(schedule) = self.config.phase_schedule.as_ref() {
+                let sequence = self.next_delivery_sequence;
+                let mut perception = self
+                    .latest_perception_state
+                    .clone()
+                    .unwrap_or_else(|| initial_perception_state(schedule, sequence));
+                perception.event_sequence = sequence;
+                let mut current_state = current_state;
+                if let Some(current) = current_state.as_mut() {
+                    current.payload.observation_status["perception"] =
+                        serde_json::to_value(&perception)
+                            .context("failed to encode phase evidence into public state")?;
+                }
+                let event = PublicStateDeliveryV2::new(
+                    sequence,
+                    &scene.engine_instance_id,
+                    &scene.source.session_id,
+                    Some(&scene),
+                    current_state.as_ref(),
+                    &perception,
+                );
+                public_delivery_sequence = Some(sequence);
+                serde_json::to_vec(&event)
+                    .context("failed to serialize Rust public-state delivery v2")?
+            } else {
+                let event = PublicStateDeliveryV1::new(&scene, current_state.as_ref());
+                serde_json::to_vec(&event)
+                    .context("failed to serialize Rust public-state delivery v1")?
+            };
             let delivery_serialization_span = start_timing_child_span(
                 timing_context.as_ref(),
                 "public_state_json_serialization",
                 frame_span_id,
             );
-            let event_payload = serde_json::to_vec(&event)
-                .context("failed to serialize Rust public-state delivery v1")?;
             drop(delivery_serialization_span);
             if let (Some(total_ms), Some(started)) = (
                 scene_serialization_ms.as_mut(),
@@ -906,8 +1013,9 @@ impl<D: Rgb8FrameDetector> CaptureScenePipeline<D> {
             .host_read_completed_at()
             .checked_add(self.config.maximum_frame_age)
             .context("captured frame freshness deadline cannot be represented")?;
+        let outgoing_sequence = public_delivery_sequence.unwrap_or(scene.transport_sequence);
         if let Err(error) = self.writer.submit_live_with_frame_id_and_deadline(
-            scene.transport_sequence,
+            outgoing_sequence,
             &scene.engine_instance_id,
             &scene.source.session_id,
             &scene.source.frame_id,
@@ -927,6 +1035,12 @@ impl<D: Rgb8FrameDetector> CaptureScenePipeline<D> {
 
         self.tracker = candidate_tracker;
         self.next_batch_sequence = next_batch_sequence;
+        if let Some(sequence) = public_delivery_sequence {
+            self.next_delivery_sequence = sequence
+                .checked_add(1)
+                .filter(|next| *next <= MAX_SAFE_JSON_INTEGER)
+                .context("phase delivery sequence exhausted after scene submit")?;
+        }
         self.stats.scenes_submitted = self.stats.scenes_submitted.saturating_add(1);
         if association_capacity_evictions > 0 {
             self.stats.association_capacity_pressure_frames = self
@@ -1041,7 +1155,9 @@ impl<D: Rgb8FrameDetector> CaptureScenePipeline<D> {
         receiver.receive_with_timeout_and_queue_timing(
             timeout,
             measure_queue_wait,
-            |frame, queue_wait_ns| self.process_with_receiver_queue_wait(frame, queue_wait_ns),
+            |frame, queue_wait_ns| {
+                self.process_with_receiver_queue_wait(frame, queue_wait_ns, None)
+            },
         )
     }
 
@@ -1053,6 +1169,83 @@ impl<D: Rgb8FrameDetector> CaptureScenePipeline<D> {
     /// Current bounded scene-writer counters.
     pub fn transport_stats(&self) -> SceneTransportStats {
         self.writer.stats()
+    }
+
+    /// Move the detector model into the dedicated live worker. The pipeline
+    /// keeps the immutable model metadata needed to construct later batches;
+    /// replay callers continue using the synchronous `process` path.
+    pub fn take_detector_for_worker(&mut self) -> Result<D> {
+        self.detector
+            .take()
+            .context("detector model was already transferred to a worker")
+    }
+
+    /// Publish a self-contained phase/cue event through the existing bounded
+    /// live writer. This updates perception evidence without submitting a ball
+    /// scene or advancing any observation-freshness timestamp.
+    pub fn publish_perception_state(
+        &mut self,
+        source_session_id: &str,
+        mut perception: PerceptionStateV1,
+        received_at: Instant,
+    ) -> Result<bool> {
+        if self.config.phase_schedule.is_none() || self.state_lifecycle.is_none() {
+            return Ok(false);
+        }
+        let session_id = source_session_id.to_owned();
+        if self.state_lifecycle_session_id.as_deref() != Some(&session_id) {
+            let lifecycle = self.state_lifecycle.as_mut().expect("checked above");
+            lifecycle
+                .activate_source(&self.config.engine_instance_id, session_id.clone())
+                .context("failed to activate perception delivery source epoch")?;
+            self.state_lifecycle_session_id = Some(session_id.clone());
+        }
+
+        let sequence = self.next_delivery_sequence;
+        let next_sequence = sequence
+            .checked_add(1)
+            .filter(|next| *next <= MAX_SAFE_JSON_INTEGER)
+            .context("phase delivery sequence exhausted")?;
+        perception.event_sequence = sequence;
+        let now_ns = monotonic_elapsed_ns(self.clock_origin, received_at)?;
+        let status = serde_json::to_value(&perception)
+            .context("failed to encode perception status for lifecycle")?;
+        let lifecycle = self.state_lifecycle.as_mut().expect("checked above");
+        lifecycle
+            .update_perception_status(
+                &self.config.engine_instance_id,
+                &session_id,
+                status,
+                now_ns,
+                now_ns,
+            )
+            .context("public-state lifecycle rejected phase evidence")?;
+        let current_state = lifecycle
+            .current(now_ns)
+            .context("failed to read public state for perception event")?;
+        let envelope = PublicStateDeliveryV2::new(
+            sequence,
+            &self.config.engine_instance_id,
+            &session_id,
+            None,
+            current_state.as_ref(),
+            &perception,
+        );
+        let payload = serde_json::to_vec(&envelope)
+            .context("failed to serialize public-state delivery v2")?;
+        let deadline = received_at
+            .checked_add(self.config.maximum_frame_age)
+            .context("perception delivery freshness deadline cannot be represented")?;
+        self.writer.submit_live_event_with_deadline(
+            sequence,
+            &self.config.engine_instance_id,
+            &session_id,
+            deadline,
+            payload,
+        )?;
+        self.latest_perception_state = Some(perception);
+        self.next_delivery_sequence = next_sequence;
+        Ok(true)
     }
 
     /// Stop the writer after its current bounded attempt and return counters.
@@ -1089,6 +1282,10 @@ impl<D: Rgb8FrameDetector> CaptureScenePipeline<D> {
             CaptureSkipReason::NonIncreasingSourceTime => {
                 ("observation_admission", "non_increasing_source_time")
             }
+            CaptureSkipReason::AnalysisNotScheduled => ("phase_scheduler", "not_scheduled"),
+            CaptureSkipReason::DetectorOverloaded => ("phase_scheduler", "detector_busy"),
+            CaptureSkipReason::ObsoleteInference => ("phase_scheduler", "obsolete_result"),
+            CaptureSkipReason::DetectorFailed => ("detector_worker", "inference_failed"),
         };
         self.audit_observation(frame, transport_sequence, "skipped", stage, reason);
     }
@@ -1333,8 +1530,8 @@ impl<D: Rgb8FrameDetector> CaptureScenePipeline<D> {
                 height_px: source.height_px,
             },
             image_space: self.config.image_space,
-            model: self.detector.model_identity().clone(),
-            settings: self.detector.inference_settings().clone(),
+            model: self.detector_model.clone(),
+            settings: self.detector_settings.clone(),
             inference_started_at: batch_monotonic_timestamp(
                 self.clock_origin,
                 inference_started,
@@ -1370,7 +1567,42 @@ fn monotonic_elapsed_ns(origin: Instant, at: Instant) -> Result<u128> {
         .context("monotonic timestamp predates the capture pipeline clock origin")
 }
 
+fn initial_perception_state(schedule: &SchedulerConfig, event_sequence: u64) -> PerceptionStateV1 {
+    let milliseconds = |duration: Duration| duration.as_millis().min(u128::from(u64::MAX)) as u64;
+    PerceptionStateV1 {
+        event_sequence,
+        image_width_px: None,
+        image_height_px: None,
+        phase: "recovering".to_owned(),
+        layout_revision: 0,
+        layout_trusted: false,
+        empty_layout_verified: false,
+        guidance_valid: false,
+        trust_reason: "awaiting_settlement".to_owned(),
+        last_ball_observation_age_ms: None,
+        latest_motion_check_age_ms: None,
+        cue_evidence_age_ms: None,
+        motion_evidence_max_age_ms: milliseconds(schedule.motion_evidence_expiry),
+        cue_evidence_max_age_ms: milliseconds(schedule.cue_evidence_expiry),
+        layout_verification_max_age_ms: milliseconds(schedule.layout_evidence_expiry),
+        cue: None,
+        decision_frame_id: None,
+        decision_calibration_revision: None,
+        decision_rectification_revision: None,
+        table_visibility: None,
+    }
+}
+
 fn validate_config(config: &CapturePipelineConfig, tracking: &TrackingConfigV1) -> Result<()> {
+    ensure!(
+        config.phase_schedule.is_none() || config.scene_transport.public_state_delivery_enabled,
+        "phase-aware live scheduling requires public-state delivery v2"
+    );
+    if let Some(schedule) = config.phase_schedule.as_ref() {
+        schedule
+            .validate()
+            .context("invalid phase-aware schedule in capture pipeline")?;
+    }
     ensure!(
         !config.engine_instance_id.is_empty()
             && config.engine_instance_id.chars().count()
@@ -1652,6 +1884,7 @@ mod tests {
                 capture_configuration_revision: 1,
                 image_space: BatchImageSpace::Raw,
                 maximum_frame_age,
+                phase_schedule: None,
                 calibration: None,
                 scene_transport: SceneTransportConfig {
                     address,
@@ -1694,6 +1927,7 @@ mod tests {
                 capture_configuration_revision: 7,
                 image_space: BatchImageSpace::Raw,
                 maximum_frame_age,
+                phase_schedule: None,
                 calibration: None,
                 scene_transport: SceneTransportConfig {
                     address: SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 9),
@@ -1882,6 +2116,7 @@ mod tests {
                 capture_configuration_revision: 1,
                 image_space: BatchImageSpace::Raw,
                 maximum_frame_age: Duration::from_secs(1),
+                phase_schedule: None,
                 calibration: None,
                 scene_transport: SceneTransportConfig {
                     address: SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 9),
@@ -1990,6 +2225,7 @@ mod tests {
                 capture_configuration_revision: 1,
                 image_space: BatchImageSpace::Raw,
                 maximum_frame_age: Duration::from_secs(1),
+                phase_schedule: None,
                 calibration: None,
                 scene_transport: SceneTransportConfig {
                     address: SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 9),
@@ -2050,6 +2286,7 @@ mod tests {
                 capture_configuration_revision: 1,
                 image_space: BatchImageSpace::Raw,
                 maximum_frame_age: Duration::from_secs(1),
+                phase_schedule: None,
                 calibration: None,
                 scene_transport: SceneTransportConfig {
                     address: SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 9),
@@ -2067,7 +2304,7 @@ mod tests {
 
         let captured = frame("audit-frame", Some(900_000), Instant::now());
         let outcome = pipeline
-            .process_with_receiver_queue_wait(&captured, Some(5_000_000))
+            .process_with_receiver_queue_wait(&captured, Some(5_000_000), None)
             .unwrap();
         assert!(matches!(outcome, CapturePipelineOutcome::Published(_)));
         let pipeline_counters = pipeline.stats();
@@ -2329,6 +2566,7 @@ mod tests {
             capture_configuration_revision: 1,
             image_space: BatchImageSpace::Rectified,
             maximum_frame_age: Duration::from_secs(1),
+            phase_schedule: None,
             calibration: Some(applied),
             scene_transport: SceneTransportConfig {
                 address: SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 9),

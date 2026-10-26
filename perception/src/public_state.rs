@@ -95,6 +95,13 @@ pub struct PublicPosition {
 }
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+pub struct PublicRadiusExtent {
+    pub x: f64,
+    pub y: f64,
+    pub scale: [f64; 2],
+}
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct PublicTablePosition {
     pub x: f64,
     pub y: f64,
@@ -114,6 +121,8 @@ pub struct SourceObservation {
 pub struct PublicBall {
     pub id: String,
     pub position: PublicPosition,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub radius_extent: Option<PublicRadiusExtent>,
     #[serde(serialize_with = "serialize_radius")]
     pub radius: f64,
     pub radius_scale: [f64; 2],
@@ -225,6 +234,18 @@ impl SceneSnapshotStateAdapter {
                 ));
             }
             let confidence = ball.measurement.as_ref().map(|m| m.detector_confidence);
+            let radius_extent = ball
+                .measurement
+                .as_ref()
+                .and_then(|measurement| measurement.image_radius_px)
+                .map(|radius| PublicRadiusExtent {
+                    x: radius.x
+                        * (f64::from(self.config.canonical_width_px) / f64::from(source.width_px)),
+                    y: radius.y
+                        * (f64::from(self.config.canonical_height_px)
+                            / f64::from(source.height_px)),
+                    scale: [1.0, 1.0],
+                });
             balls.push(PublicBall {
                 id: ball.track_id.clone(),
                 position: PublicPosition {
@@ -235,6 +256,7 @@ impl SceneSnapshotStateAdapter {
                             / f64::from(source.height_px)),
                     scale: [1.0, 1.0],
                 },
+                radius_extent,
                 radius: self.config.assumed_ball_radius_px,
                 radius_scale: [1.0, 1.0],
                 radius_unit: "canonical_pixels".to_owned(),

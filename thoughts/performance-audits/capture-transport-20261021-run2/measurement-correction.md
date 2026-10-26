@@ -1,1 +1,0 @@
-SUPERSEDED — paired concurrency was corrected, but each timed frame still included synthetic payload generation and SHA-256 hashing. Later runs prepare and verify the payload template outside the measured frame loop.

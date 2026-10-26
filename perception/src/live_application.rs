@@ -22,17 +22,158 @@ use crate::capture_settings_wire::parse_capture_settings_json;
 use crate::frame_preview::{FramePreviewConfig, FramePreviewServer, LatestCapturedFrameSlot};
 use crate::inference::{FrameInferenceEngine, FrameInferenceOptions, ProviderSelection};
 use crate::live_audit::{LiveAuditConfig, LiveAuditExporter, LiveAuditShutdownSummary};
+use crate::phase_scheduler::{PhaseCadence, SchedulerConfig};
+use crate::table_visibility::TableVisibilityConfig;
 use crate::tracking::TrackingConfigV1;
 use crate::{ImageSpace, SceneTransportConfig};
 use anyhow::{anyhow, bail, ensure, Context, Result};
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
-/// All runtime-affecting live settings. The Python supervisor resolves these
+/// Upper bound for the compact schedule passed as one child-process argument.
+/// The fixed schema is far smaller than this limit; the bound protects process
+/// creation if the wire contract grows unexpectedly.
+const MAX_PHASE_SCHEDULE_JSON_BYTES: usize = 4 * 1024;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PhaseCadenceWire {
+    motion_hz: f64,
+    ball_hz: f64,
+    cue_hz: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PhaseScheduleWire {
+    recovering: PhaseCadenceWire,
+    pre_shot: PhaseCadenceWire,
+    aiming: PhaseCadenceWire,
+    shot: PhaseCadenceWire,
+    quiet_dwell_ms: u64,
+    layout_consensus_count: usize,
+    layout_position_tolerance_px: f64,
+    motion_evidence_expiry_ms: u64,
+    cue_evidence_expiry_ms: u64,
+    layout_evidence_expiry_ms: u64,
+}
+
+impl PhaseScheduleWire {
+    fn validate(&self) -> Result<()> {
+        for (phase_name, cadence) in [
+            ("recovering", &self.recovering),
+            ("pre_shot", &self.pre_shot),
+            ("aiming", &self.aiming),
+            ("shot", &self.shot),
+        ] {
+            for (rate_name, rate) in [
+                ("motion_hz", cadence.motion_hz),
+                ("ball_hz", cadence.ball_hz),
+                ("cue_hz", cadence.cue_hz),
+            ] {
+                ensure!(
+                    rate.is_finite() && rate >= 0.0,
+                    "phase_schedule.{phase_name}.{rate_name} must be finite and non-negative"
+                );
+            }
+        }
+        ensure!(
+            self.quiet_dwell_ms > 0,
+            "phase_schedule.quiet_dwell_ms must be positive"
+        );
+        ensure!(
+            self.layout_consensus_count > 0,
+            "phase_schedule.layout_consensus_count must be positive"
+        );
+        ensure!(
+            self.layout_position_tolerance_px.is_finite()
+                && self.layout_position_tolerance_px > 0.0,
+            "phase_schedule.layout_position_tolerance_px must be finite and positive"
+        );
+        ensure!(
+            self.motion_evidence_expiry_ms > 0,
+            "phase_schedule.motion_evidence_expiry_ms must be positive"
+        );
+        ensure!(
+            self.cue_evidence_expiry_ms > 0,
+            "phase_schedule.cue_evidence_expiry_ms must be positive"
+        );
+        ensure!(
+            self.layout_evidence_expiry_ms > 0,
+            "phase_schedule.layout_evidence_expiry_ms must be positive"
+        );
+        Ok(())
+    }
+
+    fn into_scheduler_config(self) -> Result<SchedulerConfig> {
+        self.validate()?;
+        Ok(SchedulerConfig {
+            recovering: self.recovering.into(),
+            pre_shot: self.pre_shot.into(),
+            aiming: self.aiming.into(),
+            shot: self.shot.into(),
+            quiet_dwell: Duration::from_millis(self.quiet_dwell_ms),
+            layout_consensus_count: self.layout_consensus_count,
+            layout_position_tolerance_px: self.layout_position_tolerance_px,
+            motion_evidence_expiry: Duration::from_millis(self.motion_evidence_expiry_ms),
+            cue_evidence_expiry: Duration::from_millis(self.cue_evidence_expiry_ms),
+            layout_evidence_expiry: Duration::from_millis(self.layout_evidence_expiry_ms),
+        })
+    }
+}
+
+impl From<PhaseCadenceWire> for PhaseCadence {
+    fn from(value: PhaseCadenceWire) -> Self {
+        Self {
+            motion_hz: value.motion_hz,
+            ball_hz: value.ball_hz,
+            cue_hz: value.cue_hz,
+        }
+    }
+}
+
+/// Parse the supervisor's bounded JSON phase schedule into the coordinator's
+/// typed scheduler configuration.
+pub fn parse_phase_schedule_json(json: &str) -> Result<SchedulerConfig> {
+    ensure!(
+        json.len() <= MAX_PHASE_SCHEDULE_JSON_BYTES,
+        "phase schedule JSON exceeds the {MAX_PHASE_SCHEDULE_JSON_BYTES}-byte limit"
+    );
+    let wire: PhaseScheduleWire = serde_json::from_str(json)
+        .context("phase schedule must match the Rust live phase-schedule contract")?;
+    wire.into_scheduler_config()
+}
+
+/// Validate and compact the effective configuration schedule for the single
+/// child-process argument. The configuration authority remains the source of
+/// defaults; missing or malformed fields are rejected here rather than guessed.
+pub(crate) fn serialize_phase_schedule_config(value: &Value) -> Result<String, String> {
+    let wire: PhaseScheduleWire = serde_json::from_value(value.clone())
+        .map_err(|error| format!("invalid perception.rust_live.phase_schedule: {error}"))?;
+    wire.validate()
+        .map_err(|error| format!("invalid perception.rust_live.phase_schedule: {error:#}"))?;
+    let json = serde_json::to_string(&wire)
+        .map_err(|error| format!("could not encode live phase schedule: {error}"))?;
+    if json.len() > MAX_PHASE_SCHEDULE_JSON_BYTES {
+        return Err(format!(
+            "perception.rust_live.phase_schedule exceeds the {MAX_PHASE_SCHEDULE_JSON_BYTES}-byte child argument limit"
+        ));
+    }
+    Ok(json)
+}
+
+/// All runtime-affecting live settings. The Rust gateway resolves these
 /// values before process creation; this type deliberately supplies no camera,
 /// detector, transport, or shutdown defaults.
 #[derive(Debug, Clone)]
 pub struct LiveApplicationSettings {
-    pub onnx_path: PathBuf,
+    pub onnx_path: Option<PathBuf>,
     pub source_checkpoint_path: PathBuf,
+    pub coral_model_path: Option<PathBuf>,
+    pub coral_python_executable: PathBuf,
+    pub coral_delegate_library: String,
+    pub coral_worker_restart_backoff: Duration,
+    pub coral_maximum_worker_restarts_per_frame: usize,
     pub provider: ProviderSelection,
     pub image_size: u32,
     pub confidence: f32,
@@ -54,6 +195,11 @@ pub struct LiveApplicationSettings {
     pub tracking_recent_observation_capacity: usize,
     pub tracking_configuration_revision: u64,
     pub tracking_rectification_revision: u64,
+    /// Validated per-phase motion, full-layout, and cue processing cadence.
+    pub phase_schedule: SchedulerConfig,
+    /// Validated appearance policy bound to the operator-confirmed calibration
+    /// reference. A missing reference always keeps guidance disabled.
+    pub table_visibility: TableVisibilityConfig,
     pub scene_transport: SceneTransportConfig,
     pub startup_timeout: Duration,
     pub poll_interval: Duration,
@@ -116,7 +262,7 @@ fn read_retry_interrupted<R: Read>(reader: &mut R, buffer: &mut [u8]) -> std::io
 /// The runner requests source release on every path after capture starts and
 /// waits up to the configured deadline. If a native open/read operation does
 /// not return by then, the runtime handle is intentionally retained so its
-/// destructor cannot block past the Python supervisor's process-reap deadline.
+/// destructor cannot block past the gateway supervisor's process-reap deadline.
 /// The caller must then let this dedicated process exit; it must not continue
 /// using this library process or attempt to start another camera owner.
 pub fn run_live_application<F: CaptureSourceFactory>(
@@ -181,14 +327,16 @@ pub fn run_live_application_with_audit<F: CaptureSourceFactory>(
 
     let mut resolved = parse_capture_settings_json(exact_capture_settings_json)
         .context("invalid capture settings request")?;
-    if let Some(store) = settings
+    let visibility_reference = if let Some(store) = settings
         .frame_preview
         .as_ref()
         .and_then(|config| config.calibration_control.as_ref())
         .map(|config| &config.store)
     {
-        install_calibration_store_state(&mut resolved, store);
-    }
+        install_calibration_store_state(&mut resolved, store)
+    } else {
+        None
+    };
     let expected = &resolved.expected;
     ensure!(
         expected.image_space() == settings.source_image_space,
@@ -207,24 +355,34 @@ pub fn run_live_application_with_audit<F: CaptureSourceFactory>(
         "tracking rectification revision differs from the exact capture request"
     );
 
-    let environment = ort::init()
-        .with_name("billiards-perception-live")
-        .with_telemetry(false)
-        .build()
-        .context("failed to initialize ONNX Runtime")?;
-    let mut detector = FrameInferenceEngine::new(
-        environment,
-        FrameInferenceOptions {
-            onnx_path: settings.onnx_path.clone(),
-            source_checkpoint_path: settings.source_checkpoint_path.clone(),
-            provider: settings.provider,
-            image_size: settings.image_size,
-            confidence: settings.confidence,
-            iou: settings.iou,
-            max_detections: settings.max_detections,
-            intra_op_threads: settings.intra_op_threads,
-        },
-    )
+    let inference_options = FrameInferenceOptions {
+        onnx_path: settings.onnx_path.clone(),
+        source_checkpoint_path: settings.source_checkpoint_path.clone(),
+        coral_model_path: settings.coral_model_path.clone(),
+        coral_python_executable: settings.coral_python_executable.clone(),
+        coral_delegate_library: settings.coral_delegate_library.clone(),
+        coral_worker_restart_backoff: settings.coral_worker_restart_backoff,
+        coral_maximum_worker_restarts_per_frame: settings.coral_maximum_worker_restarts_per_frame,
+        provider: settings.provider,
+        image_size: settings.image_size,
+        confidence: settings.confidence,
+        iou: settings.iou,
+        max_detections: settings.max_detections,
+        intra_op_threads: settings.intra_op_threads,
+    };
+    let mut detector = match settings.provider {
+        ProviderSelection::Coral => {
+            FrameInferenceEngine::new_without_onnx_runtime(inference_options)
+        }
+        _ => {
+            let environment = ort::init()
+                .with_name("billiards-perception-live")
+                .with_telemetry(false)
+                .build()
+                .context("failed to initialize ONNX Runtime")?;
+            FrameInferenceEngine::new(environment, inference_options)
+        }
+    }
     .context("failed to load the configured live detector")?;
 
     warm_up_detector(&mut detector, expected, settings.warmup_runs)
@@ -293,6 +451,7 @@ pub fn run_live_application_with_audit<F: CaptureSourceFactory>(
         capture_configuration_revision: resolved.configuration_revision,
         image_space: batch_image_space(expected.image_space()),
         maximum_frame_age: expected.maximum_frame_age(),
+        phase_schedule: Some(settings.phase_schedule.clone()),
         calibration,
         scene_transport: settings.scene_transport,
     };
@@ -310,11 +469,13 @@ pub fn run_live_application_with_audit<F: CaptureSourceFactory>(
                 preview_slot,
                 expected.calibration_revision(),
                 expected.calibration().cloned(),
+                settings.table_visibility.clone(),
+                visibility_reference,
                 source_factory,
             )
         }
         (Some(preview_slot), false) => {
-            LiveCaptureRuntime::start_with_session_id_audit_and_frame_preview(
+            LiveCaptureRuntime::start_with_session_id_audit_frame_preview_and_visibility(
                 exact_capture_settings_json,
                 settings.source_session_id,
                 detector,
@@ -322,16 +483,20 @@ pub fn run_live_application_with_audit<F: CaptureSourceFactory>(
                 pipeline,
                 audit_recorder,
                 preview_slot,
+                settings.table_visibility.clone(),
+                visibility_reference,
                 source_factory,
             )
         }
-        (None, _) => LiveCaptureRuntime::start_with_session_id_and_audit(
+        (None, _) => LiveCaptureRuntime::start_with_session_id_audit_and_visibility(
             exact_capture_settings_json,
             settings.source_session_id,
             detector,
             tracking,
             pipeline,
             audit_recorder,
+            settings.table_visibility.clone(),
+            visibility_reference,
             source_factory,
         ),
     }
@@ -343,6 +508,12 @@ pub fn run_live_application_with_audit<F: CaptureSourceFactory>(
         settings.poll_interval,
         shutdown_requested,
     );
+    if let Some(diagnostics) = runtime.phase_diagnostics() {
+        eprintln!(
+            "phase_runtime_diagnostics={}",
+            serde_json::to_string(&diagnostics).unwrap_or_else(|_| "{}".to_owned())
+        );
+    }
     let pipeline_counters = runtime.pipeline_stats();
     let stop_result = stop_runtime(runtime, settings.graceful_stop_timeout);
     let shutdown_summary = LiveAuditShutdownSummary {
@@ -380,13 +551,13 @@ pub fn run_live_application_with_audit<F: CaptureSourceFactory>(
 fn install_calibration_store_state(
     resolved: &mut crate::capture_settings_wire::ResolvedCaptureSettings,
     store: &CalibrationStore,
-) {
+) -> Option<crate::table_visibility::TableVisibilityReference> {
     let loaded = match store.load() {
         Ok(snapshot) => snapshot,
         Err(error) => {
             eprintln!("calibration_store_load_failed={error}");
             let _ = resolved.expected.apply_calibration_store_state(0, None);
-            return;
+            return None;
         }
     };
     let store_revision = loaded.revision.unwrap_or(0);
@@ -396,21 +567,21 @@ fn install_calibration_store_state(
         let _ = resolved
             .expected
             .apply_calibration_store_state(store_revision, None);
-        return;
+        return None;
     };
     let Some(binding) = loaded.binding_context.as_ref() else {
         eprintln!("calibration_store_bundle_inactive=missing_capture_binding");
         let _ = resolved
             .expected
             .apply_calibration_store_state(store_revision, None);
-        return;
+        return None;
     };
     if !binding_matches_request(binding, &resolved.expected) {
         eprintln!("calibration_store_bundle_inactive=capture_context_mismatch");
         let _ = resolved
             .expected
             .apply_calibration_store_state(store_revision, None);
-        return;
+        return None;
     }
     let validated = match calibration.into_validated() {
         Ok(calibration) => calibration,
@@ -419,7 +590,7 @@ fn install_calibration_store_state(
             let _ = resolved
                 .expected
                 .apply_calibration_store_state(store_revision, None);
-            return;
+            return None;
         }
     };
     if let Err(error) = resolved
@@ -430,7 +601,9 @@ fn install_calibration_store_state(
         let _ = resolved
             .expected
             .apply_calibration_store_state(store_revision, None);
+        return None;
     }
+    loaded.visibility_reference
 }
 
 fn binding_matches_request(
@@ -596,7 +769,7 @@ mod calibration_store_tests {
     }
 }
 
-fn run_ready_session<D: crate::capture_pipeline::Rgb8FrameDetector>(
+fn run_ready_session<D: crate::capture_pipeline::Rgb8FrameDetector + Send + 'static>(
     runtime: &mut LiveCaptureRuntime<D>,
     startup_timeout: Duration,
     poll_interval: Duration,
@@ -656,7 +829,7 @@ fn run_ready_session<D: crate::capture_pipeline::Rgb8FrameDetector>(
     }
 }
 
-fn stop_runtime<D: crate::capture_pipeline::Rgb8FrameDetector>(
+fn stop_runtime<D: crate::capture_pipeline::Rgb8FrameDetector + Send + 'static>(
     mut runtime: LiveCaptureRuntime<D>,
     timeout: Duration,
 ) -> Result<crate::SceneTransportStats> {
@@ -666,7 +839,7 @@ fn stop_runtime<D: crate::capture_pipeline::Rgb8FrameDetector>(
         // CaptureRuntimeCoordinator joins its owner thread when dropped. Once
         // the configured shutdown budget expires, preserve the handle until
         // this process exits so that a late destructor cannot exceed the
-        // Python supervisor's independent process-reap deadline.
+        // Gateway supervisor's independent process-reap deadline.
         std::mem::forget(runtime);
         bail!("source release exceeded its configured deadline ({owner_status:?})");
     }

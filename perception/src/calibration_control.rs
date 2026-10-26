@@ -18,6 +18,10 @@ use serde::{Deserialize, Serialize};
 use crate::calibration::{ImagePointPx, TableCalibrationSolverInput};
 use crate::calibration_store::{CalibrationStore, CalibrationStoreError, CalibrationStoreSnapshot};
 use crate::frame_preview::{FramePreviewDescriptorV1, LatestCapturedFrameSlot};
+use crate::table_visibility::{
+    derive_reference_from_confirmed_frame, NormalizedPoint, OperatorConfirmedFrame, Rgb8Frame,
+    TableRegion, TableVisibilityConfig,
+};
 
 pub(crate) const CALIBRATION_READ_REQUEST_V1: &[u8; 8] = b"BTCR0001";
 pub(crate) const CALIBRATION_APPLY_REQUEST_V1: &[u8; 8] = b"BTCA0001";
@@ -30,6 +34,7 @@ const MAXIMUM_CALIBRATION_REQUEST_BYTES: usize = 1_048_576;
 pub struct CalibrationControlConfig {
     pub store: CalibrationStore,
     pub maximum_request_bytes: usize,
+    pub table_visibility: TableVisibilityConfig,
 }
 
 impl CalibrationControlConfig {
@@ -38,6 +43,7 @@ impl CalibrationControlConfig {
         lock_timeout: Duration,
         maximum_store_file_bytes: usize,
         maximum_request_bytes: usize,
+        table_visibility: TableVisibilityConfig,
     ) -> Result<Self, CalibrationControlConfigError> {
         if lock_timeout.is_zero() {
             return Err(CalibrationControlConfigError::ZeroLockTimeout);
@@ -52,6 +58,7 @@ impl CalibrationControlConfig {
         Ok(Self {
             store,
             maximum_request_bytes,
+            table_visibility,
         })
     }
 
@@ -106,6 +113,8 @@ struct CalibrationControlResponseV1 {
     status: CalibrationControlStatusV1,
     snapshot: Option<CalibrationStoreSnapshot>,
     error: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    table_visibility_reference_issues: Option<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -246,6 +255,17 @@ fn apply_calibration(
     // Session transitions are serialized against validation and the short
     // durable commit, while ordinary frame publication never takes this gate.
     let _context_guard = slot.lock_calibration_context();
+    let Some(preview) = slot.confirmed_calibration_preview(&request.descriptor) else {
+        return write_response(
+            stream,
+            response(
+                CalibrationControlStatusV1::StaleContext,
+                None,
+                Some("confirmed_preview_unavailable"),
+            ),
+            maximum_response_bytes,
+        );
+    };
     let binding_context = match slot.calibration_binding_context(&request.descriptor) {
         Ok(context) => context,
         Err(_) => {
@@ -271,10 +291,56 @@ fn apply_calibration(
         table_height_mm: request.table_height_mm,
         corners_px: request.corners_px,
     };
-    match config.store.save_with_context(
+    let table_region = TableRegion::new(request.corners_px.map(|point| NormalizedPoint {
+        x: (point.x_px / f64::from(preview.descriptor().width_px.saturating_sub(1))) as f32,
+        y: (point.y_px / f64::from(preview.descriptor().height_px.saturating_sub(1))) as f32,
+    }));
+    let reference = match derive_reference_from_confirmed_frame(
+        OperatorConfirmedFrame::new(
+            Rgb8Frame {
+                width: preview.descriptor().width_px,
+                height: preview.descriptor().height_px,
+                pixels: preview.rgb8(),
+            },
+            table_region,
+        ),
+        &config.table_visibility,
+    ) {
+        Ok(result) if result.validity.valid => result.reference,
+        Ok(result) => {
+            let mut response = response(
+                CalibrationControlStatusV1::InvalidRequest,
+                None,
+                Some("table_visibility_reference_quality"),
+            );
+            response.table_visibility_reference_issues = Some(
+                result
+                    .validity
+                    .reasons
+                    .iter()
+                    .map(|issue| format!("{issue:?}"))
+                    .collect(),
+            );
+            return write_response(stream, response, maximum_response_bytes);
+        }
+        Err(_) => {
+            return write_response(
+                stream,
+                response(
+                    CalibrationControlStatusV1::InvalidRequest,
+                    None,
+                    Some("invalid_visibility_reference_input"),
+                ),
+                maximum_response_bytes,
+            )
+        }
+    }
+    .expect("valid reference decision must contain its feature bundle");
+    match config.store.save_with_context_and_visibility(
         request.expected_store_revision,
         input,
         Some(binding_context),
+        Some(reference),
     ) {
         Ok(snapshot) => write_response(
             stream,
@@ -324,6 +390,7 @@ fn response(
         status,
         snapshot,
         error,
+        table_visibility_reference_issues: None,
     }
 }
 
@@ -370,6 +437,7 @@ mod tests {
             Duration::from_millis(10),
             64 * 1024,
             MAXIMUM_CALIBRATION_REQUEST_BYTES + 1,
+            TableVisibilityConfig::default(),
         );
         assert!(matches!(
             result,

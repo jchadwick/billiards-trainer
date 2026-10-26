@@ -31,6 +31,8 @@ pub const DEFAULT_MAXIMUM_ANNOTATION_BYTES: u64 = 128 * 1024 * 1024;
 pub const DEFAULT_MAXIMUM_VIDEO_BYTES: u64 = 8 * 1024 * 1024 * 1024;
 pub const DEFAULT_MAXIMUM_SCENE_JSONL_BYTES: u64 = 1024 * 1024 * 1024;
 pub const DEFAULT_MAXIMUM_SCENE_LINE_BYTES: usize = 16 * 1024 * 1024;
+pub const DEFAULT_MAXIMUM_CUE_GEOMETRY_JSONL_BYTES: u64 = 64 * 1024 * 1024;
+pub const DEFAULT_MAXIMUM_CUE_GEOMETRY_LINE_BYTES: usize = 64 * 1024;
 pub const DEFAULT_FFPROBE_TIMEOUT_SECONDS: u64 = 30;
 const LEGACY_ANNOTATION_SCHEMA_VERSION: u64 = 1;
 const PHYSICAL_ANNOTATION_SCHEMA_VERSION: u64 = 2;
@@ -209,6 +211,9 @@ pub struct EngineFrame {
     pub cue_butt: Option<Point2d>,
     #[serde(default)]
     pub cue_angle_degrees: Option<f64>,
+    /// Undirected cue-shaft angle in image coordinates, scored modulo 180°.
+    #[serde(default)]
+    pub cue_axis_angle_degrees: Option<f64>,
     #[serde(default)]
     pub calibration_revision: Option<u64>,
     #[serde(default)]
@@ -621,6 +626,12 @@ fn validate_engine_frames(frames: &[EngineFrame]) -> Result<BTreeMap<u64, Engine
             bail!("cue_angle_degrees must be finite");
         }
         if frame
+            .cue_axis_angle_degrees
+            .is_some_and(|angle| !angle.is_finite())
+        {
+            bail!("cue_axis_angle_degrees must be finite");
+        }
+        if frame
             .ball_observation_presentation_time_seconds
             .is_some_and(|time| !time.is_finite() || time < 0.0)
         {
@@ -735,6 +746,7 @@ fn evaluate_indexed(
     let mut cue_tip_errors = Vec::new();
     let mut cue_butt_errors = Vec::new();
     let mut cue_angle_errors = Vec::new();
+    let mut cue_axis_angle_errors = Vec::new();
     let mut cue_center_errors = Vec::new();
     let mut identity_switches = 0usize;
     let mut identity_unavailable_matches = 0usize;
@@ -987,6 +999,14 @@ fn evaluate_indexed(
                             (predicted_angle - expected_angle + 180.0).rem_euclid(360.0) - 180.0;
                         cue_angle_errors.push(wrapped.abs());
                     }
+                    if let Some(predicted_axis) = result.cue_axis_angle_degrees {
+                        let expected_axis = (truth_tip.y - truth_butt.y)
+                            .atan2(truth_tip.x - truth_butt.x)
+                            .to_degrees();
+                        let wrapped =
+                            (predicted_axis - expected_axis + 90.0).rem_euclid(180.0) - 90.0;
+                        cue_axis_angle_errors.push(wrapped.abs());
+                    }
                 }
                 (true, false) => cue_fn += 1,
                 (false, true) => cue_fp += 1,
@@ -1139,6 +1159,7 @@ fn evaluate_indexed(
             "tip_error_px": summary(&cue_tip_errors, "error_px"),
             "butt_error_px": summary(&cue_butt_errors, "error_px"),
             "wrapped_angle_error_degrees": summary(&cue_angle_errors, "error_degrees"),
+            "axis_angle_error_degrees": summary(&cue_axis_angle_errors, "error_degrees"),
             "occluded_frames_excluded": annotations.frames.iter().filter(|frame| frame.cue.status == AnnotationCueStatus::Occluded).count(),
         },
         "calibration": boundary_metrics(
@@ -1195,9 +1216,8 @@ fn mean(values: &[f64]) -> Option<f64> {
         return None;
     }
 
-    // Match Python's statistics.fmean behavior. Its math.fsum-backed total
-    // avoids rounding drift in audit reports when small timing values are
-    // summed over large collections.
+    // Use compensated summation to avoid rounding drift when small values are
+    // accumulated across large evaluation reports.
     let mut partials: Vec<f64> = Vec::new();
     for &value in values {
         let mut x = value;
@@ -1737,6 +1757,7 @@ fn normalize_rust_scene_reader<R: BufRead>(
             cue_tip: None,
             cue_butt: None,
             cue_angle_degrees: None,
+            cue_axis_angle_degrees: None,
             calibration_revision,
             source_session_epoch: Some(snapshot.source.session_id),
         });
@@ -1977,7 +1998,7 @@ fn format_capped_diagnostic(bytes: &[u8], total_bytes: u64) -> String {
     message
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct FileEvaluationConfig {
     pub frame_index_offset: i64,
     pub evaluation: EvaluationConfig,
@@ -1986,6 +2007,10 @@ pub struct FileEvaluationConfig {
     pub maximum_annotation_bytes: u64,
     pub maximum_scene_jsonl_bytes: u64,
     pub maximum_scene_line_bytes: usize,
+    /// Optional phase cue-geometry trace emitted by scheduled replay analysis.
+    pub cue_geometry_jsonl_path: Option<std::path::PathBuf>,
+    pub maximum_cue_geometry_jsonl_bytes: u64,
+    pub maximum_cue_geometry_line_bytes: usize,
 }
 
 impl Default for FileEvaluationConfig {
@@ -1998,8 +2023,201 @@ impl Default for FileEvaluationConfig {
             maximum_annotation_bytes: DEFAULT_MAXIMUM_ANNOTATION_BYTES,
             maximum_scene_jsonl_bytes: DEFAULT_MAXIMUM_SCENE_JSONL_BYTES,
             maximum_scene_line_bytes: DEFAULT_MAXIMUM_SCENE_LINE_BYTES,
+            cue_geometry_jsonl_path: None,
+            maximum_cue_geometry_jsonl_bytes: DEFAULT_MAXIMUM_CUE_GEOMETRY_JSONL_BYTES,
+            maximum_cue_geometry_line_bytes: DEFAULT_MAXIMUM_CUE_GEOMETRY_LINE_BYTES,
         }
     }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CueGeometryTraceRecord {
+    source_video_sha256: String,
+    source_frame_index: u64,
+    source_presentation_time_seconds: f64,
+    cue_present: bool,
+    shaft_start_px: Option<[f64; 2]>,
+    shaft_end_px: Option<[f64; 2]>,
+    axis_angle_degrees: Option<f64>,
+    confidence: Option<f64>,
+    signed_direction: Option<String>,
+}
+
+fn read_cue_geometry_trace(
+    path: &Path,
+    annotations: &AnnotationDocument,
+    frame_index_offset: i64,
+    maximum_total_bytes: u64,
+    maximum_line_bytes: usize,
+) -> Result<(BTreeMap<u64, CueGeometryTraceRecord>, String)> {
+    if maximum_total_bytes == 0 || maximum_line_bytes == 0 {
+        bail!("cue geometry JSONL byte limits must be positive");
+    }
+    let source = File::open(path)
+        .with_context(|| format!("could not read cue geometry JSONL: {}", path.display()))?;
+    let mut reader = BufReader::new(source);
+    let mut digest = Sha256::new();
+    let mut total_bytes = 0u64;
+    let mut records = BTreeMap::new();
+    let mut previous_index = None;
+    let mut previous_pts = None;
+    let expected_video_sha256 = annotations.sequence.video_sha256.to_ascii_lowercase();
+    let mut line_number = 0usize;
+    while let Some(line) = read_bounded_line(
+        &mut reader,
+        maximum_line_bytes,
+        &mut total_bytes,
+        maximum_total_bytes,
+        &mut digest,
+    )? {
+        line_number += 1;
+        if line.iter().all(u8::is_ascii_whitespace) {
+            bail!("blank cue geometry JSONL line at {line_number}");
+        }
+        let record: CueGeometryTraceRecord = serde_json::from_slice(&line)
+            .with_context(|| format!("invalid cue geometry record at line {line_number}"))?;
+        validate_sha256(
+            &record.source_video_sha256,
+            "cue geometry source_video_sha256",
+        )?;
+        if record.source_video_sha256.to_ascii_lowercase() != expected_video_sha256 {
+            bail!("cue geometry trace source video SHA-256 does not match annotations");
+        }
+        if previous_index.is_some_and(|index| record.source_frame_index <= index) {
+            bail!("cue geometry source frame indices must be strictly increasing");
+        }
+        if !record.source_presentation_time_seconds.is_finite()
+            || record.source_presentation_time_seconds < 0.0
+            || previous_pts.is_some_and(|pts| record.source_presentation_time_seconds <= pts)
+        {
+            bail!("cue geometry presentation timestamps must be finite, non-negative, and strictly increasing (line {line_number})");
+        }
+        previous_index = Some(record.source_frame_index);
+        previous_pts = Some(record.source_presentation_time_seconds);
+        if record.cue_present {
+            let start = record
+                .shaft_start_px
+                .context("visible cue geometry requires shaft_start_px")?;
+            let end = record
+                .shaft_end_px
+                .context("visible cue geometry requires shaft_end_px")?;
+            validate_point(
+                Point2d {
+                    x: start[0],
+                    y: start[1],
+                },
+                "cue shaft start",
+            )?;
+            validate_point(
+                Point2d {
+                    x: end[0],
+                    y: end[1],
+                },
+                "cue shaft end",
+            )?;
+            if !record.axis_angle_degrees.is_some_and(f64::is_finite) {
+                bail!("visible cue geometry requires a finite axis_angle_degrees");
+            }
+            if !record.confidence.is_some_and(|confidence| {
+                confidence.is_finite() && (0.0..=1.0).contains(&confidence)
+            }) {
+                bail!("visible cue geometry requires confidence in [0, 1]");
+            }
+            if record
+                .signed_direction
+                .as_deref()
+                .is_some_and(|direction| !matches!(direction, "toward_start" | "toward_end"))
+            {
+                bail!("cue signed_direction must be toward_start, toward_end, or null");
+            }
+        } else if record.shaft_start_px.is_some()
+            || record.shaft_end_px.is_some()
+            || record.axis_angle_degrees.is_some()
+            || record.confidence.is_some()
+            || record.signed_direction.is_some()
+        {
+            bail!("absent cue geometry must not include fitted measurements");
+        }
+        let mapped_index = i128::from(record.source_frame_index) + i128::from(frame_index_offset);
+        if mapped_index < 0 || mapped_index > i128::from(u64::MAX) {
+            bail!("cue geometry frame index maps outside the supported range");
+        }
+        records.insert(mapped_index as u64, record);
+    }
+    Ok((records, format!("{:x}", digest.finalize())))
+}
+
+fn merge_cue_geometry_trace(
+    annotations: &AnnotationDocument,
+    frames: Vec<EngineFrame>,
+    records: BTreeMap<u64, CueGeometryTraceRecord>,
+) -> Result<Vec<EngineFrame>> {
+    let annotation_times: HashMap<u64, f64> = annotations
+        .frames
+        .iter()
+        .map(|frame| (frame.source_frame_index, frame.presentation_time_seconds))
+        .collect();
+    let mut by_index: BTreeMap<u64, EngineFrame> = frames
+        .into_iter()
+        .map(|frame| (frame.source_frame_index, frame))
+        .collect();
+    for (source_frame_index, record) in records {
+        let Some(&presentation_time_seconds) = annotation_times.get(&source_frame_index) else {
+            continue;
+        };
+        let frame = by_index
+            .entry(source_frame_index)
+            .or_insert_with(|| EngineFrame {
+                source_frame_index,
+                presentation_time_seconds,
+                ball_positions_status: EngineStatus::Unavailable,
+                balls: Vec::new(),
+                ball_observation_source_frame_index: None,
+                ball_observation_presentation_time_seconds: None,
+                cue_observation_status: EngineStatus::Unavailable,
+                cue_observation_source_frame_index: None,
+                cue_present: None,
+                cue_center: None,
+                cue_tip: None,
+                cue_butt: None,
+                cue_angle_degrees: None,
+                cue_axis_angle_degrees: None,
+                calibration_revision: None,
+                source_session_epoch: None,
+            });
+        frame.cue_observation_status = EngineStatus::Observed;
+        frame.cue_observation_source_frame_index = Some(source_frame_index);
+        frame.cue_present = Some(record.cue_present);
+        frame.cue_center = record
+            .shaft_start_px
+            .zip(record.shaft_end_px)
+            .map(|(start, end)| Point2d {
+                x: (start[0] + end[0]) / 2.0,
+                y: (start[1] + end[1]) / 2.0,
+            });
+        frame.cue_axis_angle_degrees = record.axis_angle_degrees;
+        let (tip, butt) = match record.signed_direction.as_deref() {
+            Some("toward_start") => (record.shaft_start_px, record.shaft_end_px),
+            Some("toward_end") => (record.shaft_end_px, record.shaft_start_px),
+            _ => (None, None),
+        };
+        frame.cue_tip = tip.map(|point| Point2d {
+            x: point[0],
+            y: point[1],
+        });
+        frame.cue_butt = butt.map(|point| Point2d {
+            x: point[0],
+            y: point[1],
+        });
+        frame.cue_angle_degrees = frame
+            .cue_tip
+            .zip(frame.cue_butt)
+            .map(|(tip, butt)| (tip.y - butt.y).atan2(tip.x - butt.x).to_degrees());
+    }
+    let merged = by_index.into_values().collect::<Vec<_>>();
+    validate_engine_frames(&merged)?;
+    Ok(merged)
 }
 
 /// Bind and score one exact video, annotation document, and Rust scene stream.
@@ -2017,6 +2235,11 @@ pub fn evaluate_files(
     ] {
         if !path.is_file() {
             bail!("{label} does not exist: {}", path.display());
+        }
+    }
+    if let Some(path) = config.cue_geometry_jsonl_path.as_deref() {
+        if !path.is_file() {
+            bail!("cue geometry trace does not exist: {}", path.display());
         }
     }
     let annotation_bytes = read_bounded_file(
@@ -2058,6 +2281,22 @@ pub fn evaluate_files(
         config.maximum_scene_jsonl_bytes,
         config.maximum_scene_line_bytes,
     )?;
+    let (rust_frames, cue_geometry_trace_sha256) =
+        if let Some(path) = config.cue_geometry_jsonl_path.as_deref() {
+            let (records, sha256) = read_cue_geometry_trace(
+                path,
+                &annotations,
+                config.frame_index_offset,
+                config.maximum_cue_geometry_jsonl_bytes,
+                config.maximum_cue_geometry_line_bytes,
+            )?;
+            (
+                merge_cue_geometry_trace(&annotations, rust_frames, records)?,
+                Some(sha256),
+            )
+        } else {
+            (rust_frames, None)
+        };
     let metrics = evaluate_temporal_localization(&annotations, &rust_frames, config.evaluation)?;
     Ok(json!({
         "schema_version": 1,
@@ -2071,6 +2310,8 @@ pub fn evaluate_files(
             "annotations_sha256": annotations_sha256,
             "scene_snapshots_path": absolute_path(scene_snapshot_path),
             "scene_snapshots_sha256": scene_snapshots_sha256,
+            "cue_geometry_trace_path": config.cue_geometry_jsonl_path.as_deref().map(absolute_path),
+            "cue_geometry_trace_sha256": cue_geometry_trace_sha256,
             "frame_index_offset": config.frame_index_offset,
             "scored_engine_frames": rust_frames.len(),
             "timestamp_basis": "annotation video presentation time",
@@ -2227,6 +2468,7 @@ mod tests {
             cue_tip: None,
             cue_butt: None,
             cue_angle_degrees: None,
+            cue_axis_angle_degrees: None,
             calibration_revision: Some(1),
             source_session_epoch: Some("session-a".to_owned()),
         }
@@ -2680,6 +2922,7 @@ mod tests {
         });
         visible.cue_butt = Some(Point2d { x: 0.0, y: 0.0 });
         visible.cue_angle_degrees = Some(-170.0);
+        visible.cue_axis_angle_degrees = Some(-10.0);
 
         let mut false_positive = engine_frame(1, Vec::new(), EngineStatus::Observed);
         false_positive.cue_observation_status = EngineStatus::Observed;
@@ -2706,7 +2949,51 @@ mod tests {
             .as_f64()
             .unwrap();
         assert!((angle_error - 20.0).abs() < 1e-6);
+        let axis_error = cue["axis_angle_error_degrees"]["error_degrees_mean"]
+            .as_f64()
+            .unwrap();
+        assert!(axis_error.abs() < 1e-6);
         assert_eq!(cue["occluded_frames_excluded"], 1);
+    }
+
+    #[test]
+    fn reviewed_cue_geometry_trace_joins_the_existing_temporal_scorer() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("cue-geometry.jsonl");
+        let record = serde_json::json!({
+            "source_video_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "source_frame_index": 0,
+            "source_presentation_time_seconds": 0.0,
+            "cue_present": true,
+            "shaft_start_px": [0.0, 0.0],
+            "shaft_end_px": [10.0, 0.0],
+            "axis_angle_degrees": 0.0,
+            "confidence": 0.9,
+            "signed_direction": "toward_start"
+        });
+        std::fs::write(&path, format!("{record}\n")).unwrap();
+
+        let mut truth = annotation_frame(0, Vec::new());
+        truth.cue = AnnotationCue {
+            status: AnnotationCueStatus::Visible,
+            tip: Some(Point2d { x: 0.0, y: 0.0 }),
+            butt: Some(Point2d { x: 10.0, y: 0.0 }),
+        };
+        let annotations = annotations(vec![truth]);
+        let (records, digest) =
+            read_cue_geometry_trace(&path, &annotations, 0, 1024, 1024).unwrap();
+        assert_eq!(digest.len(), 64);
+        let frames = merge_cue_geometry_trace(&annotations, Vec::new(), records).unwrap();
+        assert_eq!(frames.len(), 1);
+        let metrics =
+            evaluate_temporal_localization(&annotations, &frames, EvaluationConfig::default())
+                .unwrap();
+        assert_eq!(metrics["cue"]["presence_recall"], 1.0);
+        assert_eq!(metrics["cue"]["tip_error_px"]["error_px_mean"], 0.0);
+        assert_eq!(
+            metrics["cue"]["axis_angle_error_degrees"]["error_degrees_mean"],
+            0.0
+        );
     }
 
     #[test]
@@ -2857,7 +3144,7 @@ mod tests {
     }
 
     #[test]
-    fn shared_temporal_evaluation_fixture_matches_the_python_reference_report() {
+    fn shared_temporal_evaluation_fixture_matches_the_golden_report() {
         let fixture: Value = serde_json::from_str(include_str!(
             "../contracts/v1/temporal-evaluation-golden.json"
         ))

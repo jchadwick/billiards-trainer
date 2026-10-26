@@ -1,0 +1,291 @@
+{
+  "image_path": "/Users/jchadwick/repos/jchadwick/billiards-trainer/thoughts/calibration/table-grid-20261026-114241.jpg",
+  "image_size": [
+    1280,
+    720
+  ],
+  "observations": [
+    {
+      "id": "middle-row-center-ball",
+      "seed_px": [
+        643,
+        361
+      ],
+      "center_px": [
+        643.3856589825451,
+        361.29288023927984
+      ],
+      "ellipse_semiaxes_px": [
+        13.86295336024606,
+        13.687805452520047
+      ],
+      "boundary_fit_rms_px": 0.19251973024226227,
+      "threshold_center_sensitivity_px": 0.08550250007811447,
+      "mask_threshold": 0.11
+    },
+    {
+      "id": "far-right-purple-middle-row-ball",
+      "seed_px": [
+        1198,
+        364
+      ],
+      "center_px": [
+        1199.2451582280867,
+        362.61345137334814
+      ],
+      "ellipse_semiaxes_px": [
+        17.905536624351136,
+        14.299197455855797
+      ],
+      "boundary_fit_rms_px": 0.5666040297400883,
+      "threshold_center_sensitivity_px": 0.3689181647572721,
+      "mask_threshold": 0.11
+    },
+    {
+      "id": "far-left-yellow-middle-row-ball",
+      "seed_px": [
+        96,
+        362
+      ],
+      "center_px": [
+        95.30802067588856,
+        361.88795889528853
+      ],
+      "ellipse_semiaxes_px": [
+        18.90516999321294,
+        14.931846077580268
+      ],
+      "boundary_fit_rms_px": 0.5160956864439827,
+      "threshold_center_sensitivity_px": 0.08075122774422797,
+      "mask_threshold": 0.11
+    },
+    {
+      "id": "interior-purple-second-left-middle-row-ball",
+      "seed_px": [
+        359,
+        362
+      ],
+      "center_px": [
+        357.71427490207157,
+        363.5539811005509
+      ],
+      "ellipse_semiaxes_px": [
+        14.800844827086745,
+        13.965973661170167
+      ],
+      "boundary_fit_rms_px": 0.24347012836424198,
+      "threshold_center_sensitivity_px": 0.2219415522725847,
+      "mask_threshold": 0.11
+    },
+    {
+      "id": "interior-green-second-right-middle-row-ball",
+      "seed_px": [
+        925,
+        361
+      ],
+      "center_px": [
+        924.9670658471629,
+        361.7030726081094
+      ],
+      "ellipse_semiaxes_px": [
+        14.6871724789035,
+        13.355048605154142
+      ],
+      "boundary_fit_rms_px": 0.8180706659213748,
+      "threshold_center_sensitivity_px": 0.2667284871617057,
+      "mask_threshold": 0.11
+    },
+    {
+      "id": "top-orange-solid-second-left-ball",
+      "seed_px": [
+        352,
+        97
+      ],
+      "center_px": [
+        352.4402804892404,
+        96.57071794955338
+      ],
+      "ellipse_semiaxes_px": [
+        17.201448201633674,
+        14.86059708035182
+      ],
+      "boundary_fit_rms_px": 0.25903347221980816,
+      "threshold_center_sensitivity_px": 0.1650567655238183,
+      "mask_threshold": 0.11
+    },
+    {
+      "id": "top-red-striped-second-right-ball",
+      "seed_px": [
+        928,
+        94
+      ],
+      "center_px": [
+        927.8098799669336,
+        93.48016829891012
+      ],
+      "ellipse_semiaxes_px": [
+        16.946790066795053,
+        14.853391224305833
+      ],
+      "boundary_fit_rms_px": 0.18034267525598396,
+      "threshold_center_sensitivity_px": 0.06645899237524121,
+      "mask_threshold": 0.11
+    },
+    {
+      "id": "bottom-black-second-left-ball",
+      "seed_px": [
+        363,
+        627
+      ],
+      "center_px": [
+        362.7044861832817,
+        627.4006627699337
+      ],
+      "ellipse_semiaxes_px": [
+        14.91418509078474,
+        14.427618561943772
+      ],
+      "boundary_fit_rms_px": 0.8884668520203155,
+      "threshold_center_sensitivity_px": 1.2051020179824696,
+      "mask_threshold": 0.11
+    },
+    {
+      "id": "bottom-yellow-second-right-ball",
+      "seed_px": [
+        925,
+        630
+      ],
+      "center_px": [
+        924.5415622151071,
+        631.1078658538005
+      ],
+      "ellipse_semiaxes_px": [
+        17.55097917912878,
+        15.98455668638849
+      ],
+      "boundary_fit_rms_px": 1.1227216940864124,
+      "threshold_center_sensitivity_px": 0.7651279606173358,
+      "mask_threshold": 0.11
+    }
+  ],
+  "results": {
+    "homography": {
+      "radial_coefficient": 0.0,
+      "homography_normalized": [
+        [
+          1.1326211755513722,
+          -0.007310053237326763,
+          -0.00880486901148605
+        ],
+        [
+          -7.947335837894561e-05,
+          1.1262687993931406,
+          -0.007433802299104491
+        ],
+        [
+          0.007248896713470107,
+          -0.024014858655612082,
+          1.0
+        ]
+      ],
+      "training_error_mm": [
+        7.079492115218651,
+        0.8976402344999028,
+        4.214337473278364,
+        2.036170137334171,
+        2.166917245977776,
+        3.7258391273748805,
+        2.840531310949758,
+        5.08060860227251,
+        3.3339831666403277
+      ],
+      "training_rms_mm": 3.8930942988021435,
+      "leave_one_position_out_error_mm": [
+        9.150027779461576,
+        2.8566056658211973,
+        12.274973775095884,
+        2.584528528868172,
+        2.746917051388636,
+        10.333791960626083,
+        7.806236816550086,
+        13.982208151034907,
+        7.878987336969068
+      ],
+      "leave_one_position_out_rms_mm": 8.705609317078931,
+      "leave_one_position_out_median_mm": 7.878987336969068,
+      "leave_one_position_out_max_mm": 13.982208151034907,
+      "fold_radial_coefficients": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    "homography_plus_one_radial_parameter": {
+      "radial_coefficient": -0.005999999999999978,
+      "homography_normalized": [
+        [
+          1.1363935588045153,
+          -0.007309089809037592,
+          -0.008837219135435025
+        ],
+        [
+          -7.050395919033228e-05,
+          1.1287844456481617,
+          -0.0074351057596258536
+        ],
+        [
+          0.007082092528283813,
+          -0.024058595089913707,
+          1.0
+        ]
+      ],
+      "training_error_mm": [
+        7.090955627981019,
+        2.1809710613016247,
+        3.038337326486989,
+        1.8720150691436936,
+        2.0916788724884743,
+        3.3231224769932686,
+        3.4731832805014724,
+        4.448018675556091,
+        3.536731455366389
+      ],
+      "training_rms_mm": 3.764583874672491,
+      "leave_one_position_out_error_mm": [
+        9.169041447027636,
+        20.838668594627343,
+        22.382548651515506,
+        2.4459453674614586,
+        2.730935077820177,
+        9.644944574993266,
+        11.007186843207576,
+        13.982208151034907,
+        9.499739835504116
+      ],
+      "leave_one_position_out_rms_mm": 13.049780282988406,
+      "leave_one_position_out_median_mm": 9.644944574993266,
+      "leave_one_position_out_max_mm": 22.382548651515506,
+      "fold_radial_coefficients": [
+        -0.005999999999999978,
+        -0.025999999999999995,
+        0.015000000000000013,
+        -0.0069999999999999785,
+        -0.0069999999999999785,
+        -0.0030000000000000027,
+        -0.010999999999999982,
+        0.0,
+        -0.00899999999999998
+      ]
+    }
+  },
+  "synthetic_homography_recovery": "passed",
+  "synthetic_radial_recovery": "passed",
+  "physical_uncertainty": "unknown; conversion decimals are not measurement precision",
+  "excluded_unmeasured_pocket_adjacent_balls": 6
+}

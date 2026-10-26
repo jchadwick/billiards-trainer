@@ -17,7 +17,7 @@ fn adapter() -> SceneSnapshotStateAdapter {
 }
 
 #[test]
-fn matches_actual_python_adapter_differential_oracle() {
+fn matches_checked_in_contract_fixtures() {
     let directory = Path::new(env!("CARGO_MANIFEST_DIR")).join("contracts/public-state");
     let mut count = 0;
     for entry in fs::read_dir(directory).unwrap() {
@@ -54,10 +54,7 @@ fn matches_actual_python_adapter_differential_oracle() {
         );
         count += 1;
     }
-    assert_eq!(
-        count, 35,
-        "all checked-in Python differential cases must run"
-    );
+    assert_eq!(count, 35, "all checked-in contract fixtures must run");
 }
 
 #[test]
@@ -130,6 +127,28 @@ fn config_is_validated_and_changes_scaling_and_assumed_radius_explicitly() {
     assert_eq!(
         payload.balls[0].radius_source,
         "legacy_standard_pool_ball_assumption"
+    );
+}
+
+#[test]
+fn maps_measured_ball_box_extent_to_the_canonical_overlay_plane() {
+    let mut scene = base();
+    scene.balls[0].measurement.as_mut().unwrap().image_radius_px =
+        Some(billiards_perception::Point2d { x: 24.0, y: 21.0 });
+
+    let payload = adapter().adapt(&scene, None, None).unwrap().unwrap();
+    assert_eq!(
+        payload.balls[0].radius_extent,
+        Some(billiards_perception::public_state::PublicRadiusExtent {
+            x: 24.0,
+            y: 21.0,
+            scale: [1.0, 1.0],
+        }),
+        "a source frame on the canonical plane keeps the detector half-extents"
+    );
+    assert_eq!(
+        serde_json::to_value(&payload.balls[0]).unwrap()["radius_extent"],
+        json!({ "x": 24.0, "y": 21.0, "scale": [1.0, 1.0] })
     );
 }
 

@@ -15,8 +15,10 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
+use axum::body::Body;
 use axum::extract::ws::{CloseFrame, Message, WebSocket, WebSocketUpgrade};
-use axum::extract::{Extension, State};
+use axum::extract::{Extension, Query, State};
+use axum::http::header::{CACHE_CONTROL, CONTENT_TYPE};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
@@ -24,12 +26,17 @@ use axum::{Json, Router};
 use chrono::{DateTime, SecondsFormat, Utc};
 use serde::Deserialize;
 use serde_json::{json, Value};
-use tokio::net::TcpListener;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{watch, Mutex as AsyncMutex, Semaphore};
 use tokio::time::{sleep, timeout};
 
 use crate::capture_settings_wire::{parse_capture_settings_json, ResolvedCaptureSettings};
 use crate::configuration_authority::{AuthorityLimits, ConfigurationAuthority};
+use crate::frame_preview::{
+    FramePreviewDescriptorV1, FramePreviewResponseHeaderV1, FramePreviewStatusV1,
+    PREVIEW_REQUEST_V1,
+};
 use crate::framing::{read_framed_message, write_framed_message};
 use crate::game_session::GameSessionStore;
 use crate::game_session_http::GameSessionHttpState;
@@ -40,8 +47,8 @@ use crate::live_handshake::{validate_live_v3_hello, ValidatedLiveHandshake};
 use crate::live_supervisor::LiveProcessConfig;
 use crate::public_state::PublicStateConfig;
 use crate::public_state_lifecycle::{
-    CurrentSceneState, IngestOutcome, SceneStateLifecycle, SourceStateMetadata, StateFreshness,
-    StateLifecycleConfig,
+    CurrentSceneState, IngestOutcome, PerceptionStateV1, SceneStateLifecycle, SourceStateMetadata,
+    StateFreshness, StateLifecycleConfig,
 };
 use crate::SceneSnapshotV1;
 
@@ -56,6 +63,16 @@ const DEFAULT_STALE_AFTER_MS: u64 = 100;
 const DEFAULT_EXPIRE_AFTER_MS: u64 = 1_000;
 const DEFAULT_WS_SEND_DEADLINE_MS: u64 = 250;
 const DEFAULT_MAX_WEBSOCKET_CLIENTS: usize = 64;
+const POSITION_RETENTION_CONTEXT_FIELDS: [&str; 6] = [
+    "engine_instance_id",
+    "source_session_id",
+    "configuration_revision",
+    "rectification_revision",
+    "calibration_revision",
+    "calibration_state",
+];
+const IDENTIFIED_MJPEG_BOUNDARY: &str = "billiards-frame-v1";
+const IDENTIFIED_MJPEG_PATH: &str = "/api/v1/video/identified.mjpg";
 pub const DEFAULT_MAX_CONFIGURATION_REQUESTS: usize = 4;
 
 /// Runtime options for the independently launchable gateway.
@@ -250,8 +267,26 @@ struct GatewayInner {
     producer_control_stream: Mutex<Option<std::net::TcpStream>>,
     websocket_slots: Arc<Semaphore>,
     configuration_slots: Arc<Semaphore>,
+    frame_preview_stream: Option<FramePreviewStreamSettings>,
+    frame_preview_stream_slots: Arc<Semaphore>,
     configuration_mutation_lock: Arc<AsyncMutex<()>>,
     gateway_audit: Option<Arc<GatewayAudit>>,
+}
+
+#[derive(Debug, Clone)]
+struct FramePreviewStreamSettings {
+    address: SocketAddr,
+    request_timeout: Duration,
+    poll_interval: Duration,
+    maximum_header_bytes: usize,
+    maximum_jpeg_bytes: usize,
+    maximum_clients: usize,
+}
+
+#[derive(Debug)]
+struct IdentifiedMjpegFrame {
+    descriptor: FramePreviewDescriptorV1,
+    jpeg: Vec<u8>,
 }
 
 struct GatewayAudit {
@@ -269,10 +304,64 @@ struct GatewayWebSocketAuditClient {
     previous_source_identity: Option<(String, String, u64)>,
 }
 
+#[derive(Debug, Default, Deserialize)]
+struct WebSocketQuery {
+    retain_last_known_ms: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct PositionRetentionContext {
+    engine_instance_id: Option<Value>,
+    source_session_id: Option<Value>,
+    configuration_revision: Option<Value>,
+    rectification_revision: Option<Value>,
+    calibration_revision: Option<Value>,
+    calibration_state: Option<Value>,
+}
+
+#[derive(Debug)]
+struct RetainedBallLayout {
+    balls: Vec<crate::public_state::PublicBall>,
+    captured_at: Instant,
+    context: PositionRetentionContext,
+    original_status: Value,
+    source_identity: Value,
+}
+
+/// Optional per-WebSocket presentation cache. It never mutates gateway state,
+/// and it stores only the latest accepted observed layout for this client.
+#[derive(Debug)]
+struct WebSocketPositionRetention {
+    duration: Duration,
+    maximum_balls: usize,
+    layout: Option<RetainedBallLayout>,
+    unavailable_since: Option<Instant>,
+}
+
+impl WebSocketPositionRetention {
+    fn new(duration: Duration, maximum_balls: usize) -> Self {
+        Self {
+            duration,
+            maximum_balls,
+            layout: None,
+            unavailable_since: None,
+        }
+    }
+
+    fn expiration_deadline(&self) -> Option<Instant> {
+        self.layout
+            .as_ref()
+            .and(self.unavailable_since)
+            .and_then(|unavailable_since| unavailable_since.checked_add(self.duration))
+    }
+}
+
 struct IngressState {
     lifecycle: SceneStateLifecycle,
     producer_identity: Option<(String, String)>,
     last_transport_sequence: Option<u64>,
+    /// V2 phase events have their own sequence space, separate from raw scenes.
+    last_delivery_sequence: Option<u64>,
     publication_sequence: u64,
     published_signature: Option<(u64, u128, StateFreshness)>,
     localization_received_at: Option<DateTime<Utc>>,
@@ -305,6 +394,19 @@ impl Gateway {
             .as_ref()
             .map(|path| ConfigurationAuthority::new(path, AuthorityLimits::default()))
             .transpose()?;
+        let frame_preview_stream =
+            match configured_frame_preview_stream(configuration_authority.as_ref()) {
+                Ok(settings) => settings,
+                Err(error) => {
+                    eprintln!("identified_frame_stream_unavailable={error}");
+                    None
+                }
+            };
+        let frame_preview_stream_slots = Arc::new(Semaphore::new(
+            frame_preview_stream
+                .as_ref()
+                .map_or(1, |settings| settings.maximum_clients),
+        ));
         let game_session_store = configuration_authority.as_ref().and_then(|authority| {
             let root = config
                 .project_root
@@ -338,6 +440,8 @@ impl Gateway {
                 configuration_slots: Arc::new(Semaphore::new(
                     config.maximum_configuration_requests,
                 )),
+                frame_preview_stream,
+                frame_preview_stream_slots,
                 configuration_mutation_lock: Arc::new(AsyncMutex::new(())),
                 configuration_authority,
                 game_session_store,
@@ -347,6 +451,7 @@ impl Gateway {
                     lifecycle,
                     producer_identity: None,
                     last_transport_sequence: None,
+                    last_delivery_sequence: None,
                     publication_sequence: 0,
                     published_signature: None,
                     localization_received_at: None,
@@ -366,6 +471,7 @@ impl Gateway {
         let scene_router = Router::new()
             .route("/api/v1/health/live", get(health_live))
             .route("/api/v1/health/ready", get(health_ready))
+            .route(IDENTIFIED_MJPEG_PATH, get(identified_mjpeg_stream))
             .route("/api/v1/websocket/ws", get(websocket_upgrade))
             .with_state(self.clone());
         let scene_gateway = self.clone();
@@ -406,7 +512,6 @@ impl Gateway {
         let snapshot_at_wall = Utc::now();
         let current = state.lifecycle.current(now_ns).ok()??;
         let published_at = state.updated_at?;
-        current.localization_received_monotonic_ns?;
         let signature = (
             current.epoch,
             current.updated_monotonic_ns,
@@ -629,6 +734,7 @@ impl Gateway {
                 .map_err(|error| error.to_string())?;
             state.producer_identity = Some(identity);
             state.last_transport_sequence = None;
+            state.last_delivery_sequence = None;
             state.localization_received_at = None;
             state.updated_at = None;
             state.live_source_geometry = None;
@@ -670,6 +776,14 @@ impl Gateway {
         bytes: &[u8],
         handshake: &ValidatedLiveHandshake,
     ) -> Result<(), String> {
+        let header: PublicStateDeliveryHeader = serde_json::from_slice(bytes)
+            .map_err(|error| format!("invalid public-state delivery header: {error}"))?;
+        if header.delivery_type != "billiards_public_state_delivery" {
+            return Err("unsupported public-state delivery contract".into());
+        }
+        if header.delivery_schema_version == 2 {
+            return self.accept_live_delivery_v2(bytes, handshake);
+        }
         let delivery: PublicStateDeliveryInput = serde_json::from_slice(bytes)
             .map_err(|error| format!("invalid public-state delivery v1: {error}"))?;
         if delivery.delivery_type != "billiards_public_state_delivery"
@@ -709,6 +823,144 @@ impl Gateway {
             table,
             game_type,
         )
+    }
+
+    fn accept_live_delivery_v2(
+        &self,
+        bytes: &[u8],
+        handshake: &ValidatedLiveHandshake,
+    ) -> Result<(), String> {
+        let delivery: PublicStateDeliveryV2Input =
+            serde_json::from_slice(bytes).map_err(|error| {
+                format!("unsupported public-state delivery contract or invalid v2 payload: {error}")
+            })?;
+        if delivery.delivery_type != "billiards_public_state_delivery"
+            || delivery.delivery_schema_version != 2
+            || delivery.delivery_sequence == 0
+            || delivery.perception.event_sequence != delivery.delivery_sequence
+        {
+            return Err("unsupported or inconsistent public-state delivery v2".into());
+        }
+        if delivery.engine_instance_id != handshake.identity.engine_instance_id
+            || delivery.source_session_id != handshake.identity.source_session_id
+        {
+            return Err(
+                "perception delivery identity differs from the acknowledged live source".into(),
+            );
+        }
+        validate_perception_state(&delivery.perception)?;
+        if let Some(snapshot) = delivery.source_snapshot {
+            snapshot
+                .validate()
+                .map_err(|error| format!("invalid source scene snapshot: {error}"))?;
+            if snapshot.engine_instance_id != handshake.identity.engine_instance_id
+                || snapshot.source.session_id != handshake.identity.source_session_id
+            {
+                return Err("scene identity differs from the acknowledged live source".into());
+            }
+            validate_live_public_state(&snapshot, delivery.current_state.as_ref())?;
+            let (localization_age_offset_ns, ball_age_offsets_ns, table, game_type) =
+                match delivery.current_state {
+                    Some(current) => (
+                        current.localization_age_ns.unwrap_or_default(),
+                        current.ball_age_ns,
+                        current.payload.table,
+                        current.payload.game_type,
+                    ),
+                    None => (0, HashMap::new(), None, None),
+                };
+            self.accept_scene_with_capture_age(
+                snapshot,
+                localization_age_offset_ns,
+                ball_age_offsets_ns,
+                table,
+                game_type,
+            )?;
+        } else if let Some(current) = delivery.current_state.as_ref() {
+            if current.epoch == 0
+                || current.payload.balls.len() > StateLifecycleConfig::default().maximum_balls
+                || !current.payload.observation_status.is_object()
+                || current.payload.observation_status["perception"]["event_sequence"].as_u64()
+                    != Some(delivery.delivery_sequence)
+            {
+                return Err("phase-only delivery contains an invalid current state".into());
+            }
+        }
+
+        self.accept_perception_state(
+            delivery.delivery_sequence,
+            &delivery.engine_instance_id,
+            &delivery.source_session_id,
+            delivery.perception,
+        )
+    }
+
+    fn accept_perception_state(
+        &self,
+        delivery_sequence: u64,
+        engine_instance_id: &str,
+        source_session_id: &str,
+        perception: PerceptionStateV1,
+    ) -> Result<(), String> {
+        let mut state = lock_unpoisoned(&self.inner.state);
+        if !state
+            .producer_identity
+            .as_ref()
+            .is_some_and(|(engine, session)| {
+                engine == engine_instance_id && session == source_session_id
+            })
+        {
+            return Err("perception delivery source is not the active producer".into());
+        }
+        let sequence_is_stale = state
+            .last_delivery_sequence
+            .is_some_and(|previous| delivery_sequence <= previous);
+        if sequence_is_stale {
+            return Err("perception delivery sequence is duplicate or out of order".into());
+        }
+        let now_ns = self.monotonic_ns();
+        let received_at = Utc::now();
+        let status = serde_json::to_value(perception)
+            .map_err(|error| format!("could not encode perception status: {error}"))?;
+        state
+            .lifecycle
+            .update_perception_status(
+                engine_instance_id,
+                source_session_id,
+                status,
+                now_ns,
+                now_ns,
+            )
+            .map_err(|error| error.to_string())?;
+        state.last_delivery_sequence = Some(delivery_sequence);
+        state.updated_at = Some(received_at);
+        let current = state
+            .lifecycle
+            .current(now_ns)
+            .map_err(|error| error.to_string())?;
+        if let Some(current) = current {
+            // Publish phase-only states even before the first localized scene.
+            // Their payload contains no ball positions and marks them
+            // unavailable; the cue can still be drawn from its own fresh
+            // evidence clock.
+            state.publication_sequence = state.publication_sequence.saturating_add(1);
+            state.published_signature = Some((
+                current.epoch,
+                current.updated_monotonic_ns,
+                current.freshness,
+            ));
+            self.inner
+                .latest
+                .send_replace(Some(Arc::new(PublishedState {
+                    current: Arc::new(current),
+                    published_at: received_at,
+                    snapshot_at_wall: received_at,
+                    snapshot_at_monotonic_ns: now_ns,
+                    published_at_monotonic_ns: now_ns,
+                    publication_sequence: state.publication_sequence,
+                })));
+        }
+        Ok(())
     }
 
     fn shutdown(&self) {
@@ -843,6 +1095,12 @@ impl Drop for ActiveProducerGuard {
 }
 
 #[derive(Debug, Deserialize)]
+struct PublicStateDeliveryHeader {
+    delivery_type: String,
+    delivery_schema_version: u8,
+}
+
+#[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct PublicStateDeliveryInput {
     delivery_type: String,
@@ -850,6 +1108,21 @@ struct PublicStateDeliveryInput {
     source_snapshot: SceneSnapshotV1,
     #[serde(deserialize_with = "required_delivery_option")]
     current_state: Option<CurrentSceneState>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PublicStateDeliveryV2Input {
+    delivery_type: String,
+    delivery_schema_version: u8,
+    delivery_sequence: u64,
+    engine_instance_id: String,
+    source_session_id: String,
+    #[serde(deserialize_with = "required_delivery_option")]
+    source_snapshot: Option<SceneSnapshotV1>,
+    #[serde(deserialize_with = "required_delivery_option")]
+    current_state: Option<CurrentSceneState>,
+    perception: PerceptionStateV1,
 }
 
 fn required_delivery_option<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
@@ -915,6 +1188,128 @@ fn validate_live_public_state(
     Ok(())
 }
 
+fn validate_perception_state(state: &PerceptionStateV1) -> Result<(), String> {
+    if !matches!(
+        state.phase.as_str(),
+        "recovering" | "pre_shot" | "aiming" | "shot_underway"
+    ) || state.trust_reason.is_empty()
+        || state.trust_reason.len() > 128
+        || state.motion_evidence_max_age_ms == 0
+        || state.cue_evidence_max_age_ms == 0
+        || state.layout_verification_max_age_ms == 0
+    {
+        return Err("perception delivery contains invalid phase or evidence limits".into());
+    }
+    if state.guidance_valid {
+        let visible_table = state.table_visibility.as_ref().is_some_and(|visibility| {
+            visibility.status == crate::public_state_lifecycle::TableVisibilityStatusV1::Visible
+                && visibility.observation_age_ms <= state.motion_evidence_max_age_ms
+        });
+        let cue_is_fresh = state.cue.as_ref().is_some_and(|cue| {
+            cue.observation_age_ms <= state.cue_evidence_max_age_ms
+                && cue.source_frame_id.as_deref() == state.decision_frame_id.as_deref()
+        }) && state
+            .cue_evidence_age_ms
+            .is_some_and(|age| age <= state.cue_evidence_max_age_ms);
+        if !state.layout_trusted
+            || state.phase != "aiming"
+            || state.decision_frame_id.as_deref().is_none_or(str::is_empty)
+            || !visible_table
+            || !state
+                .last_ball_observation_age_ms
+                .is_some_and(|age| age <= state.layout_verification_max_age_ms)
+            || !state
+                .latest_motion_check_age_ms
+                .is_some_and(|age| age <= state.motion_evidence_max_age_ms)
+            || !cue_is_fresh
+        {
+            return Err(
+                "guidance requires fresh frame-bound layout, motion, cue, and table evidence"
+                    .into(),
+            );
+        }
+    }
+    if state.decision_calibration_revision.is_some()
+        != state.decision_rectification_revision.is_some()
+        || (state.decision_frame_id.is_some()
+            && (state.image_width_px.is_none() || state.image_height_px.is_none()))
+        || state
+            .decision_frame_id
+            .as_ref()
+            .is_some_and(|frame_id| frame_id.is_empty() || frame_id.len() > 128)
+    {
+        return Err("perception decision frame provenance is incomplete or invalid".into());
+    }
+    if state.table_visibility.as_ref().is_some_and(|visibility| {
+        visibility.observation_frame_id.is_empty()
+            || visibility.observation_frame_id.len() > 128
+            || visibility.reason.is_empty()
+            || visibility.reason.len() > 128
+    }) {
+        return Err("perception table-visibility evidence is invalid".into());
+    }
+    if state.cue.as_ref().is_some_and(|cue| {
+        cue.source_frame_id
+            .as_ref()
+            .is_some_and(|frame_id| frame_id.is_empty() || frame_id.len() > 128)
+    }) {
+        return Err("perception cue evidence has an invalid source frame identity".into());
+    }
+    if state.empty_layout_verified
+        && (!state.layout_trusted
+            || !state
+                .last_ball_observation_age_ms
+                .is_some_and(|age| age <= state.layout_verification_max_age_ms)
+            || !state
+                .latest_motion_check_age_ms
+                .is_some_and(|age| age <= state.motion_evidence_max_age_ms))
+    {
+        return Err(
+            "an empty layout requires trusted layout, motion, and observation evidence".into(),
+        );
+    }
+    if state.image_width_px.is_some() != state.image_height_px.is_some()
+        || state.image_width_px == Some(0)
+        || state.image_height_px == Some(0)
+    {
+        return Err("perception delivery contains incomplete image dimensions".into());
+    }
+    if let Some(cue) = state.cue.as_ref() {
+        if !cue.confidence.is_finite()
+            || !(0.0..=1.0).contains(&cue.confidence)
+            || cue
+                .shaft_start_px
+                .iter()
+                .chain(cue.shaft_end_px.iter())
+                .chain(cue.axis_unit.iter())
+                .any(|coordinate| !coordinate.is_finite())
+            || cue
+                .signed_direction
+                .as_ref()
+                .is_some_and(|direction| direction != "toward_start" && direction != "toward_end")
+        {
+            return Err("perception delivery contains invalid cue geometry".into());
+        }
+        let (Some(width), Some(height)) = (state.image_width_px, state.image_height_px) else {
+            return Err("cue geometry omitted its source image dimensions".into());
+        };
+        if cue
+            .shaft_start_px
+            .iter()
+            .zip([f64::from(width), f64::from(height)])
+            .chain(
+                cue.shaft_end_px
+                    .iter()
+                    .zip([f64::from(width), f64::from(height)]),
+            )
+            .any(|(coordinate, limit)| *coordinate < 0.0 || *coordinate > limit)
+        {
+            return Err("cue geometry lies outside its source image".into());
+        }
+    }
+    Ok(())
+}
+
 fn validate_live_public_ball(
     ball: &crate::public_state::PublicBall,
     snapshot: &SceneSnapshotV1,
@@ -930,6 +1325,16 @@ fn validate_live_public_ball(
             .all(|value| value.is_finite() && *value > 0.0)
         || !ball.radius.is_finite()
         || ball.radius <= 0.0
+        || ball.radius_extent.as_ref().is_some_and(|extent| {
+            !extent.x.is_finite()
+                || !extent.y.is_finite()
+                || extent.x <= 0.0
+                || extent.y <= 0.0
+                || extent
+                    .scale
+                    .iter()
+                    .any(|scale| !scale.is_finite() || *scale <= 0.0)
+        })
         || !ball.confidence.is_finite()
         || !(0.0..=1.0).contains(&ball.confidence)
         || ball
@@ -1001,13 +1406,262 @@ fn lock_unpoisoned<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
         .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
+/// Resolve a loopback frame-preview listener that the gateway can bridge to
+/// the browser as identity-preserving MJPEG. Port zero remains a valid
+/// capture-only mode, but its child-selected ephemeral address cannot be
+/// resolved by the gateway.
+fn configured_frame_preview_stream(
+    authority: Option<&ConfigurationAuthority>,
+) -> Result<Option<FramePreviewStreamSettings>, String> {
+    let Some(authority) = authority else {
+        return Ok(None);
+    };
+    let configuration = authority.effective_configuration()?;
+    let live = configuration
+        .pointer("/perception/rust_live")
+        .and_then(Value::as_object)
+        .ok_or_else(|| "perception.rust_live is missing or invalid".to_owned())?;
+    if live.get("frame_preview_enabled").and_then(Value::as_bool) != Some(true) {
+        return Ok(None);
+    }
+    let bind_address = live
+        .get("frame_preview_bind_address")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "frame-preview bind address is missing".to_owned())?
+        .parse::<IpAddr>()
+        .map_err(|error| format!("frame-preview bind address is invalid: {error}"))?;
+    if !bind_address.is_loopback() {
+        return Err("frame-preview stream address must be loopback".to_owned());
+    }
+    let port = live
+        .get("frame_preview_port")
+        .and_then(Value::as_u64)
+        .and_then(|port| u16::try_from(port).ok())
+        .ok_or_else(|| "frame-preview port is invalid".to_owned())?;
+    if port == 0 {
+        return Ok(None);
+    }
+    let positive_size = |key: &str| {
+        live.get(key)
+            .and_then(Value::as_u64)
+            .and_then(|value| usize::try_from(value).ok())
+            .filter(|value| *value > 0)
+            .ok_or_else(|| format!("perception.rust_live.{key} must be a positive integer"))
+    };
+    let request_timeout_ms = live
+        .get("frame_preview_request_timeout_ms")
+        .and_then(Value::as_u64)
+        .filter(|value| *value > 0)
+        .ok_or_else(|| {
+            "perception.rust_live.frame_preview_request_timeout_ms must be positive".to_owned()
+        })?;
+    let maximum_clients = positive_size("frame_preview_max_concurrent_encodes")?;
+    let framerate = configuration
+        .pointer("/api/stream/framerate")
+        .and_then(Value::as_object)
+        .ok_or_else(|| "api.stream.framerate is missing or invalid".to_owned())?;
+    let minimum_fps = framerate
+        .get("min_fps")
+        .and_then(Value::as_u64)
+        .filter(|value| *value > 0)
+        .ok_or_else(|| "api.stream.framerate.min_fps must be positive".to_owned())?;
+    let maximum_fps = framerate
+        .get("max_fps")
+        .and_then(Value::as_u64)
+        .filter(|value| *value >= minimum_fps)
+        .ok_or_else(|| "api.stream.framerate.max_fps is invalid".to_owned())?;
+    let fps = framerate
+        .get("default_fps")
+        .and_then(Value::as_u64)
+        .filter(|value| (minimum_fps..=maximum_fps).contains(value))
+        .ok_or_else(|| "api.stream.framerate.default_fps is invalid".to_owned())?;
+    let provider = configuration
+        .pointer("/perception/rust_live/provider")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "perception.rust_live.provider is missing".to_owned())?;
+    let effective_fps = if provider == "coral" {
+        let retained_frames = configuration
+            .pointer("/api/stream/frame_pairing/buffered_frame_count")
+            .and_then(Value::as_u64)
+            .filter(|value| *value >= 2)
+            .ok_or_else(|| "api.stream.frame_pairing.buffered_frame_count is invalid".to_owned())?;
+        let maximum_inference_frame_age_ms = live
+            .get("coral_runtime")
+            .and_then(Value::as_object)
+            .and_then(|runtime| runtime.get("maximum_inference_frame_age_ms"))
+            .and_then(Value::as_u64)
+            .filter(|value| *value > 0)
+            .ok_or_else(|| {
+                "perception.rust_live.coral_runtime.maximum_inference_frame_age_ms must be positive"
+                    .to_owned()
+            })?;
+        // Keep the browser's bounded ring long enough to retain any frame
+        // still eligible for Coral inference, while respecting the operator's
+        // configured preview rate and stream bounds.
+        let retention_limited_fps = retained_frames.saturating_sub(1).saturating_mul(1_000)
+            / maximum_inference_frame_age_ms;
+        fps.min(retention_limited_fps.max(minimum_fps))
+    } else {
+        fps
+    };
+    Ok(Some(FramePreviewStreamSettings {
+        address: SocketAddr::new(bind_address, port),
+        request_timeout: Duration::from_millis(request_timeout_ms),
+        poll_interval: Duration::from_secs_f64(1.0 / effective_fps as f64),
+        maximum_header_bytes: positive_size("frame_preview_max_header_bytes")?,
+        maximum_jpeg_bytes: positive_size("frame_preview_max_jpeg_bytes")?,
+        maximum_clients,
+    }))
+}
+
+async fn identified_mjpeg_stream(State(gateway): State<Gateway>) -> Response {
+    let Some(settings) = gateway.inner.frame_preview_stream.clone() else {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "identity-preserving frame preview is not configured",
+        )
+            .into_response();
+    };
+    let permit = match Arc::clone(&gateway.inner.frame_preview_stream_slots).try_acquire_owned() {
+        Ok(permit) => permit,
+        Err(_) => {
+            return (
+                StatusCode::SERVICE_UNAVAILABLE,
+                "identity-preserving frame preview is at capacity",
+            )
+                .into_response();
+        }
+    };
+    let initial_state = (
+        gateway,
+        settings,
+        permit,
+        None::<String>,
+        tokio::time::Instant::now(),
+    );
+    let stream = futures_util::stream::unfold(initial_state, |state| async move {
+        let (gateway, settings, permit, mut last_frame_id, mut next_poll) = state;
+        loop {
+            if *gateway.inner.shutdown.borrow() {
+                return None;
+            }
+            if next_poll > tokio::time::Instant::now() {
+                tokio::time::sleep_until(next_poll).await;
+            }
+            if *gateway.inner.shutdown.borrow() {
+                return None;
+            }
+            next_poll = tokio::time::Instant::now() + settings.poll_interval;
+            let mut bytes = None;
+            if let Some(frame) =
+                request_preview_frame(settings.address, *PREVIEW_REQUEST_V1, &settings).await
+            {
+                if last_frame_id.as_deref() != Some(frame.descriptor.source_frame_id.as_str()) {
+                    last_frame_id = Some(frame.descriptor.source_frame_id.clone());
+                    bytes = encode_identified_mjpeg_part(&frame);
+                }
+            }
+            if let Some(bytes) = bytes {
+                return Some((
+                    Ok::<Vec<u8>, std::convert::Infallible>(bytes),
+                    (gateway, settings, permit, last_frame_id, next_poll),
+                ));
+            }
+        }
+    });
+    let mut response = Response::new(Body::from_stream(stream));
+    *response.status_mut() = StatusCode::OK;
+    response.headers_mut().insert(
+        CONTENT_TYPE,
+        format!("multipart/x-mixed-replace; boundary={IDENTIFIED_MJPEG_BOUNDARY}")
+            .parse()
+            .expect("static multipart content type is valid"),
+    );
+    response.headers_mut().insert(
+        CACHE_CONTROL,
+        "no-store, no-cache, must-revalidate"
+            .parse()
+            .expect("static cache control is valid"),
+    );
+    response
+}
+
+async fn request_preview_frame(
+    address: SocketAddr,
+    request: [u8; 8],
+    settings: &FramePreviewStreamSettings,
+) -> Option<IdentifiedMjpegFrame> {
+    tokio::time::timeout(settings.request_timeout, async {
+        let mut stream = TcpStream::connect(address).await.ok()?;
+        stream.write_all(&request).await.ok()?;
+        let mut length_bytes = [0_u8; 4];
+        stream.read_exact(&mut length_bytes).await.ok()?;
+        let header_length = u32::from_be_bytes(length_bytes) as usize;
+        if header_length == 0 || header_length > settings.maximum_header_bytes {
+            return None;
+        }
+        let mut header_bytes = vec![0_u8; header_length];
+        stream.read_exact(&mut header_bytes).await.ok()?;
+        let header: FramePreviewResponseHeaderV1 = serde_json::from_slice(&header_bytes).ok()?;
+        if header.schema_version != 1 || header.status != FramePreviewStatusV1::Ok {
+            return None;
+        }
+        let descriptor = header.descriptor?;
+        let jpeg_length = usize::try_from(header.jpeg_bytes).ok()?;
+        if jpeg_length < 4 || jpeg_length > settings.maximum_jpeg_bytes {
+            return None;
+        }
+        let mut jpeg = vec![0_u8; jpeg_length];
+        stream.read_exact(&mut jpeg).await.ok()?;
+        if jpeg[..2] != [0xff, 0xd8] || jpeg[jpeg_length - 2..] != [0xff, 0xd9] {
+            return None;
+        }
+        Some(IdentifiedMjpegFrame { descriptor, jpeg })
+    })
+    .await
+    .ok()
+    .flatten()
+}
+
+fn encode_identified_mjpeg_part(frame: &IdentifiedMjpegFrame) -> Option<Vec<u8>> {
+    let descriptor = &frame.descriptor;
+    for value in [
+        descriptor.source_frame_id.as_str(),
+        descriptor.engine_instance_id.as_str(),
+        descriptor.capture_session_id.as_str(),
+    ] {
+        if value.is_empty()
+            || value.len() > MAX_IDENTIFIER_CHARACTERS
+            || value.chars().any(char::is_control)
+        {
+            return None;
+        }
+    }
+    let mut part = format!(
+        "--{IDENTIFIED_MJPEG_BOUNDARY}\r\nContent-Type: image/jpeg\r\nContent-Length: {}\r\nX-Frame-Id: {}\r\nX-Engine-Instance-Id: {}\r\nX-Source-Session-Id: {}\r\nX-Configuration-Revision: {}\r\nX-Calibration-Revision: {}\r\nX-Rectification-Revision: {}\r\n\r\n",
+        frame.jpeg.len(),
+        descriptor.source_frame_id,
+        descriptor.engine_instance_id,
+        descriptor.capture_session_id,
+        descriptor.configuration_revision,
+        descriptor.calibration_revision,
+        descriptor.rectification_revision,
+    )
+    .into_bytes();
+    part.extend_from_slice(&frame.jpeg);
+    part.extend_from_slice(b"\r\n");
+    Some(part)
+}
+
 async fn health_live() -> Json<Value> {
     Json(json!({"status": "alive"}))
 }
 
 async fn health_ready(State(gateway): State<Gateway>) -> Response {
     match gateway.snapshot_now() {
-        Some(snapshot) if snapshot.current.freshness == StateFreshness::Fresh => Json(json!({
+        Some(snapshot)
+            if snapshot.current.localization_received_monotonic_ns.is_some()
+                && snapshot.current.freshness == StateFreshness::Fresh => Json(json!({
             "status": "ready",
             "localization_available": true,
             "freshness": snapshot.current.freshness,
@@ -1017,7 +1671,7 @@ async fn health_ready(State(gateway): State<Gateway>) -> Response {
             StatusCode::SERVICE_UNAVAILABLE,
             Json(json!({
                 "status": "not_ready",
-                "localization_available": true,
+                "localization_available": snapshot.current.localization_received_monotonic_ns.is_some(),
                 "freshness": snapshot.current.freshness,
             })),
         )
@@ -1039,7 +1693,11 @@ fn not_ready_response() -> Response {
         .into_response()
 }
 
-async fn websocket_upgrade(State(gateway): State<Gateway>, upgrade: WebSocketUpgrade) -> Response {
+async fn websocket_upgrade(
+    State(gateway): State<Gateway>,
+    Query(query): Query<WebSocketQuery>,
+    upgrade: WebSocketUpgrade,
+) -> Response {
     // Subscribe before validating/snapshotting so an update or producer restart between
     // the handshake and `on_upgrade` is represented by the watch channel's latest value.
     let latest = gateway.inner.latest.subscribe();
@@ -1057,10 +1715,21 @@ async fn websocket_upgrade(State(gateway): State<Gateway>, upgrade: WebSocketUpg
         }
     };
     let max_message_size = gateway.inner.config.maximum_scene_bytes;
+    let retention_duration = Duration::from_millis(query.retain_last_known_ms.unwrap_or_default());
+    let maximum_balls = StateLifecycleConfig::default().maximum_balls;
     upgrade
         .max_message_size(max_message_size)
         .max_frame_size(max_message_size)
-        .on_upgrade(move |socket| websocket_session(socket, gateway, latest, permit))
+        .on_upgrade(move |socket| {
+            websocket_session(
+                socket,
+                gateway,
+                latest,
+                permit,
+                retention_duration,
+                maximum_balls,
+            )
+        })
         .into_response()
 }
 
@@ -1069,7 +1738,10 @@ async fn websocket_session(
     gateway: Gateway,
     mut latest: watch::Receiver<Option<Arc<PublishedState>>>,
     _permit: tokio::sync::OwnedSemaphorePermit,
+    retention_duration: Duration,
+    maximum_balls: usize,
 ) {
+    let mut position_retention = WebSocketPositionRetention::new(retention_duration, maximum_balls);
     // Allocate per-client counters only under the explicitly enabled gateway audit.
     let mut audit_client =
         gateway
@@ -1102,12 +1774,22 @@ async fn websocket_session(
         audit_client.as_mut(),
         None,
         gateway.inner.config.websocket_send_deadline,
+        &mut position_retention,
     )
     .await
     {
         return;
     }
     loop {
+        let expiration_deadline = position_retention.expiration_deadline();
+        let retention_expiration = async move {
+            if let Some(deadline) = expiration_deadline {
+                tokio::time::sleep_until(tokio::time::Instant::from_std(deadline)).await;
+            } else {
+                std::future::pending::<()>().await;
+            }
+        };
+        tokio::pin!(retention_expiration);
         tokio::select! {
             changed = latest.changed() => {
                 let wake_started = Instant::now();
@@ -1125,6 +1807,7 @@ async fn websocket_session(
                             audit_client.as_mut(),
                             Some(wakeup_to_consume_ms),
                             gateway.inner.config.websocket_send_deadline,
+                            &mut position_retention,
                         ).await {
                             return;
                         }
@@ -1140,6 +1823,24 @@ async fn websocket_session(
                         .await;
                         return;
                     }
+                }
+            }
+            _ = &mut retention_expiration => {
+                // Publish an explicit expired state even if the producer goes quiet;
+                // otherwise consumers could keep displaying the layout beyond grace.
+                let Some(state) = gateway.snapshot_now() else {
+                    continue;
+                };
+                if !send_websocket_state(
+                    &mut socket,
+                    &state,
+                    &gateway,
+                    audit_client.as_mut(),
+                    None,
+                    gateway.inner.config.websocket_send_deadline,
+                    &mut position_retention,
+                ).await {
+                    return;
                 }
             }
             message = socket.recv() => {
@@ -1174,6 +1875,7 @@ async fn send_websocket_state(
     mut audit_client: Option<&mut GatewayWebSocketAuditClient>,
     watch_wakeup_to_consume_ms: Option<f64>,
     send_deadline: Duration,
+    position_retention: &mut WebSocketPositionRetention,
 ) -> bool {
     // Capture selection age before assembly/serialization/write so those costs
     // remain disjoint stages instead of leaking into publication-to-selection.
@@ -1183,7 +1885,7 @@ async fn send_websocket_state(
         as f64
         / 1_000_000.0;
     let assembly_started = Instant::now();
-    let message = websocket_scene_message(state);
+    let message = websocket_scene_message_with_retention(state, position_retention);
     let message_assembly_ms = assembly_started.elapsed().as_secs_f64() * 1_000.0;
     let serialization_started = Instant::now();
     let encoded = match serde_json::to_string(&message) {
@@ -1361,6 +2063,213 @@ fn websocket_scene_message(state: &PublishedState) -> Value {
     })
 }
 
+fn websocket_scene_message_with_retention(
+    state: &PublishedState,
+    retention: &mut WebSocketPositionRetention,
+) -> Value {
+    let mut message = websocket_scene_message(state);
+    if retention.duration.is_zero() {
+        return message;
+    }
+
+    let status = &state.current.payload.observation_status;
+    let current_context = position_retention_context(status);
+    let current_status = status
+        .get("ball_positions_status")
+        .cloned()
+        .unwrap_or(Value::Null);
+
+    // Context fields may be absent in a producer-health state. A supplied field
+    // must match the cached context; missing health-state fields alone do not
+    // discard useful last-known positions.
+    let context_changed = retention.layout.as_ref().is_some_and(|layout| {
+        POSITION_RETENTION_CONTEXT_FIELDS.iter().any(|field| {
+            status
+                .get(*field)
+                .is_some_and(|value| retention_context_field(&layout.context, field) != Some(value))
+        })
+    });
+    if context_changed || empty_layout_is_authoritative(status) {
+        retention.layout = None;
+        retention.unavailable_since = None;
+    }
+
+    let fresh_observed_layout = current_state_is_observed_layout(state);
+    if fresh_observed_layout && retention_context_has_source(&current_context) {
+        let mut balls = state.current.payload.balls.clone();
+        balls.truncate(retention.maximum_balls);
+        let source_identity = position_retention_source_identity(status);
+        let same_source_observation = retention
+            .layout
+            .as_ref()
+            .is_some_and(|layout| layout.source_identity == source_identity);
+        if !same_source_observation {
+            retention.layout = Some(RetainedBallLayout {
+                balls,
+                captured_at: Instant::now(),
+                context: current_context,
+                original_status: current_status.clone(),
+                source_identity,
+            });
+        }
+        retention.unavailable_since = None;
+    } else if fresh_observed_layout {
+        // Never carry a known layout forward when a supposedly fresh observation
+        // lacks enough producer identity to prove it belongs to the same source.
+        retention.layout = None;
+        retention.unavailable_since = None;
+    } else if retention.layout.is_some() {
+        // Start one grace interval at the first unavailable state. Repeated
+        // failures do not extend it, and time spent in a healthy observed state
+        // does not consume the interval.
+        retention.unavailable_since.get_or_insert_with(Instant::now);
+    }
+
+    let mut retained_age_ms = None;
+    let mut unavailable_age_ms = None;
+    let mut original_status = Value::Null;
+    let mut source_identity = Value::Null;
+    let mut retained = false;
+    if let Some(layout) = retention.layout.as_ref() {
+        let layout_age = layout.captured_at.elapsed();
+        retained_age_ms = Some(duration_millis_saturated(layout_age));
+        let unavailable_age = retention.unavailable_since.map(|start| start.elapsed());
+        unavailable_age_ms = unavailable_age.map(duration_millis_saturated);
+        original_status = layout.original_status.clone();
+        source_identity = layout.source_identity.clone();
+        if unavailable_age.is_some_and(|age| age >= retention.duration) {
+            retention.layout = None;
+            retention.unavailable_since = None;
+        } else if !fresh_observed_layout && unavailable_age.is_some() {
+            if let Some(layout) = retention.layout.as_ref() {
+                let balls = retained_layout_values(layout, retention.maximum_balls);
+                message["data"]["ball_count"] = json!(balls.len());
+                message["data"]["balls"] = json!(balls);
+                message["data"]["observation_status"]["ball_positions_status"] = json!("cached");
+                retained = true;
+            }
+        }
+    }
+
+    message["data"]["observation_status"]["position_retention"] = json!({
+        "retained": retained,
+        "retained_age_ms": retained_age_ms,
+        "unavailable_age_ms": unavailable_age_ms,
+        "grace_ms": duration_millis_saturated(retention.duration),
+        "current_status": current_status,
+        "original_status": original_status,
+        "source_identity": source_identity,
+    });
+    message
+}
+
+fn current_state_is_observed_layout(state: &PublishedState) -> bool {
+    let status = &state.current.payload.observation_status;
+    state.current.freshness == StateFreshness::Fresh
+        && status.get("freshness_status").and_then(Value::as_str) == Some("fresh")
+        && status.get("ball_positions_status").and_then(Value::as_str) == Some("observed")
+        && status.get("ball_detection_status").and_then(Value::as_str) == Some("observed")
+        && !state.current.payload.balls.is_empty()
+        && state
+            .current
+            .payload
+            .balls
+            .iter()
+            .all(|ball| ball.is_observed)
+}
+
+fn empty_layout_is_authoritative(status: &Value) -> bool {
+    status
+        .get("perception")
+        .and_then(|perception| perception.get("empty_layout_verified"))
+        .and_then(Value::as_bool)
+        == Some(true)
+}
+
+fn position_retention_context(status: &Value) -> PositionRetentionContext {
+    let field = |name| status.get(name).cloned();
+    PositionRetentionContext {
+        engine_instance_id: field("engine_instance_id"),
+        source_session_id: field("source_session_id"),
+        configuration_revision: field("configuration_revision"),
+        rectification_revision: field("rectification_revision"),
+        calibration_revision: field("calibration_revision"),
+        calibration_state: field("calibration_state"),
+    }
+}
+
+fn retention_context_field<'a>(
+    context: &'a PositionRetentionContext,
+    field: &str,
+) -> Option<&'a Value> {
+    match field {
+        "engine_instance_id" => context.engine_instance_id.as_ref(),
+        "source_session_id" => context.source_session_id.as_ref(),
+        "configuration_revision" => context.configuration_revision.as_ref(),
+        "rectification_revision" => context.rectification_revision.as_ref(),
+        "calibration_revision" => context.calibration_revision.as_ref(),
+        "calibration_state" => context.calibration_state.as_ref(),
+        _ => None,
+    }
+}
+
+fn retention_context_has_source(context: &PositionRetentionContext) -> bool {
+    context
+        .engine_instance_id
+        .as_ref()
+        .and_then(Value::as_str)
+        .is_some_and(|engine| !engine.is_empty())
+        && context
+            .source_session_id
+            .as_ref()
+            .and_then(Value::as_str)
+            .is_some_and(|session| !session.is_empty())
+}
+
+fn position_retention_source_identity(status: &Value) -> Value {
+    let mut identity = serde_json::Map::new();
+    for field in [
+        "engine_instance_id",
+        "source_session_id",
+        "source_frame_id",
+        "transport_sequence",
+        "snapshot_revision",
+        "configuration_revision",
+        "rectification_revision",
+        "calibration_revision",
+        "calibration_state",
+    ] {
+        if let Some(value) = status.get(field) {
+            identity.insert(field.to_owned(), value.clone());
+        }
+    }
+    Value::Object(identity)
+}
+
+fn retained_layout_values(layout: &RetainedBallLayout, maximum_balls: usize) -> Vec<Value> {
+    layout
+        .balls
+        .iter()
+        .take(maximum_balls)
+        .filter_map(|ball| serde_json::to_value(ball).ok())
+        .map(|mut ball| {
+            if let Some(fields) = ball.as_object_mut() {
+                fields.insert("is_observed".to_owned(), json!(false));
+                fields.insert("tracking_status".to_owned(), json!("lost"));
+                fields.insert("position_kind".to_owned(), json!("last_observed"));
+                fields.insert("confidence".to_owned(), json!(0.0));
+                fields.insert("confidence_kind".to_owned(), json!("unavailable"));
+                fields.entry("table_position").or_insert(Value::Null);
+            }
+            ball
+        })
+        .collect()
+}
+
+fn duration_millis_saturated(duration: Duration) -> u64 {
+    duration.as_millis().min(u128::from(u64::MAX)) as u64
+}
+
 fn http_scene_response(state: &PublishedState) -> Value {
     let status = &state.current.payload.observation_status;
     let confidence_values: Vec<f64> = state
@@ -1410,8 +2319,9 @@ fn http_scene_response(state: &PublishedState) -> Value {
         })
         .collect::<Vec<_>>();
     let frame_number = transport_sequence(status);
-    // Preserve the established Python scene_state_to_response predicate. Freshness is
-    // independently visible in observation_status; it is not part of this contract field.
+    // Preserve the public state contract's established validity predicate.
+    // Freshness is independently visible in observation_status; it is not
+    // part of this contract field.
     let is_valid = scene_state_is_valid(status);
     json!({
         "timestamp": timestamp_text(state.published_at),
@@ -1436,8 +2346,8 @@ fn http_scene_response(state: &PublishedState) -> Value {
 }
 
 fn scene_state_is_valid(status: &Value) -> bool {
-    // Keep this predicate identical to Python's scene_state_to_response: stale/cached
-    // status is exposed in observation_status and also makes the position check fail.
+    // Stale and cached status remains visible in observation_status and also
+    // makes the position check fail.
     status.get("phase").and_then(Value::as_str) == Some("rust_scene_observation")
         && status.get("ball_detection_status").and_then(Value::as_str) == Some("observed")
         && status.get("ball_positions_status").and_then(Value::as_str) == Some("observed")
@@ -1676,7 +2586,10 @@ mod tests {
     use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
     use tokio_tungstenite::tungstenite::Message as ClientMessage;
     use tokio_tungstenite::{client_async_with_config, connect_async_with_config};
+    use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
     use tower::ServiceExt;
+
+    type TestWebSocket = WebSocketStream<MaybeTlsStream<TcpStream>>;
 
     fn test_config() -> ServerConfig {
         ServerConfig {
@@ -1704,6 +2617,241 @@ mod tests {
         let path = directory.path().join("config.json");
         std::fs::write(&path, serde_json::to_vec(&document).unwrap()).unwrap();
         (directory, path)
+    }
+
+    #[tokio::test]
+    async fn identified_mjpeg_route_forwards_capture_identity_with_the_jpeg() {
+        let preview_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let preview_address = preview_listener.local_addr().unwrap();
+        let (directory, configuration_path) = live_test_configuration();
+        let mut document: Value =
+            serde_json::from_slice(&std::fs::read(&configuration_path).unwrap()).unwrap();
+        document["perception"]["rust_live"]["frame_preview_enabled"] = json!(true);
+        document["perception"]["rust_live"]["frame_preview_bind_address"] = json!("127.0.0.1");
+        document["perception"]["rust_live"]["frame_preview_port"] = json!(preview_address.port());
+        std::fs::write(&configuration_path, serde_json::to_vec(&document).unwrap()).unwrap();
+        let gateway = Gateway::new(ServerConfig {
+            http_port: 0,
+            scene_port: 0,
+            configuration_path: Some(configuration_path),
+            ..test_config()
+        })
+        .unwrap();
+
+        let preview_server = tokio::spawn(async move {
+            let (mut socket, _) = preview_listener.accept().await.unwrap();
+            let mut request = [0_u8; 8];
+            socket.read_exact(&mut request).await.unwrap();
+            assert_eq!(&request, PREVIEW_REQUEST_V1);
+            let descriptor = FramePreviewDescriptorV1 {
+                schema_version: 1,
+                engine_instance_id: "engine-a".to_owned(),
+                capture_session_id: "session-a".to_owned(),
+                source_frame_id: "frame-42".to_owned(),
+                width_px: 640,
+                height_px: 480,
+                pixel_format: "rgb8".to_owned(),
+                image_space: crate::detection_batch::ImageSpace::Raw,
+                camera_profile_id: "camera-profile".to_owned(),
+                configuration_revision: 4,
+                calibration_revision: 2,
+                rectification_revision: 3,
+                source_timestamp: None,
+                source_timestamp_semantics:
+                    crate::capture::CaptureTimestampSemantics::ReadCompletionOnly,
+                host_read_completed: crate::frame_preview::PreviewHostTimestampV1 {
+                    ticks: "123".to_owned(),
+                    unit: crate::detection_batch::TimeUnit::Nanoseconds,
+                    clock: crate::detection_batch::ClockKind::Monotonic,
+                    domain_id: "engine-a".to_owned(),
+                    stage: crate::detection_batch::TimestampStage::CameraReadComplete,
+                    semantics: "read_completion_only".to_owned(),
+                },
+            };
+            let jpeg = [0xff, 0xd8, 0xff, 0xd9];
+            let header = FramePreviewResponseHeaderV1 {
+                schema_version: 1,
+                status: FramePreviewStatusV1::Ok,
+                descriptor: Some(descriptor),
+                jpeg_bytes: jpeg.len() as u32,
+                error: None,
+            };
+            let header = serde_json::to_vec(&header).unwrap();
+            socket
+                .write_all(&(header.len() as u32).to_be_bytes())
+                .await
+                .unwrap();
+            socket.write_all(&header).await.unwrap();
+            socket.write_all(&jpeg).await.unwrap();
+        });
+
+        let response = gateway
+            .router()
+            .oneshot(
+                Request::builder()
+                    .uri(IDENTIFIED_MJPEG_PATH)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response.headers()[CONTENT_TYPE],
+            "multipart/x-mixed-replace; boundary=billiards-frame-v1"
+        );
+        let first_part = response
+            .into_body()
+            .into_data_stream()
+            .next()
+            .await
+            .unwrap()
+            .unwrap();
+        let first_part = String::from_utf8_lossy(&first_part);
+        assert!(first_part.contains("X-Frame-Id: frame-42\r\n"));
+        assert!(first_part.contains("X-Engine-Instance-Id: engine-a\r\n"));
+        assert!(first_part.contains("X-Source-Session-Id: session-a\r\n"));
+        assert!(first_part.contains("X-Configuration-Revision: 4\r\n"));
+        assert!(first_part.contains("X-Calibration-Revision: 2\r\n"));
+        assert!(first_part.contains("X-Rectification-Revision: 3\r\n"));
+        preview_server.await.unwrap();
+        drop(directory);
+    }
+
+    #[test]
+    fn verified_empty_state_is_serialized_and_required_by_delivery_schema() {
+        let state = PerceptionStateV1 {
+            event_sequence: 7,
+            image_width_px: Some(1280),
+            image_height_px: Some(720),
+            phase: "pre_shot".into(),
+            layout_revision: 3,
+            layout_trusted: true,
+            empty_layout_verified: true,
+            guidance_valid: false,
+            trust_reason: "trusted".into(),
+            last_ball_observation_age_ms: Some(0),
+            latest_motion_check_age_ms: Some(0),
+            cue_evidence_age_ms: None,
+            motion_evidence_max_age_ms: 200,
+            cue_evidence_max_age_ms: 250,
+            layout_verification_max_age_ms: 1_500,
+            cue: None,
+            decision_frame_id: None,
+            decision_calibration_revision: None,
+            decision_rectification_revision: None,
+            table_visibility: None,
+        };
+        assert!(validate_perception_state(&state).is_ok());
+        let encoded = serde_json::to_value(&state).unwrap();
+        assert_eq!(encoded["empty_layout_verified"], true);
+
+        let schema: Value = serde_json::from_str(include_str!(
+            "../contracts/public-state/public-state-delivery-v2.schema.json"
+        ))
+        .unwrap();
+        let perception_schema = &schema["$defs"]["perception"];
+        assert!(perception_schema["required"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|field| field == "empty_layout_verified"));
+        assert_eq!(
+            perception_schema["properties"]["empty_layout_verified"]["type"],
+            "boolean"
+        );
+    }
+
+    #[test]
+    fn verified_empty_state_requires_trust_and_a_full_layout_observation() {
+        let mut state = PerceptionStateV1 {
+            event_sequence: 1,
+            image_width_px: None,
+            image_height_px: None,
+            phase: "recovering".into(),
+            layout_revision: 0,
+            layout_trusted: false,
+            empty_layout_verified: true,
+            guidance_valid: false,
+            trust_reason: "awaiting_settlement".into(),
+            last_ball_observation_age_ms: None,
+            latest_motion_check_age_ms: Some(0),
+            cue_evidence_age_ms: None,
+            motion_evidence_max_age_ms: 200,
+            cue_evidence_max_age_ms: 250,
+            layout_verification_max_age_ms: 1_500,
+            cue: None,
+            decision_frame_id: None,
+            decision_calibration_revision: None,
+            decision_rectification_revision: None,
+            table_visibility: None,
+        };
+        assert!(validate_perception_state(&state).is_err());
+        state.layout_trusted = true;
+        assert!(validate_perception_state(&state).is_err());
+        state.last_ball_observation_age_ms = Some(0);
+        state.latest_motion_check_age_ms = Some(0);
+        assert!(validate_perception_state(&state).is_ok());
+    }
+
+    #[test]
+    fn guidance_requires_fresh_frame_bound_table_and_cue_evidence() {
+        let mut state = PerceptionStateV1 {
+            event_sequence: 2,
+            image_width_px: Some(1280),
+            image_height_px: Some(720),
+            phase: "aiming".into(),
+            layout_revision: 4,
+            layout_trusted: true,
+            empty_layout_verified: false,
+            guidance_valid: true,
+            trust_reason: "trusted".into(),
+            last_ball_observation_age_ms: Some(0),
+            latest_motion_check_age_ms: Some(0),
+            cue_evidence_age_ms: Some(0),
+            motion_evidence_max_age_ms: 200,
+            cue_evidence_max_age_ms: 250,
+            layout_verification_max_age_ms: 1_500,
+            cue: Some(crate::public_state_lifecycle::CueGeometryStateV1 {
+                shaft_start_px: [100.0, 200.0],
+                shaft_end_px: [500.0, 180.0],
+                axis_unit: [0.998_752, -0.049_938],
+                confidence: 0.9,
+                observation_age_ms: 0,
+                signed_direction: None,
+                source_frame_id: Some("frame-2".into()),
+            }),
+            decision_frame_id: Some("frame-2".into()),
+            decision_calibration_revision: Some(7),
+            decision_rectification_revision: Some(9),
+            table_visibility: Some(crate::public_state_lifecycle::TableVisibilityStateV1 {
+                status: crate::public_state_lifecycle::TableVisibilityStatusV1::Visible,
+                reason: "reference_match".into(),
+                observation_frame_id: "frame-2".into(),
+                observation_age_ms: 0,
+            }),
+        };
+        assert!(validate_perception_state(&state).is_ok());
+
+        state.table_visibility = None;
+        assert!(validate_perception_state(&state).is_err());
+        state.table_visibility = Some(crate::public_state_lifecycle::TableVisibilityStateV1 {
+            status: crate::public_state_lifecycle::TableVisibilityStatusV1::NotVisible,
+            reason: "cloth_mismatch".into(),
+            observation_frame_id: "frame-2".into(),
+            observation_age_ms: 0,
+        });
+        assert!(validate_perception_state(&state).is_err());
+        state.table_visibility = Some(crate::public_state_lifecycle::TableVisibilityStateV1 {
+            status: crate::public_state_lifecycle::TableVisibilityStatusV1::Visible,
+            reason: "reference_match".into(),
+            observation_frame_id: "frame-2".into(),
+            observation_age_ms: 201,
+        });
+        assert!(validate_perception_state(&state).is_err());
+        state.table_visibility.as_mut().unwrap().observation_age_ms = 0;
+        state.decision_frame_id = None;
+        assert!(validate_perception_state(&state).is_err());
     }
 
     fn live_acknowledgement(settings: &ResolvedCaptureSettings, session_id: &str) -> Value {
@@ -1780,6 +2928,68 @@ mod tests {
             ball.last_observation.timestamp.ticks = scene.source.timestamp.ticks.clone();
         }
         scene
+    }
+
+    async fn start_websocket(
+        gateway: &Gateway,
+        query: &str,
+    ) -> (tokio::task::JoinHandle<()>, TestWebSocket) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let app = gateway.router();
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let url = format!("ws://{address}/api/v1/websocket/ws{query}");
+        let (client, _) = tokio_tungstenite::connect_async(url).await.unwrap();
+        (server, client)
+    }
+
+    async fn receive_websocket_state(client: &mut TestWebSocket) -> Value {
+        let message = tokio::time::timeout(Duration::from_secs(1), client.next())
+            .await
+            .expect("timed out waiting for WebSocket state")
+            .expect("WebSocket closed before state delivery")
+            .expect("WebSocket receive failed");
+        let ClientMessage::Text(encoded) = message else {
+            panic!("expected a WebSocket state message")
+        };
+        serde_json::from_str(&encoded).expect("server should send JSON state")
+    }
+
+    fn test_perception_state(
+        event_sequence: u64,
+        layout_trusted: bool,
+        empty_layout_verified: bool,
+    ) -> PerceptionStateV1 {
+        PerceptionStateV1 {
+            event_sequence,
+            image_width_px: Some(1280),
+            image_height_px: Some(720),
+            phase: if layout_trusted {
+                "pre_shot".into()
+            } else {
+                "recovering".into()
+            },
+            layout_revision: u64::from(layout_trusted),
+            layout_trusted,
+            empty_layout_verified,
+            guidance_valid: false,
+            trust_reason: if layout_trusted {
+                "verified_layout".into()
+            } else {
+                "layout_unverified".into()
+            },
+            last_ball_observation_age_ms: Some(0),
+            latest_motion_check_age_ms: Some(0),
+            cue_evidence_age_ms: None,
+            motion_evidence_max_age_ms: 200,
+            cue_evidence_max_age_ms: 250,
+            layout_verification_max_age_ms: 1_500,
+            cue: None,
+            decision_frame_id: None,
+            decision_calibration_revision: None,
+            decision_rectification_revision: None,
+            table_visibility: None,
+        }
     }
 
     fn public_state_delivery(scene: &SceneSnapshotV1) -> Vec<u8> {
@@ -2191,6 +3401,7 @@ mod tests {
                 "table_position",
                 "source_observation",
                 "radius",
+                "radius_extent",
                 "radius_unit",
                 "radius_source",
                 "radius_scale",
@@ -2200,7 +3411,7 @@ mod tests {
             ],
         );
         let legacy_http_contract: Value = serde_json::from_slice(include_bytes!(
-            "../../backend/tests/fixtures/contracts/v1/game_state_http.json"
+            "../contracts/public-state/v1/fixtures/game-state-http.json"
         ))
         .unwrap();
         for key in legacy_http_contract.as_object().unwrap().keys() {
@@ -2217,7 +3428,7 @@ mod tests {
         }
 
         let websocket_contract: Value = serde_json::from_slice(include_bytes!(
-            "../../backend/tests/fixtures/contracts/v1/websocket_state_rust_scene.json"
+            "../contracts/public-state/v1/fixtures/websocket-state-rust-scene.json"
         ))
         .unwrap();
         let http_scene_projection = json!({
@@ -2227,6 +3438,7 @@ mod tests {
                 "position": ball["position"],
                 "table_position": ball["table_position"],
                 "radius": ball["radius"],
+                "radius_extent": ball["radius_extent"],
                 "radius_scale": ball["radius_scale"],
                 "radius_unit": ball["radius_unit"],
                 "radius_source": ball["radius_source"],
@@ -2285,7 +3497,7 @@ mod tests {
         };
         let envelope: Value = serde_json::from_str(&encoded).unwrap();
         let contract: Value = serde_json::from_slice(include_bytes!(
-            "../../backend/tests/fixtures/contracts/v1/websocket_state_rust_scene.json"
+            "../contracts/public-state/v1/fixtures/websocket-state-rust-scene.json"
         ))
         .unwrap();
         let mut normalized_envelope = envelope.clone();
@@ -2320,6 +3532,7 @@ mod tests {
                 "position",
                 "table_position",
                 "radius",
+                "radius_extent",
                 "radius_scale",
                 "radius_unit",
                 "radius_source",
@@ -2538,6 +3751,381 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn websocket_position_retention_is_opt_in_and_preserves_state_validity() {
+        let gateway = Gateway::new(test_config()).unwrap();
+        gateway
+            .activate_producer_epoch("engine-retain".into(), "session-retain".into())
+            .unwrap();
+        gateway
+            .accept_scene(scene_for("engine-retain", "session-retain", 1, "frame-1"))
+            .unwrap();
+        gateway
+            .accept_perception_state(
+                1,
+                "engine-retain",
+                "session-retain",
+                test_perception_state(1, false, false),
+            )
+            .unwrap();
+
+        let (server, mut client) = start_websocket(&gateway, "?retain_last_known_ms=500").await;
+        let initial = receive_websocket_state(&mut client).await;
+        let original_ball_count = initial["data"]["ball_count"].as_u64().unwrap();
+        assert!(original_ball_count > 0);
+        assert_eq!(
+            initial["data"]["observation_status"]["position_retention"]["retained"],
+            false
+        );
+        assert_eq!(
+            initial["data"]["observation_status"]["position_retention"]["grace_ms"],
+            500
+        );
+        assert_eq!(
+            initial["data"]["observation_status"]["perception"]["layout_trusted"], false,
+            "retention must not upgrade an untrusted layout"
+        );
+
+        let mut empty_scene = scene_for(
+            "engine-retain",
+            "session-retain",
+            2,
+            "frame-empty-unverified",
+        );
+        empty_scene.balls.clear();
+        gateway.accept_scene(empty_scene).unwrap();
+        let retained = receive_websocket_state(&mut client).await;
+        assert_eq!(retained["data"]["ball_count"], original_ball_count);
+        assert_eq!(
+            retained["data"]["observation_status"]["ball_positions_status"],
+            "cached"
+        );
+        assert_eq!(
+            retained["data"]["observation_status"]["perception"]["layout_trusted"],
+            false
+        );
+        assert_eq!(
+            retained["data"]["observation_status"]["perception"]["guidance_valid"],
+            false
+        );
+        assert_eq!(
+            retained["data"]["observation_status"]["position_retention"]["retained"],
+            true
+        );
+        assert_eq!(
+            retained["data"]["observation_status"]["position_retention"]["original_status"],
+            "observed"
+        );
+        assert_eq!(
+            retained["data"]["observation_status"]["position_retention"]["source_identity"]
+                ["source_frame_id"],
+            "frame-1"
+        );
+        assert_eq!(retained["data"]["balls"][0]["is_observed"], false);
+        assert_eq!(
+            retained["data"]["balls"][0]["position_kind"],
+            "last_observed"
+        );
+        assert_eq!(retained["data"]["balls"][0]["tracking_status"], "lost");
+
+        gateway
+            .accept_scene(scene_for(
+                "engine-retain",
+                "session-retain",
+                3,
+                "frame-recovered",
+            ))
+            .unwrap();
+        let recovered = receive_websocket_state(&mut client).await;
+        assert!(recovered["data"]["ball_count"].as_u64().unwrap() > 0);
+        assert_eq!(
+            recovered["data"]["observation_status"]["position_retention"]["retained"], false,
+            "a successful observed layout resets the unavailable interval"
+        );
+
+        let mut empty_again = scene_for("engine-retain", "session-retain", 4, "frame-empty-again");
+        empty_again.balls.clear();
+        gateway.accept_scene(empty_again).unwrap();
+        let retained_again = receive_websocket_state(&mut client).await;
+        assert_eq!(retained_again["data"]["ball_count"], original_ball_count);
+        assert_eq!(
+            retained_again["data"]["observation_status"]["position_retention"]["retained"],
+            true
+        );
+        assert_eq!(
+            retained_again["data"]["observation_status"]["position_retention"]["source_identity"]
+                ["source_frame_id"],
+            "frame-recovered"
+        );
+
+        gateway
+            .accept_perception_state(
+                2,
+                "engine-retain",
+                "session-retain",
+                test_perception_state(2, true, true),
+            )
+            .unwrap();
+        let verified_empty = receive_websocket_state(&mut client).await;
+        assert_eq!(verified_empty["data"]["ball_count"], 0);
+        assert_eq!(
+            verified_empty["data"]["observation_status"]["perception"]["empty_layout_verified"],
+            true
+        );
+        assert_eq!(
+            verified_empty["data"]["observation_status"]["position_retention"]["retained"], false,
+            "a verified empty table must clear the per-client cache"
+        );
+        assert_eq!(
+            verified_empty["data"]["observation_status"]["position_retention"]["source_identity"],
+            Value::Null
+        );
+
+        gateway
+            .accept_perception_state(
+                3,
+                "engine-retain",
+                "session-retain",
+                test_perception_state(3, false, false),
+            )
+            .unwrap();
+        let after_verified_empty = receive_websocket_state(&mut client).await;
+        assert_eq!(after_verified_empty["data"]["ball_count"], 0);
+        assert_eq!(
+            after_verified_empty["data"]["observation_status"]["position_retention"]["retained"],
+            false
+        );
+
+        client.close(None).await.unwrap();
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn websocket_position_retention_expires_and_sends_the_expiry_state() {
+        let gateway = Gateway::new(test_config()).unwrap();
+        gateway
+            .activate_producer_epoch("engine-expire".into(), "session-expire".into())
+            .unwrap();
+        gateway
+            .accept_scene(scene_for("engine-expire", "session-expire", 1, "frame-1"))
+            .unwrap();
+        let (server, mut client) = start_websocket(&gateway, "?retain_last_known_ms=60").await;
+        let initial = receive_websocket_state(&mut client).await;
+        let original_ball_count = initial["data"]["ball_count"].as_u64().unwrap();
+
+        // The grace period is an unavailable-state debounce, not a maximum age
+        // measured from an otherwise healthy layout.
+        tokio::time::sleep(Duration::from_millis(80)).await;
+        let mut empty_scene = scene_for("engine-expire", "session-expire", 2, "frame-empty");
+        empty_scene.balls.clear();
+        gateway.accept_scene(empty_scene).unwrap();
+        let retained = receive_websocket_state(&mut client).await;
+        assert_eq!(retained["data"]["ball_count"], original_ball_count);
+        assert_eq!(
+            retained["data"]["observation_status"]["position_retention"]["retained"],
+            true
+        );
+        assert!(
+            retained["data"]["observation_status"]["position_retention"]["retained_age_ms"]
+                .as_u64()
+                .unwrap()
+                >= 60
+        );
+        assert!(
+            retained["data"]["observation_status"]["position_retention"]["unavailable_age_ms"]
+                .as_u64()
+                .unwrap()
+                < 60
+        );
+
+        let expired = receive_websocket_state(&mut client).await;
+        assert_eq!(expired["data"]["ball_count"], 0);
+        assert_eq!(
+            expired["data"]["observation_status"]["position_retention"]["retained"],
+            false
+        );
+        assert_eq!(
+            expired["data"]["observation_status"]["position_retention"]["grace_ms"],
+            60
+        );
+
+        client.close(None).await.unwrap();
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn websocket_position_retention_resets_when_source_or_calibration_changes() {
+        let gateway = Gateway::new(test_config()).unwrap();
+        gateway
+            .activate_producer_epoch("engine-context".into(), "session-a".into())
+            .unwrap();
+        gateway
+            .accept_scene(scene_for("engine-context", "session-a", 1, "frame-1"))
+            .unwrap();
+        let (server, mut client) = start_websocket(&gateway, "?retain_last_known_ms=500").await;
+        let initial = receive_websocket_state(&mut client).await;
+        assert!(initial["data"]["ball_count"].as_u64().unwrap() > 0);
+
+        let mut changed_calibration = scene_for(
+            "engine-context",
+            "session-a",
+            2,
+            "frame-calibration-changed",
+        );
+        changed_calibration.revisions.calibration = Some(
+            changed_calibration
+                .revisions
+                .calibration
+                .unwrap_or_default()
+                .saturating_add(1),
+        );
+        changed_calibration.revisions.calibration_state = crate::CalibrationState::Valid;
+        let changed_calibration_revision = changed_calibration.revisions.calibration.unwrap();
+        changed_calibration.balls.clear();
+        gateway.accept_scene(changed_calibration).unwrap();
+        let calibration_changed = receive_websocket_state(&mut client).await;
+        assert_eq!(calibration_changed["data"]["ball_count"], 0);
+        assert_eq!(
+            calibration_changed["data"]["observation_status"]["position_retention"]["retained"],
+            false
+        );
+
+        let mut observed_after_calibration_change = scene_for(
+            "engine-context",
+            "session-a",
+            3,
+            "frame-after-calibration-change",
+        );
+        observed_after_calibration_change.revisions.calibration =
+            Some(changed_calibration_revision);
+        observed_after_calibration_change
+            .revisions
+            .calibration_state = crate::CalibrationState::Valid;
+        gateway
+            .accept_scene(observed_after_calibration_change)
+            .unwrap();
+        let reseeded = receive_websocket_state(&mut client).await;
+        assert!(reseeded["data"]["ball_count"].as_u64().unwrap() > 0);
+
+        let mut invalid_calibration_state = scene_for(
+            "engine-context",
+            "session-a",
+            4,
+            "frame-calibration-invalid",
+        );
+        invalid_calibration_state.revisions.calibration = Some(changed_calibration_revision);
+        invalid_calibration_state.revisions.calibration_state = crate::CalibrationState::Invalid;
+        invalid_calibration_state.balls.clear();
+        gateway.accept_scene(invalid_calibration_state).unwrap();
+        let calibration_state_changed = receive_websocket_state(&mut client).await;
+        assert_eq!(calibration_state_changed["data"]["ball_count"], 0);
+        assert_eq!(
+            calibration_state_changed["data"]["observation_status"]["position_retention"]
+                ["retained"],
+            false,
+            "calibration validity changing without a new revision must clear the cache"
+        );
+
+        let mut observed_after_calibration_state_change = scene_for(
+            "engine-context",
+            "session-a",
+            5,
+            "frame-after-calibration-state-change",
+        );
+        observed_after_calibration_state_change
+            .revisions
+            .calibration = Some(changed_calibration_revision);
+        observed_after_calibration_state_change
+            .revisions
+            .calibration_state = crate::CalibrationState::Valid;
+        gateway
+            .accept_scene(observed_after_calibration_state_change)
+            .unwrap();
+        let reseeded_after_calibration_state = receive_websocket_state(&mut client).await;
+        assert!(
+            reseeded_after_calibration_state["data"]["ball_count"]
+                .as_u64()
+                .unwrap()
+                > 0
+        );
+
+        gateway
+            .activate_producer_epoch("engine-context".into(), "session-b".into())
+            .unwrap();
+        let mut new_source_scene = scene_for("engine-context", "session-b", 1, "frame-new-source");
+        new_source_scene.revisions.calibration = Some(changed_calibration_revision);
+        new_source_scene.revisions.calibration_state = crate::CalibrationState::Valid;
+        new_source_scene.balls.clear();
+        gateway.accept_scene(new_source_scene).unwrap();
+        let source_changed = receive_websocket_state(&mut client).await;
+        assert_eq!(source_changed["data"]["ball_count"], 0);
+        assert_eq!(
+            source_changed["data"]["observation_status"]["position_retention"]["retained"],
+            false
+        );
+        assert_eq!(
+            source_changed["data"]["observation_status"]["source_session_id"],
+            "session-b"
+        );
+        assert_eq!(
+            source_changed["data"]["observation_status"]["calibration_revision"],
+            changed_calibration_revision
+        );
+
+        client.close(None).await.unwrap();
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn websocket_position_retention_is_disabled_without_query_parameter() {
+        let gateway = Gateway::new(test_config()).unwrap();
+        gateway
+            .activate_producer_epoch("engine-default".into(), "session-default".into())
+            .unwrap();
+        gateway
+            .accept_scene(scene_for("engine-default", "session-default", 1, "frame-1"))
+            .unwrap();
+        let (server, mut client) = start_websocket(&gateway, "").await;
+        let initial = receive_websocket_state(&mut client).await;
+        assert!(initial["data"]["ball_count"].as_u64().unwrap() > 0);
+        assert!(initial["data"]["observation_status"]["position_retention"].is_null());
+
+        let mut empty_scene = scene_for("engine-default", "session-default", 2, "frame-empty");
+        empty_scene.balls.clear();
+        gateway.accept_scene(empty_scene).unwrap();
+        let empty = receive_websocket_state(&mut client).await;
+        assert_eq!(empty["data"]["ball_count"], 0);
+        assert!(empty["data"]["observation_status"]["position_retention"].is_null());
+
+        client.close(None).await.unwrap();
+        server.abort();
+
+        gateway
+            .accept_scene(scene_for(
+                "engine-default",
+                "session-default",
+                3,
+                "frame-restored",
+            ))
+            .unwrap();
+        let (zero_server, mut zero_client) =
+            start_websocket(&gateway, "?retain_last_known_ms=0").await;
+        let zero_initial = receive_websocket_state(&mut zero_client).await;
+        assert!(zero_initial["data"]["ball_count"].as_u64().unwrap() > 0);
+        assert!(zero_initial["data"]["observation_status"]["position_retention"].is_null());
+
+        let mut zero_empty_scene =
+            scene_for("engine-default", "session-default", 4, "frame-zero-empty");
+        zero_empty_scene.balls.clear();
+        gateway.accept_scene(zero_empty_scene).unwrap();
+        let zero_empty = receive_websocket_state(&mut zero_client).await;
+        assert_eq!(zero_empty["data"]["ball_count"], 0);
+        assert!(zero_empty["data"]["observation_status"]["position_retention"].is_null());
+
+        zero_client.close(None).await.unwrap();
+        zero_server.abort();
+    }
+
+    #[tokio::test]
     async fn concurrent_snapshot_reads_cannot_overwrite_the_latest_ingest() {
         let gateway = Gateway::new(test_config()).unwrap();
         gateway
@@ -2586,7 +4174,7 @@ mod tests {
     }
 
     #[test]
-    fn scene_validity_matches_the_python_converter_predicate() {
+    fn scene_validity_matches_the_public_state_contract() {
         let mut status = json!({
             "phase":"rust_scene_observation",
             "ball_detection_status":"observed",
@@ -2909,6 +4497,147 @@ mod tests {
             .accept_live_delivery(&serde_json::to_vec(&delivery).unwrap(), &handshake)
             .unwrap_err();
         assert!(error.contains("scene identity differs from the acknowledged live source"));
+    }
+
+    #[test]
+    fn perception_events_do_not_renew_ball_age_or_consume_scene_sequence_space() {
+        let gateway = Gateway::new(test_config()).unwrap();
+        gateway
+            .activate_producer_epoch("engine-a".into(), "session-a".into())
+            .unwrap();
+        gateway
+            .accept_scene(scene_for("engine-a", "session-a", 1, "frame-1"))
+            .unwrap();
+        let initial = gateway.snapshot_now().unwrap();
+        let initial_localization_time = initial.current.localization_received_monotonic_ns;
+        let initial_ball_observation = initial.current.payload.balls[0].source_observation.clone();
+        let initial_ball_age = initial.current.ball_age_ns["track-1"];
+
+        gateway
+            .accept_perception_state(
+                2,
+                "engine-a",
+                "session-a",
+                PerceptionStateV1 {
+                    event_sequence: 2,
+                    image_width_px: Some(1920),
+                    image_height_px: Some(1080),
+                    phase: "shot_underway".into(),
+                    layout_revision: 1,
+                    layout_trusted: false,
+                    empty_layout_verified: false,
+                    guidance_valid: false,
+                    trust_reason: "motion_detected".into(),
+                    last_ball_observation_age_ms: Some(100),
+                    latest_motion_check_age_ms: Some(0),
+                    cue_evidence_age_ms: None,
+                    motion_evidence_max_age_ms: 200,
+                    cue_evidence_max_age_ms: 250,
+                    layout_verification_max_age_ms: 1_500,
+                    cue: None,
+                    decision_frame_id: None,
+                    decision_calibration_revision: None,
+                    decision_rectification_revision: None,
+                    table_visibility: None,
+                },
+            )
+            .unwrap();
+
+        let after_perception = gateway.snapshot_now().unwrap();
+        assert_eq!(
+            after_perception.current.localization_received_monotonic_ns, initial_localization_time,
+            "phase-only delivery must not renew localization receipt"
+        );
+        assert_eq!(
+            after_perception.current.payload.balls[0].source_observation, initial_ball_observation,
+            "phase-only delivery must not replace a ball's source observation"
+        );
+        assert!(after_perception.current.ball_age_ns["track-1"] >= initial_ball_age);
+        assert_eq!(
+            after_perception.current.payload.observation_status["perception"]["phase"],
+            "shot_underway"
+        );
+        {
+            let state = lock_unpoisoned(&gateway.inner.state);
+            assert_eq!(state.last_transport_sequence, Some(1));
+            assert_eq!(state.last_delivery_sequence, Some(2));
+        }
+
+        gateway
+            .accept_scene(scene_for("engine-a", "session-a", 2, "frame-2"))
+            .expect("a phase event must not make the next raw scene look stale");
+        let state = lock_unpoisoned(&gateway.inner.state);
+        assert_eq!(state.last_transport_sequence, Some(2));
+        assert_eq!(state.last_delivery_sequence, Some(2));
+    }
+
+    #[tokio::test]
+    async fn phase_and_cue_state_is_available_before_first_ball_localization() {
+        let gateway = Gateway::new(test_config()).unwrap();
+        gateway
+            .activate_producer_epoch("engine-cue-only".into(), "session-cue-only".into())
+            .unwrap();
+        let mut latest = gateway.inner.latest.subscribe();
+
+        gateway
+            .accept_perception_state(
+                1,
+                "engine-cue-only",
+                "session-cue-only",
+                PerceptionStateV1 {
+                    event_sequence: 1,
+                    image_width_px: Some(1280),
+                    image_height_px: Some(720),
+                    phase: "pre_shot".into(),
+                    layout_revision: 0,
+                    layout_trusted: false,
+                    empty_layout_verified: false,
+                    guidance_valid: false,
+                    trust_reason: "no_verified_layout".into(),
+                    last_ball_observation_age_ms: None,
+                    latest_motion_check_age_ms: Some(0),
+                    cue_evidence_age_ms: Some(0),
+                    motion_evidence_max_age_ms: 200,
+                    cue_evidence_max_age_ms: 250,
+                    layout_verification_max_age_ms: 1_500,
+                    cue: Some(crate::public_state_lifecycle::CueGeometryStateV1 {
+                        shaft_start_px: [100.0, 200.0],
+                        shaft_end_px: [500.0, 180.0],
+                        axis_unit: [0.998_752, -0.049_938],
+                        confidence: 0.9,
+                        observation_age_ms: 0,
+                        signed_direction: None,
+                        source_frame_id: Some("frame-cue-only".into()),
+                    }),
+                    decision_frame_id: None,
+                    decision_calibration_revision: None,
+                    decision_rectification_revision: None,
+                    table_visibility: None,
+                },
+            )
+            .unwrap();
+
+        let published = take_latest_state(&mut latest).unwrap();
+        assert_eq!(published.current.payload.balls.len(), 0);
+        assert_eq!(published.current.localization_received_monotonic_ns, None);
+        assert_eq!(
+            published.current.payload.observation_status["ball_positions_status"],
+            "unavailable"
+        );
+        let websocket = websocket_scene_message(&published);
+        assert_eq!(websocket["data"]["ball_count"], 0);
+        assert_eq!(
+            websocket["data"]["observation_status"]["perception"]["phase"],
+            "pre_shot"
+        );
+        assert_eq!(
+            websocket["data"]["observation_status"]["perception"]["cue"]["shaft_start_px"][0],
+            100.0
+        );
+
+        let (ready_status, ready) = get_json(gateway.router(), "/api/v1/health/ready").await;
+        assert_eq!(ready_status, StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(ready["localization_available"], false);
     }
 
     #[tokio::test]

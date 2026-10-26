@@ -1,0 +1,916 @@
+{
+  "source_image": "/Users/jchadwick/repos/jchadwick/billiards-trainer/thoughts/calibration/table-grid-20261026-114241.jpg",
+  "physical_diameter_mm": 57.15,
+  "scope": "2D XY; apparent axes are image measurements, never variable physical ball radii",
+  "legend": "cyan segmented convex-envelope ellipse; magenta segmentation bbox midpoint; orange gradient-consensus ellipse; green consensus gradient proposals",
+  "balls": [
+    {
+      "image_center_radius_px": 590.8963488237134,
+      "radial_angle_deg": 25.060652206213007,
+      "major_axis_radial_angle_difference_deg": 12.022421310216913,
+      "small_sphere_apparent_aspect_approximation": 1.3117859329513506,
+      "id": "top-left-pocket-ball",
+      "seed_px": [
+        102,
+        105
+      ],
+      "segmentation_ellipse": {
+        "center_px": [
+          108.91069030761719,
+          99.37964630126953
+        ],
+        "diameters_px": [
+          7.51821756362915,
+          12.468693733215332
+        ],
+        "major_axis_angle_deg": 13.038230895996094,
+        "axis_ratio": 1.658464074454972
+      },
+      "segmentation_bbox_midpoint_px": [
+        109.0,
+        99.0
+      ],
+      "bbox_to_segmentation_ellipse_offset_px": 0.3900096604202879,
+      "threshold_center_sensitivity_px": 11.496446352833171,
+      "segmentation_threshold": 0.11,
+      "physical_ground_truth_available": false,
+      "gradient_ellipse": {
+        "center_px": [
+          101.95158386230469,
+          106.42222595214844
+        ],
+        "diameters_px": [
+          27.968801498413086,
+          36.75556945800781
+        ],
+        "major_axis_angle_deg": 16.296646118164062,
+        "axis_ratio": 1.3141631921587085
+      },
+      "gradient_inlier_count": 48,
+      "gradient_candidate_count": 81,
+      "gradient_angular_sector_coverage": 0.6666666666666666,
+      "gradient_leave_quadrant_out_center_sensitivity_px": 1.0416083714103734,
+      "gradient_vs_segmentation_center_offset_px": 9.900863126827057,
+      "localization_review_flags": [
+        "segmentation likely selected an internal highlight/fragment rather than full ball",
+        "segmentation threshold sensitivity exceeds 1 px",
+        "methods disagree by more than 2 px; neither establishes true center",
+        "gradient center sensitive to omitted arc",
+        "no physical XY ground truth; pocket/jaw silhouette may be occluded"
+      ],
+      "baseline_H_bbox_vs_segmentation_center_displacement_mm_diagnostic": 0.796334441124482,
+      "baseline_H_gradient_vs_segmentation_center_displacement_mm_diagnostic": 20.552074753960593
+    },
+    {
+      "image_center_radius_px": 386.2473125293625,
+      "radial_angle_deg": 40.945629250862766,
+      "major_axis_radial_angle_difference_deg": 4.9530145047690155,
+      "small_sphere_apparent_aspect_approximation": 1.1436664161047103,
+      "id": "top-orange-solid-second-left-ball",
+      "seed_px": [
+        352,
+        97
+      ],
+      "segmentation_ellipse": {
+        "center_px": [
+          352.43511962890625,
+          96.54570007324219
+        ],
+        "diameters_px": [
+          29.76244354248047,
+          34.4169807434082
+        ],
+        "major_axis_angle_deg": 35.99261474609375,
+        "axis_ratio": 1.156389618825626
+      },
+      "segmentation_bbox_midpoint_px": [
+        352.0,
+        96.5
+      ],
+      "bbox_to_segmentation_ellipse_offset_px": 0.43751295769823095,
+      "threshold_center_sensitivity_px": 0.1806097698145579,
+      "segmentation_threshold": 0.11,
+      "physical_ground_truth_available": true,
+      "gradient_ellipse": {
+        "center_px": [
+          352.135498046875,
+          96.71769714355469
+        ],
+        "diameters_px": [
+          27.20490264892578,
+          31.981536865234375
+        ],
+        "major_axis_angle_deg": 39.11659240722656,
+        "axis_ratio": 1.1755799047675404
+      },
+      "gradient_inlier_count": 76,
+      "gradient_candidate_count": 81,
+      "gradient_angular_sector_coverage": 0.9166666666666666,
+      "gradient_leave_quadrant_out_center_sensitivity_px": 0.17655628594818912,
+      "gradient_vs_segmentation_center_offset_px": 0.34547949955821133,
+      "localization_review_flags": [],
+      "baseline_H_bbox_vs_segmentation_center_displacement_mm_diagnostic": 0.9001704101482039,
+      "baseline_H_gradient_vs_segmentation_center_displacement_mm_diagnostic": 0.7131687492798237
+    },
+    {
+      "image_center_radius_px": 257.1524031606233,
+      "radial_angle_deg": 89.48784715587439,
+      "major_axis_radial_angle_difference_deg": 1.444652193242888,
+      "small_sphere_apparent_aspect_approximation": 1.0660719690664102,
+      "id": "top-middle-pocket-ball",
+      "seed_px": [
+        642,
+        97
+      ],
+      "segmentation_ellipse": {
+        "center_px": [
+          641.8814086914062,
+          92.52787017822266
+        ],
+        "diameters_px": [
+          32.75127029418945,
+          39.779239654541016
+        ],
+        "major_axis_angle_deg": 90.93249934911728,
+        "axis_ratio": 1.2145861610014688
+      },
+      "segmentation_bbox_midpoint_px": [
+        642.0,
+        93.5
+      ],
+      "bbox_to_segmentation_ellipse_offset_px": 0.9793366575712502,
+      "threshold_center_sensitivity_px": 0.21717529144638753,
+      "segmentation_threshold": 0.11,
+      "physical_ground_truth_available": false,
+      "gradient_ellipse": {
+        "center_px": [
+          641.4094848632812,
+          97.06819915771484
+        ],
+        "diameters_px": [
+          27.134990692138672,
+          29.259061813354492
+        ],
+        "major_axis_angle_deg": 86.75105285644531,
+        "axis_ratio": 1.0782779380805607
+      },
+      "gradient_inlier_count": 81,
+      "gradient_candidate_count": 81,
+      "gradient_angular_sector_coverage": 1.0,
+      "gradient_leave_quadrant_out_center_sensitivity_px": 0.19631842982463543,
+      "gradient_vs_segmentation_center_offset_px": 4.564789079636508,
+      "localization_review_flags": [
+        "methods disagree by more than 2 px; neither establishes true center",
+        "no physical XY ground truth; pocket/jaw silhouette may be occluded"
+      ],
+      "baseline_H_bbox_vs_segmentation_center_displacement_mm_diagnostic": 1.9723442225264944,
+      "baseline_H_gradient_vs_segmentation_center_displacement_mm_diagnostic": 9.201709825591697
+    },
+    {
+      "image_center_radius_px": 382.20391139402506,
+      "radial_angle_deg": 137.91028766089028,
+      "major_axis_radial_angle_difference_deg": 6.548689084715193,
+      "small_sphere_apparent_aspect_approximation": 1.1408587289598888,
+      "id": "top-red-striped-second-right-ball",
+      "seed_px": [
+        928,
+        94
+      ],
+      "segmentation_ellipse": {
+        "center_px": [
+          927.8120727539062,
+          93.48124694824219
+        ],
+        "diameters_px": [
+          29.707117080688477,
+          33.89081573486328
+        ],
+        "major_axis_angle_deg": 144.45897674560547,
+        "axis_ratio": 1.1408315267621332
+      },
+      "segmentation_bbox_midpoint_px": [
+        928.0,
+        93.5
+      ],
+      "bbox_to_segmentation_ellipse_offset_px": 0.1888606014355881,
+      "threshold_center_sensitivity_px": 0.11917589815544402,
+      "segmentation_threshold": 0.11,
+      "physical_ground_truth_available": true,
+      "gradient_ellipse": {
+        "center_px": [
+          927.6590576171875,
+          93.55664825439453
+        ],
+        "diameters_px": [
+          27.270872116088867,
+          31.950380325317383
+        ],
+        "major_axis_angle_deg": 138.93658828735352,
+        "axis_ratio": 1.1715936398846507
+      },
+      "gradient_inlier_count": 74,
+      "gradient_candidate_count": 81,
+      "gradient_angular_sector_coverage": 1.0,
+      "gradient_leave_quadrant_out_center_sensitivity_px": 0.17048977236036128,
+      "gradient_vs_segmentation_center_offset_px": 0.17058425787433384,
+      "localization_review_flags": [],
+      "baseline_H_bbox_vs_segmentation_center_displacement_mm_diagnostic": 0.3842697885270836,
+      "baseline_H_gradient_vs_segmentation_center_displacement_mm_diagnostic": 0.3450723933003089
+    },
+    {
+      "image_center_radius_px": 610.004809795467,
+      "radial_angle_deg": 155.1917373656315,
+      "major_axis_radial_angle_difference_deg": 6.513241577239597,
+      "small_sphere_apparent_aspect_approximation": 1.3297193484560137,
+      "id": "top-right-cue-pocket-ball",
+      "seed_px": [
+        1196,
+        97
+      ],
+      "segmentation_ellipse": {
+        "center_px": [
+          1197.8917236328125,
+          93.72235870361328
+        ],
+        "diameters_px": [
+          37.22522735595703,
+          40.822967529296875
+        ],
+        "major_axis_angle_deg": 161.7049789428711,
+        "axis_ratio": 1.0966479032871268
+      },
+      "segmentation_bbox_midpoint_px": [
+        1198.0,
+        93.0
+      ],
+      "bbox_to_segmentation_ellipse_offset_px": 0.7304285511788149,
+      "threshold_center_sensitivity_px": 0.2390507367582925,
+      "segmentation_threshold": 0.11,
+      "physical_ground_truth_available": false,
+      "gradient_ellipse": {
+        "center_px": [
+          1196.1051025390625,
+          96.4119873046875
+        ],
+        "diameters_px": [
+          27.675655364990234,
+          36.74274444580078
+        ],
+        "major_axis_angle_deg": 155.16790771484375,
+        "axis_ratio": 1.3276196701119654
+      },
+      "gradient_inlier_count": 81,
+      "gradient_candidate_count": 81,
+      "gradient_angular_sector_coverage": 1.0,
+      "gradient_leave_quadrant_out_center_sensitivity_px": 0.11366575956280531,
+      "gradient_vs_segmentation_center_offset_px": 3.2289498206613407,
+      "localization_review_flags": [
+        "methods disagree by more than 2 px; neither establishes true center",
+        "no physical XY ground truth; pocket/jaw silhouette may be occluded"
+      ],
+      "baseline_H_bbox_vs_segmentation_center_displacement_mm_diagnostic": 1.4587955243031139,
+      "baseline_H_gradient_vs_segmentation_center_displacement_mm_diagnostic": 6.431919045996341
+    },
+    {
+      "image_center_radius_px": 549.0815804589307,
+      "radial_angle_deg": 178.7344326141264,
+      "major_axis_radial_angle_difference_deg": 6.256488406381408,
+      "small_sphere_apparent_aspect_approximation": 1.2737266142609627,
+      "id": "far-left-yellow-middle-row-ball",
+      "seed_px": [
+        96,
+        362
+      ],
+      "segmentation_ellipse": {
+        "center_px": [
+          95.23236083984375,
+          361.79730224609375
+        ],
+        "diameters_px": [
+          30.0198974609375,
+          38.04511642456055
+        ],
+        "major_axis_angle_deg": 4.9909210205078125,
+        "axis_ratio": 1.2673299925179833
+      },
+      "segmentation_bbox_midpoint_px": [
+        95.5,
+        362.0
+      ],
+      "bbox_to_segmentation_ellipse_offset_px": 0.33573367344933025,
+      "threshold_center_sensitivity_px": 0.06449051697136882,
+      "segmentation_threshold": 0.11,
+      "physical_ground_truth_available": true,
+      "gradient_ellipse": {
+        "center_px": [
+          95.49854278564453,
+          362.08258056640625
+        ],
+        "diameters_px": [
+          26.89684295654297,
+          34.46675109863281
+        ],
+        "major_axis_angle_deg": 179.99488830566406,
+        "axis_ratio": 1.2814422552981586
+      },
+      "gradient_inlier_count": 77,
+      "gradient_candidate_count": 81,
+      "gradient_angular_sector_coverage": 0.9166666666666666,
+      "gradient_leave_quadrant_out_center_sensitivity_px": 0.429943210810585,
+      "gradient_vs_segmentation_center_offset_px": 0.39017502266369053,
+      "localization_review_flags": [],
+      "baseline_H_bbox_vs_segmentation_center_displacement_mm_diagnostic": 0.6907544095465518,
+      "baseline_H_gradient_vs_segmentation_center_displacement_mm_diagnostic": 0.800686312384314
+    },
+    {
+      "image_center_radius_px": 286.8015989776141,
+      "radial_angle_deg": 177.2263658625051,
+      "major_axis_radial_angle_difference_deg": 6.3280012029245825,
+      "small_sphere_apparent_aspect_approximation": 1.0815741887208064,
+      "id": "interior-purple-second-left-middle-row-ball",
+      "seed_px": [
+        359,
+        362
+      ],
+      "segmentation_ellipse": {
+        "center_px": [
+          357.7143859863281,
+          363.5483703613281
+        ],
+        "diameters_px": [
+          27.92588233947754,
+          29.602638244628906
+        ],
+        "major_axis_angle_deg": 3.5543670654296875,
+        "axis_ratio": 1.0600430770554745
+      },
+      "segmentation_bbox_midpoint_px": [
+        357.5,
+        363.5
+      ],
+      "bbox_to_segmentation_ellipse_offset_px": 0.21977498262745096,
+      "threshold_center_sensitivity_px": 0.2480590884888842,
+      "segmentation_threshold": 0.11,
+      "physical_ground_truth_available": true,
+      "gradient_ellipse": {
+        "center_px": [
+          358.9623107910156,
+          361.60736083984375
+        ],
+        "diameters_px": [
+          21.81239891052246,
+          29.749826431274414
+        ],
+        "major_axis_angle_deg": 9.468048095703125,
+        "axis_ratio": 1.3638952117698013
+      },
+      "gradient_inlier_count": 59,
+      "gradient_candidate_count": 81,
+      "gradient_angular_sector_coverage": 1.0,
+      "gradient_leave_quadrant_out_center_sensitivity_px": 0.8582465527840905,
+      "gradient_vs_segmentation_center_offset_px": 2.307560244207578,
+      "localization_review_flags": [
+        "methods disagree by more than 2 px; neither establishes true center"
+      ],
+      "baseline_H_bbox_vs_segmentation_center_displacement_mm_diagnostic": 0.45557225384569955,
+      "baseline_H_gradient_vs_segmentation_center_displacement_mm_diagnostic": 4.810553089294828
+    },
+    {
+      "image_center_radius_px": 11.652049835797445,
+      "radial_angle_deg": 93.89504019542278,
+      "major_axis_radial_angle_difference_deg": 63.990522067981374,
+      "small_sphere_apparent_aspect_approximation": 1.0001401282713784,
+      "id": "middle-row-center-ball",
+      "seed_px": [
+        643,
+        361
+      ],
+      "segmentation_ellipse": {
+        "center_px": [
+          643.3884887695312,
+          361.2951354980469
+        ],
+        "diameters_px": [
+          27.37323570251465,
+          27.720958709716797
+        ],
+        "major_axis_angle_deg": 29.904518127441406,
+        "axis_ratio": 1.0127030290091064
+      },
+      "segmentation_bbox_midpoint_px": [
+        643.5,
+        361.5
+      ],
+      "bbox_to_segmentation_ellipse_offset_px": 0.2332471193416044,
+      "threshold_center_sensitivity_px": 0.03251130569949122,
+      "segmentation_threshold": 0.11,
+      "physical_ground_truth_available": true,
+      "gradient_ellipse": {
+        "center_px": [
+          644.9482421875,
+          358.9408264160156
+        ],
+        "diameters_px": [
+          20.436546325683594,
+          26.02764320373535
+        ],
+        "major_axis_angle_deg": 30.746726989746094,
+        "axis_ratio": 1.2735832556514286
+      },
+      "gradient_inlier_count": 57,
+      "gradient_candidate_count": 81,
+      "gradient_angular_sector_coverage": 0.9166666666666666,
+      "gradient_leave_quadrant_out_center_sensitivity_px": 0.44589474012735936,
+      "gradient_vs_segmentation_center_offset_px": 2.824110829730311,
+      "localization_review_flags": [
+        "methods disagree by more than 2 px; neither establishes true center"
+      ],
+      "baseline_H_bbox_vs_segmentation_center_displacement_mm_diagnostic": 0.47868299584622254,
+      "baseline_H_gradient_vs_segmentation_center_displacement_mm_diagnostic": 5.832366928112829
+    },
+    {
+      "image_center_radius_px": 281.04875310988956,
+      "radial_angle_deg": 2.4508035338238634,
+      "major_axis_radial_angle_difference_deg": 88.91878305312835,
+      "small_sphere_apparent_aspect_approximation": 1.0784521440485308,
+      "id": "interior-green-second-right-middle-row-ball",
+      "seed_px": [
+        925,
+        361
+      ],
+      "segmentation_ellipse": {
+        "center_px": [
+          924.9716796875,
+          361.6880798339844
+        ],
+        "diameters_px": [
+          26.611072540283203,
+          29.351110458374023
+        ],
+        "major_axis_angle_deg": 91.36958658695221,
+        "axis_ratio": 1.1029660835331991
+      },
+      "segmentation_bbox_midpoint_px": [
+        925.0,
+        361.5
+      ],
+      "bbox_to_segmentation_ellipse_offset_px": 0.19020006322734942,
+      "threshold_center_sensitivity_px": 0.31641664164162076,
+      "segmentation_threshold": 0.11,
+      "physical_ground_truth_available": true,
+      "gradient_ellipse": {
+        "center_px": [
+          924.3916015625,
+          361.3115234375
+        ],
+        "diameters_px": [
+          16.53400421142578,
+          33.71163558959961
+        ],
+        "major_axis_angle_deg": 178.0732421875,
+        "axis_ratio": 2.038927482932614
+      },
+      "gradient_inlier_count": 70,
+      "gradient_candidate_count": 81,
+      "gradient_angular_sector_coverage": 0.9166666666666666,
+      "gradient_leave_quadrant_out_center_sensitivity_px": 1.6761037667905008,
+      "gradient_vs_segmentation_center_offset_px": 0.6915817745117445,
+      "localization_review_flags": [
+        "gradient center sensitive to omitted arc"
+      ],
+      "baseline_H_bbox_vs_segmentation_center_displacement_mm_diagnostic": 0.3894332841462145,
+      "baseline_H_gradient_vs_segmentation_center_displacement_mm_diagnostic": 1.4219515080807517
+    },
+    {
+      "image_center_radius_px": 555.465460160831,
+      "radial_angle_deg": 1.331468388680817,
+      "major_axis_radial_angle_difference_deg": 4.320558354501145,
+      "small_sphere_apparent_aspect_approximation": 1.279427906882101,
+      "id": "far-right-purple-middle-row-ball",
+      "seed_px": [
+        1198,
+        364
+      ],
+      "segmentation_ellipse": {
+        "center_px": [
+          1199.4954833984375,
+          362.5770263671875
+        ],
+        "diameters_px": [
+          28.914894104003906,
+          36.20026779174805
+        ],
+        "major_axis_angle_deg": 177.0109100341797,
+        "axis_ratio": 1.2519592035004312
+      },
+      "segmentation_bbox_midpoint_px": [
+        1198.5,
+        363.0
+      ],
+      "bbox_to_segmentation_ellipse_offset_px": 1.0816163324484693,
+      "threshold_center_sensitivity_px": 0.40523179656128283,
+      "segmentation_threshold": 0.11,
+      "physical_ground_truth_available": true,
+      "gradient_ellipse": {
+        "center_px": [
+          1197.558837890625,
+          362.22021484375
+        ],
+        "diameters_px": [
+          28.05201530456543,
+          37.47233200073242
+        ],
+        "major_axis_angle_deg": 2.3995208740234375,
+        "axis_ratio": 1.3358160400915597
+      },
+      "gradient_inlier_count": 61,
+      "gradient_candidate_count": 81,
+      "gradient_angular_sector_coverage": 0.8333333333333334,
+      "gradient_leave_quadrant_out_center_sensitivity_px": 0.28637895640317285,
+      "gradient_vs_segmentation_center_offset_px": 1.9692410431910374,
+      "localization_review_flags": [],
+      "baseline_H_bbox_vs_segmentation_center_displacement_mm_diagnostic": 2.1966572619363944,
+      "baseline_H_gradient_vs_segmentation_center_displacement_mm_diagnostic": 4.029696822218121
+    },
+    {
+      "image_center_radius_px": 604.5432273828172,
+      "radial_angle_deg": 153.34644502220777,
+      "major_axis_radial_angle_difference_deg": 8.114160476309337,
+      "small_sphere_apparent_aspect_approximation": 1.3245603187524817,
+      "id": "bottom-left-pocket-ball",
+      "seed_px": [
+        105,
+        618
+      ],
+      "segmentation_ellipse": {
+        "center_px": [
+          103.87836456298828,
+          620.8648681640625
+        ],
+        "diameters_px": [
+          36.07521438598633,
+          42.9084358215332
+        ],
+        "major_axis_angle_deg": 145.23228454589844,
+        "axis_ratio": 1.189415961952018
+      },
+      "segmentation_bbox_midpoint_px": [
+        103.5,
+        621.0
+      ],
+      "bbox_to_segmentation_ellipse_offset_px": 0.401771521650244,
+      "threshold_center_sensitivity_px": 0.3025248386888584,
+      "segmentation_threshold": 0.11,
+      "physical_ground_truth_available": false,
+      "gradient_ellipse": {
+        "center_px": [
+          105.55913543701172,
+          617.1940307617188
+        ],
+        "diameters_px": [
+          26.686410903930664,
+          35.284549713134766
+        ],
+        "major_axis_angle_deg": 154.78064727783203,
+        "axis_ratio": 1.3221916517795083
+      },
+      "gradient_inlier_count": 74,
+      "gradient_candidate_count": 81,
+      "gradient_angular_sector_coverage": 0.9166666666666666,
+      "gradient_leave_quadrant_out_center_sensitivity_px": 0.2753136787096031,
+      "gradient_vs_segmentation_center_offset_px": 4.0373305494362635,
+      "localization_review_flags": [
+        "methods disagree by more than 2 px; neither establishes true center",
+        "no physical XY ground truth; pocket/jaw silhouette may be occluded"
+      ],
+      "baseline_H_bbox_vs_segmentation_center_displacement_mm_diagnostic": 0.8576094605784677,
+      "baseline_H_gradient_vs_segmentation_center_displacement_mm_diagnostic": 8.619372039099884
+    },
+    {
+      "image_center_radius_px": 395.41721476185285,
+      "radial_angle_deg": 135.36885034944285,
+      "major_axis_radial_angle_difference_deg": 36.41717970277537,
+      "small_sphere_apparent_aspect_approximation": 1.150117225038089,
+      "id": "bottom-black-second-left-ball",
+      "seed_px": [
+        363,
+        627
+      ],
+      "segmentation_ellipse": {
+        "center_px": [
+          362.78363037109375,
+          627.4664306640625
+        ],
+        "diameters_px": [
+          29.425609588623047,
+          29.665525436401367
+        ],
+        "major_axis_angle_deg": 98.95167064666748,
+        "axis_ratio": 1.0081533008536578
+      },
+      "segmentation_bbox_midpoint_px": [
+        362.0,
+        627.0
+      ],
+      "bbox_to_segmentation_ellipse_offset_px": 0.9119397583603388,
+      "threshold_center_sensitivity_px": 1.9413400634904523,
+      "segmentation_threshold": 0.11,
+      "physical_ground_truth_available": true,
+      "gradient_ellipse": {
+        "center_px": [
+          361.5634460449219,
+          626.6121215820312
+        ],
+        "diameters_px": [
+          26.032936096191406,
+          33.000038146972656
+        ],
+        "major_axis_angle_deg": 131.37125778198242,
+        "axis_ratio": 1.2676264415599487
+      },
+      "gradient_inlier_count": 60,
+      "gradient_candidate_count": 81,
+      "gradient_angular_sector_coverage": 0.9166666666666666,
+      "gradient_leave_quadrant_out_center_sensitivity_px": 0.23145147910936723,
+      "gradient_vs_segmentation_center_offset_px": 1.4895280452131774,
+      "localization_review_flags": [
+        "segmentation threshold sensitivity exceeds 1 px"
+      ],
+      "baseline_H_bbox_vs_segmentation_center_displacement_mm_diagnostic": 1.9003939259247111,
+      "baseline_H_gradient_vs_segmentation_center_displacement_mm_diagnostic": 3.1022289703728316
+    },
+    {
+      "image_center_radius_px": 285.15551434873254,
+      "radial_angle_deg": 90.60473491190699,
+      "major_axis_radial_angle_difference_deg": 3.9320564127084907,
+      "small_sphere_apparent_aspect_approximation": 1.0806753302061765,
+      "id": "bottom-middle-pocket-ball",
+      "seed_px": [
+        641,
+        630
+      ],
+      "segmentation_ellipse": {
+        "center_px": [
+          641.1703491210938,
+          634.8096313476562
+        ],
+        "diameters_px": [
+          34.734100341796875,
+          38.663330078125
+        ],
+        "major_axis_angle_deg": 94.53679132461548,
+        "axis_ratio": 1.1131231181364423
+      },
+      "segmentation_bbox_midpoint_px": [
+        641.0,
+        633.5
+      ],
+      "bbox_to_segmentation_ellipse_offset_px": 1.3206638822279266,
+      "threshold_center_sensitivity_px": 0.2639230803074335,
+      "segmentation_threshold": 0.11,
+      "physical_ground_truth_available": false,
+      "gradient_ellipse": {
+        "center_px": [
+          640.388671875,
+          633.4292602539062
+        ],
+        "diameters_px": [
+          24.19853401184082,
+          32.9797248840332
+        ],
+        "major_axis_angle_deg": 133.88746643066406,
+        "axis_ratio": 1.362881109570339
+      },
+      "gradient_inlier_count": 48,
+      "gradient_candidate_count": 81,
+      "gradient_angular_sector_coverage": 0.8333333333333334,
+      "gradient_leave_quadrant_out_center_sensitivity_px": 0.34481391124287886,
+      "gradient_vs_segmentation_center_offset_px": 1.5863302536109183,
+      "localization_review_flags": [
+        "no physical XY ground truth; pocket/jaw silhouette may be occluded"
+      ],
+      "baseline_H_bbox_vs_segmentation_center_displacement_mm_diagnostic": 2.767316844132624,
+      "baseline_H_gradient_vs_segmentation_center_displacement_mm_diagnostic": 3.3107268608031215
+    },
+    {
+      "image_center_radius_px": 397.3193203095718,
+      "radial_angle_deg": 45.15055025899269,
+      "major_axis_radial_angle_difference_deg": 48.83826388203957,
+      "small_sphere_apparent_aspect_approximation": 1.1514696638708128,
+      "id": "bottom-yellow-second-right-ball",
+      "seed_px": [
+        925,
+        630
+      ],
+      "segmentation_ellipse": {
+        "center_px": [
+          924.3880004882812,
+          631.3544311523438
+        ],
+        "diameters_px": [
+          32.64079666137695,
+          35.10757064819336
+        ],
+        "major_axis_angle_deg": 176.31228637695312,
+        "axis_ratio": 1.0755733388620161
+      },
+      "segmentation_bbox_midpoint_px": [
+        925.0,
+        630.5
+      ],
+      "bbox_to_segmentation_ellipse_offset_px": 1.050997619616456,
+      "threshold_center_sensitivity_px": 0.17127652443176908,
+      "segmentation_threshold": 0.11,
+      "physical_ground_truth_available": true,
+      "gradient_ellipse": {
+        "center_px": [
+          925.2743530273438,
+          630.2654418945312
+        ],
+        "diameters_px": [
+          27.065170288085938,
+          31.874317169189453
+        ],
+        "major_axis_angle_deg": 45.615264892578125,
+        "axis_ratio": 1.1776876638836629
+      },
+      "gradient_inlier_count": 81,
+      "gradient_candidate_count": 81,
+      "gradient_angular_sector_coverage": 1.0,
+      "gradient_leave_quadrant_out_center_sensitivity_px": 0.10770922289074554,
+      "gradient_vs_segmentation_center_offset_px": 1.4041076978400056,
+      "localization_review_flags": [],
+      "baseline_H_bbox_vs_segmentation_center_displacement_mm_diagnostic": 2.1909524055481504,
+      "baseline_H_gradient_vs_segmentation_center_displacement_mm_diagnostic": 2.9256927933408106
+    },
+    {
+      "image_center_radius_px": 619.24612458201,
+      "radial_angle_deg": 27.09026131498392,
+      "major_axis_radial_angle_difference_deg": 13.798658226605014,
+      "small_sphere_apparent_aspect_approximation": 1.3385082169278686,
+      "id": "bottom-right-pocket-ball",
+      "seed_px": [
+        1195,
+        628
+      ],
+      "segmentation_ellipse": {
+        "center_px": [
+          1195.48876953125,
+          631.6707153320312
+        ],
+        "diameters_px": [
+          36.71501159667969,
+          43.622623443603516
+        ],
+        "major_axis_angle_deg": 13.291603088378906,
+        "axis_ratio": 1.1881413499961557
+      },
+      "segmentation_bbox_midpoint_px": [
+        1196.0,
+        632.0
+      ],
+      "bbox_to_segmentation_ellipse_offset_px": 0.6080994858883163,
+      "threshold_center_sensitivity_px": 0.5062031001571912,
+      "segmentation_threshold": 0.11,
+      "physical_ground_truth_available": false,
+      "gradient_ellipse": {
+        "center_px": [
+          1190.0172119140625,
+          626.876953125
+        ],
+        "diameters_px": [
+          26.32343101501465,
+          37.209747314453125
+        ],
+        "major_axis_angle_deg": 30.567169189453125,
+        "axis_ratio": 1.4135599304372222
+      },
+      "gradient_inlier_count": 58,
+      "gradient_candidate_count": 81,
+      "gradient_angular_sector_coverage": 0.9166666666666666,
+      "gradient_leave_quadrant_out_center_sensitivity_px": 0.7725130418066988,
+      "gradient_vs_segmentation_center_offset_px": 7.274482720837522,
+      "localization_review_flags": [
+        "methods disagree by more than 2 px; neither establishes true center",
+        "no physical XY ground truth; pocket/jaw silhouette may be occluded"
+      ],
+      "baseline_H_bbox_vs_segmentation_center_displacement_mm_diagnostic": 1.2641184255712352,
+      "baseline_H_gradient_vs_segmentation_center_displacement_mm_diagnostic": 15.149680400321303
+    }
+  ],
+  "nine_point_homography_comparison": {
+    "segmentation_bbox": {
+      "training_rms_mm": 3.556935709498089,
+      "leave_one_position_out_rms_mm": 7.897304773101091,
+      "leave_one_position_out_error_mm": {
+        "top-orange-solid-second-left-ball": 8.612449583906718,
+        "top-red-striped-second-right-ball": 9.435877539266759,
+        "far-left-yellow-middle-row-ball": 8.944027255202997,
+        "interior-purple-second-left-middle-row-ball": 2.534260726042215,
+        "middle-row-center-ball": 8.64264409472851,
+        "interior-green-second-right-middle-row-ball": 3.1183982938499626,
+        "far-right-purple-middle-row-ball": 5.8763359324213225,
+        "bottom-black-second-left-ball": 10.753619833547969,
+        "bottom-yellow-second-right-ball": 8.779935192818069
+      },
+      "homography": [
+        [
+          2.065103719749888,
+          -0.057549136775851155,
+          -150.955460124682
+        ],
+        [
+          0.005608680077928485,
+          2.021736259815279,
+          -166.1378310364102
+        ],
+        [
+          1.0262518289665105e-05,
+          -3.773503021970575e-05,
+          1.0
+        ]
+      ]
+    },
+    "segmentation_ellipse": {
+      "training_rms_mm": 3.9696102950695655,
+      "leave_one_position_out_rms_mm": 8.948455288023201,
+      "leave_one_position_out_error_mm": {
+        "top-orange-solid-second-left-ball": 10.687943058670749,
+        "top-red-striped-second-right-ball": 7.449154730825547,
+        "far-left-yellow-middle-row-ball": 13.100470786744447,
+        "interior-purple-second-left-middle-row-ball": 2.621414065456608,
+        "middle-row-center-ball": 9.071750165429433,
+        "interior-green-second-right-middle-row-ball": 2.9220785750486886,
+        "far-right-purple-middle-row-ball": 2.16024953491663,
+        "bottom-black-second-left-ball": 14.636044509483087,
+        "bottom-yellow-second-right-ball": 7.920973274179194
+      },
+      "homography": [
+        [
+          2.068586324440358,
+          -0.05710011692764556,
+          -152.16952191508523
+        ],
+        [
+          0.006358391518142174,
+          2.0213664370574635,
+          -166.08017706898303
+        ],
+        [
+          1.160337152598073e-05,
+          -3.743327821875208e-05,
+          1.0
+        ]
+      ]
+    },
+    "gradient_ellipse": {
+      "training_rms_mm": 3.810775488047239,
+      "leave_one_position_out_rms_mm": 8.007653471994509,
+      "leave_one_position_out_error_mm": {
+        "top-orange-solid-second-left-ball": 7.970286182930191,
+        "top-red-striped-second-right-ball": 10.861713129398654,
+        "far-left-yellow-middle-row-ball": 9.429202220448094,
+        "interior-purple-second-left-middle-row-ball": 3.384897509324779,
+        "middle-row-center-ball": 8.746888122144721,
+        "interior-green-second-right-middle-row-ball": 2.5341784533548677,
+        "far-right-purple-middle-row-ball": 5.751321321017031,
+        "bottom-black-second-left-ball": 8.660844804000606,
+        "bottom-yellow-second-right-ball": 10.208571184582212
+      },
+      "homography": [
+        [
+          2.0648517953869097,
+          -0.0493729933613509,
+          -154.0236979674544
+        ],
+        [
+          0.0038880468480234835,
+          2.028755147050408,
+          -165.45929698461
+        ],
+        [
+          7.247486206310269e-06,
+          -3.0657961941980215e-05,
+          1.0
+        ]
+      ]
+    }
+  },
+  "synthetic_checks": {
+    "known_center_px": [
+      49,
+      48
+    ],
+    "segmented_center_error_px": 0.011858199824658728,
+    "gradient_center_error_px": 0.04063895899404278,
+    "gradient_leave_quadrant_out_sensitivity_px": 0.17860875651252933,
+    "scope": "single idealized ellipse plus shadow and stripe; does not validate real JPEG silhouettes"
+  },
+  "limits": [
+    "No method proves true sphere center from this approximately 13px-radius JPEG silhouette.",
+    "Convex envelopes bridge stripe gaps and possibly shadow/rail errors. Gradient consensus can prefer shadow or internal stripe boundaries.",
+    "Leave-one-position-out includes shared unknown physical measurement and contact errors; no physical accuracy claim.",
+    "Pocket-adjacent balls have no physical ground truth and are never used as calibration targets.",
+    "Original measured XY applies only to this exact source snapshot, not subsequent moved-ball checkerboard images."
+  ]
+}

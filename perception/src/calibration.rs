@@ -503,6 +503,17 @@ impl ValidatedTableCalibrationV1 {
         )
     }
 
+    /// Whether a projected point lies on the calibrated playing surface.
+    /// The calibration maps the cloth boundary to a center-origin rectangle;
+    /// points exactly on its edge count as inside so an endpoint on the rail
+    /// line can still identify the cue tip side.
+    pub fn contains_playing_surface_point(&self, point: TablePointMm) -> bool {
+        point.x_mm.is_finite()
+            && point.y_mm.is_finite()
+            && point.x_mm.abs() <= self.calibration.table_width_mm / 2.0
+            && point.y_mm.abs() <= self.calibration.table_height_mm / 2.0
+    }
+
     /// Reject a frame before iterating its detections, including empty frames.
     pub fn validate_frame_context(
         &self,

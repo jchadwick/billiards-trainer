@@ -38,7 +38,7 @@ use crate::capture::{CaptureTimestampSemantics, RgbFrameEnvelope};
 use crate::detection_batch::{BatchTimestamp, ClockKind, TimeUnit, TimestampStage};
 use crate::live_config::CaptureSessionCompatibility;
 
-const PREVIEW_REQUEST_V1: &[u8; 8] = b"BTPV0001";
+pub const PREVIEW_REQUEST_V1: &[u8; 8] = b"BTPV0001";
 const PREVIEW_PROTOCOL_VERSION: u8 = 1;
 const MAXIMUM_PREVIEW_HEADER_BYTES: usize = 1_048_576;
 const MAXIMUM_PREVIEW_JPEG_BYTES: usize = 16 * 1_048_576;
@@ -194,7 +194,7 @@ pub struct PreviewHostTimestampV1 {
 }
 
 /// A descriptor and its exact budget-accounted RGB frame.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct CapturedFramePreview {
     frame: Arc<RgbFrameEnvelope>,
     descriptor: FramePreviewDescriptorV1,
@@ -229,6 +229,10 @@ struct PreviewSessionMetadata {
 struct PreviewSlotState {
     metadata: Option<PreviewSessionMetadata>,
     latest: Option<Arc<RgbFrameEnvelope>>,
+    /// The one exact still frame most recently returned to the operator.
+    /// Calibration apply requests must use these pixels, never a later frame
+    /// that happened to replace `latest` after the preview response.
+    calibration_selection: Option<CapturedFramePreview>,
 }
 
 /// Capacity-one, session-scoped view of the newest captured frame.
@@ -290,6 +294,7 @@ impl LatestCapturedFrameSlot {
         // A new compatible capture session invalidates every frame from the
         // previous session before the new descriptor context becomes visible.
         state.latest.take();
+        state.calibration_selection.take();
         state.metadata = Some(metadata);
         Ok(())
     }
@@ -381,6 +386,40 @@ impl LatestCapturedFrameSlot {
         Some(CapturedFramePreview { frame, descriptor })
     }
 
+    /// Retain the exact frame that was successfully delivered as a still
+    /// preview. The slot holds at most one extra Arc, so operator confirmation
+    /// never creates a frame copy or unbounded history.
+    fn retain_calibration_selection(&self, preview: CapturedFramePreview) {
+        let mut state = self
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if state.metadata.as_ref().is_some_and(|metadata| {
+            metadata.capture_session_id == preview.descriptor.capture_session_id
+                && metadata.engine_instance_id == preview.descriptor.engine_instance_id
+        }) {
+            state.calibration_selection = Some(preview);
+        }
+    }
+
+    /// Resolve an operator's descriptor to the exact pixels returned for that
+    /// preview. A descriptor for any other frame is stale and cannot be
+    /// silently rebound to the newest capture.
+    pub(crate) fn confirmed_calibration_preview(
+        &self,
+        descriptor: &FramePreviewDescriptorV1,
+    ) -> Option<CapturedFramePreview> {
+        let state = self
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        state
+            .calibration_selection
+            .as_ref()
+            .filter(|preview| preview.descriptor() == descriptor)
+            .cloned()
+    }
+
     /// Remove the image reference on stop, source failure, or session change.
     pub(crate) fn clear(&self) {
         let _context_guard = self.lock_calibration_context();
@@ -389,6 +428,7 @@ impl LatestCapturedFrameSlot {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         state.latest.take();
+        state.calibration_selection.take();
         state.metadata.take();
     }
 
@@ -488,7 +528,7 @@ pub struct FramePreviewServer {
     accept_thread: Option<JoinHandle<()>>,
 }
 
-/// Machine-readable startup line emitted for the Python supervisor after the
+/// Machine-readable startup line emitted for the Rust gateway supervisor after the
 /// loopback listener is bound. Listener readiness does not imply frame
 /// availability; callers receive `unavailable` until capture publishes one.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -509,7 +549,7 @@ impl std::fmt::Debug for FramePreviewServer {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FramePreviewStatusV1 {
     Ok,
@@ -520,7 +560,7 @@ pub enum FramePreviewStatusV1 {
     EncodeFailed,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct FramePreviewResponseHeaderV1 {
     pub schema_version: u8,
@@ -555,7 +595,7 @@ impl FramePreviewServer {
     }
 
     /// Actual bound address, including the port selected when port zero was
-    /// requested. The Python supervisor consumes this address from readiness.
+    /// requested. The Rust gateway supervisor consumes this address from readiness.
     pub fn address(&self) -> SocketAddr {
         self.address
     }
@@ -788,7 +828,9 @@ fn handle_frame_preview(
         ),
         config.maximum_header_bytes,
     )?;
-    stream.write_all(&jpeg)
+    stream.write_all(&jpeg).map(|()| {
+        slot.retain_calibration_selection(preview);
+    })
 }
 
 fn response(
@@ -978,8 +1020,8 @@ mod tests {
         let aggregate_limit = CaptureAggregateFrameLimit::new(4_194_304).unwrap();
         let budget = CaptureFrameBudget::new(aggregate_limit);
         let profile = CaptureVideoProfile::new(
-            8,
-            6,
+            64,
+            48,
             CaptureFrameRate::new(30, 1).unwrap(),
             CapturePixelFormat::new("rgb8").unwrap(),
         )
@@ -1051,8 +1093,8 @@ mod tests {
                 domain_id: "sensor-clock".to_owned(),
                 stage: TimestampStage::Exposure,
             }),
-            width_px: 8,
-            height_px: 6,
+            width_px: 64,
+            height_px: 48,
         }
     }
 
@@ -1064,8 +1106,40 @@ mod tests {
         read_at: Instant,
     ) -> Arc<crate::capture::RgbFrameEnvelope> {
         let limit = CaptureFrameLimit::new(1_048_576).unwrap();
-        let mut pixels = budget.allocate_rgb8_buffer(8, 6, limit).unwrap();
+        let mut pixels = budget.allocate_rgb8_buffer(64, 48, limit).unwrap();
         pixels.as_mut_slice().fill(value);
+        Arc::new(
+            crate::capture::RgbFrameEnvelope::new(
+                source_frame(id, timestamp),
+                pixels,
+                read_at,
+                limit,
+            )
+            .unwrap(),
+        )
+    }
+
+    fn calibration_frame(
+        budget: &CaptureFrameBudget,
+        id: &str,
+        timestamp: u64,
+        read_at: Instant,
+    ) -> Arc<crate::capture::RgbFrameEnvelope> {
+        let limit = CaptureFrameLimit::new(1_048_576).unwrap();
+        let mut pixels = budget.allocate_rgb8_buffer(64, 48, limit).unwrap();
+        for y in 0..48 {
+            for x in 0..64 {
+                let color = if (8..=56).contains(&x) && (6..=42).contains(&y) {
+                    [42, 132, 54]
+                } else if (6..=58).contains(&x) && (4..=44).contains(&y) {
+                    [106, 72, 42]
+                } else {
+                    [24, 22, 20]
+                };
+                let offset = (y * 64 + x) * 3;
+                pixels.as_mut_slice()[offset..offset + 3].copy_from_slice(&color);
+            }
+        }
         Arc::new(
             crate::capture::RgbFrameEnvelope::new(
                 source_frame(id, timestamp),
@@ -1161,7 +1235,7 @@ mod tests {
             current.descriptor().host_read_completed.semantics,
             "read_completion_only"
         );
-        assert_eq!(budget.stats().current_bytes, 8 * 6 * 3 * 2);
+        assert_eq!(budget.stats().current_bytes, 64 * 48 * 3 * 2);
 
         drop(current);
         drop(newest);
@@ -1283,7 +1357,7 @@ mod tests {
         assert_eq!(response["jpeg_bytes"], jpeg.len());
         assert!(jpeg.starts_with(&[0xff, 0xd8]));
         let decoded = image::load_from_memory(&jpeg).unwrap().to_rgb8();
-        assert_eq!(decoded.dimensions(), (8, 6));
+        assert_eq!(decoded.dimensions(), (64, 48));
         assert_eq!(decoded.get_pixel(0, 0).0, [180, 180, 180]);
     }
 
@@ -1298,13 +1372,15 @@ mod tests {
         )
         .unwrap();
         let mut server_config = config("127.0.0.1:0".parse().unwrap());
+        server_config.maximum_header_bytes = 64 * 1024;
         server_config.calibration_control = Some(CalibrationControlConfig {
             store: store.clone(),
             maximum_request_bytes: 4096,
+            table_visibility: crate::table_visibility::TableVisibilityConfig::default(),
         });
         let server = FramePreviewServer::bind(server_config, Arc::clone(&slot)).unwrap();
 
-        let first = frame(&budget, "operator-selected-frame", 1, 33, Instant::now());
+        let first = calibration_frame(&budget, "operator-selected-frame", 1, Instant::now());
         slot.publish(first).unwrap();
         let (preview_header, _) = request(server.address(), PREVIEW_REQUEST_V1).unwrap();
         let descriptor = preview_header["descriptor"].clone();
@@ -1318,10 +1394,10 @@ mod tests {
             "table_width_mm": 2000.0,
             "table_height_mm": 1000.0,
             "corners_px": [
-                {"x_px": 0.0, "y_px": 0.0},
-                {"x_px": 7.0, "y_px": 0.0},
-                {"x_px": 7.0, "y_px": 5.0},
-                {"x_px": 0.0, "y_px": 5.0}
+                {"x_px": 8.0, "y_px": 6.0},
+                {"x_px": 56.0, "y_px": 6.0},
+                {"x_px": 56.0, "y_px": 42.0},
+                {"x_px": 8.0, "y_px": 42.0}
             ],
             "expected_store_revision": null
         });
@@ -1384,6 +1460,7 @@ mod tests {
             )
             .unwrap(),
             maximum_request_bytes: 1024,
+            table_visibility: crate::table_visibility::TableVisibilityConfig::default(),
         });
         let server = FramePreviewServer::bind(server_config, slot).unwrap();
         let mut stream = TcpStream::connect(server.address()).unwrap();
@@ -1499,6 +1576,7 @@ mod tests {
             )
             .unwrap(),
             maximum_request_bytes: 4096,
+            table_visibility: crate::table_visibility::TableVisibilityConfig::default(),
         });
         let server = FramePreviewServer::bind(server_config, slot).unwrap();
         let address = server.address();

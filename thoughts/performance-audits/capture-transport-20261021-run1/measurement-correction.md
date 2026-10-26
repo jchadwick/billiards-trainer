@@ -1,1 +1,0 @@
-SUPERSEDED — do not use these timings as evidence. The in-process arm initially ran producer and consumer sequentially, while the pipe arm ran them concurrently. The runner was corrected to use paired producer/consumer concurrency.

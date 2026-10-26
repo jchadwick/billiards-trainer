@@ -1,7 +1,7 @@
 //! Exercise the deployment launcher with the real server and a staged bundle.
 //!
 //! This deliberately disables live capture: packaging and process lifecycle
-//! should be testable without a camera, model, GStreamer, or Python runtime.
+//! should be testable without a camera, model, GStreamer, or optional model-export tooling.
 
 use serde_json::Value;
 use std::fs::{self, File};
@@ -50,14 +50,19 @@ impl StagedDeployment {
         let config = root.join("config.json");
         let defaults = repository.join("perception/contracts/configuration/v1/defaults.json");
         let defaults_text = fs::read_to_string(defaults).expect("read versioned config defaults");
-        let parsed: Value =
+        let mut parsed: Value =
             serde_json::from_str(&defaults_text).expect("versioned config defaults are valid JSON");
         assert_eq!(
             parsed.pointer("/metadata/version").and_then(Value::as_str),
             Some("1.0.0"),
             "the staged config must be derived from the checked-in v1 defaults"
         );
-        fs::write(&config, defaults_text).expect("stage valid default configuration");
+        // The versioned defaults include a recorded-video sample setting, but
+        // this live deployment test exercises the camera-backed server path.
+        parsed["vision"]["camera"]["video_file_path"] = Value::String(String::new());
+        let staged_config =
+            serde_json::to_vec_pretty(&parsed).expect("serialize live-compatible config");
+        fs::write(&config, staged_config).expect("stage valid live configuration");
 
         let run_dir = root.join("run");
         fs::create_dir_all(&run_dir).expect("create staged run directory");

@@ -194,13 +194,77 @@
             "source_checkpoint_path": {
               "type": "string"
             },
+            "coral_model_path": {
+              "type": "string"
+            },
+            "coral_python_executable": {
+              "type": "string"
+            },
+            "coral_delegate_library": {
+              "type": "string"
+            },
             "provider": {
               "type": "string",
               "enum": [
                 "cpu",
                 "auto",
-                "openvino"
+                "openvino",
+                "coral"
               ]
+            },
+            "coral_runtime": {
+              "type": "object",
+              "properties": {
+                "maximum_inference_frame_age_ms": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                },
+                "maximum_observation_age_seconds": {
+                  "type": "number",
+                  "exclusiveMinimum": 0
+                },
+                "shot_ball_hz": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 60
+                },
+                "expire_after_ms": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                },
+                "motion_evidence_expiry_ms": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                },
+                "layout_evidence_expiry_ms": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                },
+                "layout_position_tolerance_px": {
+                  "type": "number",
+                  "exclusiveMinimum": 0
+                },
+                "nms_iou_threshold": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                },
+                "worker_restart_backoff_ms": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                },
+                "maximum_worker_restarts_per_frame": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 5
+                }
+              },
+              "additionalProperties": false
             },
             "image_size": {
               "type": "integer",
@@ -257,6 +321,109 @@
             "recent_observation_capacity": {
               "type": "integer",
               "minimum": 1
+            },
+            "phase_schedule": {
+              "type": "object",
+              "properties": {
+                "recovering": {
+                  "type": "object",
+                  "properties": {
+                    "motion_hz": { "type": "number", "minimum": 0 },
+                    "ball_hz": { "type": "number", "minimum": 0 },
+                    "cue_hz": { "type": "number", "minimum": 0 }
+                  },
+                  "required": ["motion_hz", "ball_hz", "cue_hz"],
+                  "additionalProperties": false
+                },
+                "pre_shot": {
+                  "type": "object",
+                  "properties": {
+                    "motion_hz": { "type": "number", "minimum": 0 },
+                    "ball_hz": { "type": "number", "minimum": 0 },
+                    "cue_hz": { "type": "number", "minimum": 0 }
+                  },
+                  "required": ["motion_hz", "ball_hz", "cue_hz"],
+                  "additionalProperties": false
+                },
+                "aiming": {
+                  "type": "object",
+                  "properties": {
+                    "motion_hz": { "type": "number", "minimum": 0 },
+                    "ball_hz": { "type": "number", "minimum": 0 },
+                    "cue_hz": { "type": "number", "minimum": 0 }
+                  },
+                  "required": ["motion_hz", "ball_hz", "cue_hz"],
+                  "additionalProperties": false
+                },
+                "shot": {
+                  "type": "object",
+                  "properties": {
+                    "motion_hz": { "type": "number", "minimum": 0 },
+                    "ball_hz": { "type": "number", "minimum": 0 },
+                    "cue_hz": { "type": "number", "minimum": 0 }
+                  },
+                  "required": ["motion_hz", "ball_hz", "cue_hz"],
+                  "additionalProperties": false
+                },
+                "quiet_dwell_ms": { "type": "integer", "minimum": 1 },
+                "layout_consensus_count": { "type": "integer", "minimum": 1 },
+                "layout_position_tolerance_px": { "type": "number", "exclusiveMinimum": 0 },
+                "motion_evidence_expiry_ms": { "type": "integer", "minimum": 1 },
+                "cue_evidence_expiry_ms": { "type": "integer", "minimum": 1 },
+                "layout_evidence_expiry_ms": { "type": "integer", "minimum": 1 }
+              },
+              "required": [
+                "recovering",
+                "pre_shot",
+                "aiming",
+                "shot",
+                "quiet_dwell_ms",
+                "layout_consensus_count",
+                "layout_position_tolerance_px",
+                "motion_evidence_expiry_ms",
+                "cue_evidence_expiry_ms",
+                "layout_evidence_expiry_ms"
+              ],
+              "additionalProperties": false
+            },
+            "table_visibility": {
+              "type": "object",
+              "properties": {
+                "maximum_frame_dimension": { "type": "integer", "minimum": 32, "maximum": 16384 },
+                "maximum_feature_samples": { "type": "integer", "minimum": 128, "maximum": 16384 },
+                "cloth_grid_width": { "type": "integer", "minimum": 4, "maximum": 64 },
+                "cloth_grid_height": { "type": "integer", "minimum": 4, "maximum": 64 },
+                "cloth_inset_fraction": { "type": "number", "minimum": 0, "exclusiveMaximum": 0.45 },
+                "rail_profiles_per_side": { "type": "integer", "minimum": 2, "maximum": 64 },
+                "rail_profile_depth_samples": { "type": "integer", "minimum": 3, "maximum": 31 },
+                "rail_profile_half_width_fraction": { "type": "number", "exclusiveMinimum": 0, "maximum": 0.2 },
+                "minimum_reference_cloth_luminance": { "type": "integer", "minimum": 0, "maximum": 254 },
+                "maximum_reference_cloth_luminance": { "type": "integer", "minimum": 1, "maximum": 255 },
+                "maximum_reference_cloth_luminance_mad": { "type": "integer", "minimum": 1, "maximum": 255 },
+                "minimum_rail_profile_contrast": { "type": "integer", "minimum": 1, "maximum": 255 },
+                "minimum_reference_rail_contrast_fraction": { "type": "number", "exclusiveMinimum": 0, "maximum": 1 },
+                "minimum_live_rail_contrast_fraction": { "type": "number", "exclusiveMinimum": 0, "maximum": 1 },
+                "maximum_global_luminance_shift": { "type": "integer", "minimum": 1, "maximum": 255 },
+                "maximum_global_channel_shift": { "type": "integer", "minimum": 1, "maximum": 255 },
+                "maximum_global_chroma_shift": { "type": "integer", "minimum": 1, "maximum": 255 },
+                "maximum_cloth_channel_difference": { "type": "integer", "minimum": 1, "maximum": 255 },
+                "maximum_rail_channel_difference": { "type": "integer", "minimum": 1, "maximum": 255 },
+                "maximum_changed_cloth_fraction": { "type": "number", "exclusiveMinimum": 0, "maximum": 1 },
+                "maximum_changed_rail_fraction": { "type": "number", "exclusiveMinimum": 0, "maximum": 1 },
+                "reacquisition_consensus_count": { "type": "integer", "minimum": 1, "maximum": 16 }
+              },
+              "required": [
+                "maximum_frame_dimension", "maximum_feature_samples", "cloth_grid_width", "cloth_grid_height",
+                "cloth_inset_fraction", "rail_profiles_per_side", "rail_profile_depth_samples",
+                "rail_profile_half_width_fraction", "minimum_reference_cloth_luminance",
+                "maximum_reference_cloth_luminance", "maximum_reference_cloth_luminance_mad",
+                "minimum_rail_profile_contrast", "minimum_reference_rail_contrast_fraction",
+                "minimum_live_rail_contrast_fraction", "maximum_global_luminance_shift",
+                "maximum_global_channel_shift", "maximum_global_chroma_shift",
+                "maximum_cloth_channel_difference", "maximum_rail_channel_difference",
+                "maximum_changed_cloth_fraction", "maximum_changed_rail_fraction", "reacquisition_consensus_count"
+              ],
+              "additionalProperties": false
             },
             "bind_address": {
               "type": "string"
@@ -2992,6 +3159,27 @@
                   "format": "uri"
                 }
               ]
+            },
+            "frame_pairing": {
+              "type": "object",
+              "properties": {
+                "maximum_frame_bytes": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 67108864
+                },
+                "maximum_part_header_bytes": {
+                  "type": "integer",
+                  "minimum": 128,
+                  "maximum": 65536
+                },
+                "buffered_frame_count": {
+                  "type": "integer",
+                  "minimum": 2,
+                  "maximum": 64
+                }
+              },
+              "additionalProperties": false
             },
             "quality": {
               "type": "object",

@@ -64,6 +64,53 @@ export interface ObservationIdentity {
   session_id?: string | number;
   frame_id?: string;
   snapshot_revision?: number;
+  configuration_revision?: number;
+  calibration_revision?: number | string;
+  rectification_revision?: number;
+}
+
+export type PerceptionPhase = 'recovering' | 'pre_shot' | 'aiming' | 'shot_underway';
+
+/**
+ * Freshness and eligibility from the low-FPS perception coordinator. These
+ * ages describe separate evidence sources and must not renew ball positions.
+ */
+export interface PerceptionState {
+  event_sequence: number;
+  image_width_px?: number | null;
+  image_height_px?: number | null;
+  phase: PerceptionPhase;
+  layout_revision: number;
+  layout_trusted: boolean;
+  /** Explicit proof that a complete empty-table layout was verified. */
+  empty_layout_verified?: boolean;
+  guidance_valid: boolean;
+  trust_reason: string;
+  last_ball_observation_age_ms?: number | null;
+  latest_motion_check_age_ms?: number | null;
+  cue_evidence_age_ms?: number | null;
+  motion_evidence_max_age_ms: number;
+  cue_evidence_max_age_ms: number;
+  layout_verification_max_age_ms: number;
+  cue?: {
+    shaft_start_px: [number, number];
+    shaft_end_px: [number, number];
+    axis_unit: [number, number];
+    confidence: number;
+    observation_age_ms: number;
+    signed_direction?: 'toward_start' | 'toward_end' | null;
+    source_frame_id?: string | null;
+  } | null;
+  /** Frame whose pixels were used for this latest live decision. */
+  decision_frame_id?: string | null;
+  decision_calibration_revision?: number | null;
+  decision_rectification_revision?: number | null;
+  table_visibility?: {
+    status: 'visible' | 'not_visible' | 'unknown';
+    reason: string;
+    observation_frame_id: string;
+    observation_age_ms: number;
+  } | null;
 }
 
 export interface ObservationStatus {
@@ -81,7 +128,22 @@ export interface ObservationStatus {
   freshness_status?: 'source_silent';
   ball_positions_status?: 'observed' | 'cached' | 'unavailable';
   ball_detection_status?: 'observed' | 'degraded' | 'skipped' | 'failed';
+  position_retention?: PositionRetentionStatus;
+  perception?: PerceptionState;
   [key: string]: unknown;
+}
+
+/** Optional per-WebSocket retention metadata for consumer-safe brief gaps. */
+export interface PositionRetentionStatus {
+  retained: boolean;
+  /** Age of the held layout, independent from the current unavailable interval. */
+  retained_age_ms?: number | null;
+  /** Age since the first unavailable state in the current gap. */
+  unavailable_age_ms?: number | null;
+  grace_ms: number;
+  current_status?: string | null;
+  original_status?: string | null;
+  source_identity?: Record<string, unknown> | null;
 }
 
 export interface GameStateData {

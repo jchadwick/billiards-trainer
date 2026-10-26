@@ -6,13 +6,16 @@ use std::time::Duration;
 use anyhow::{ensure, Context, Result};
 use billiards_perception::detection_batch::ImageSpace;
 use billiards_perception::inference::{
-    run_video_audit, AuditOptions, BatchOutputOptions, CalibrationAuditOptions, ProviderSelection,
-    SceneSnapshotOutputDestination, SceneSnapshotOutputOptions, VideoReplayMeasurementReport,
-    VideoReplayMode, VideoReplayOptions, DEFAULT_VIDEO_MAXIMUM_BYTES,
+    run_video_audit_with_schedule, AuditOptions, BatchOutputOptions, CalibrationAuditOptions,
+    ProviderSelection, SceneSnapshotOutputDestination, SceneSnapshotOutputOptions,
+    VideoReplayMeasurementReport, VideoReplayMode, VideoReplayOptions, DEFAULT_VIDEO_MAXIMUM_BYTES,
     DEFAULT_VIDEO_MAXIMUM_DECODED_BYTES, DEFAULT_VIDEO_MAXIMUM_DETAIL_RECORDS,
     DEFAULT_VIDEO_MAXIMUM_FRAME_COUNT, DEFAULT_VIDEO_MAXIMUM_PIXEL_COUNT,
     DEFAULT_VIDEO_MAXIMUM_PROBE_JSON_BYTES, DEFAULT_VIDEO_SUBPROCESS_TIMEOUT_SECONDS,
 };
+use billiards_perception::live_application::parse_phase_schedule_json;
+use billiards_perception::performance_audit_runner::default_output_root;
+use billiards_perception::phase_scheduler::SchedulerConfig;
 use billiards_perception::temporal_evaluation::{
     evaluate_files, parse_annotation_document, read_bounded_file, unavailable_temporal_metrics,
     validate_evaluation_config, EvaluationConfig, FileEvaluationConfig,
@@ -125,6 +128,10 @@ struct Arguments {
     #[arg(long, value_enum)]
     mode: ModeArgument,
 
+    /// Optional JSON file overriding the phase schedule. Replay otherwise uses the live Rust defaults.
+    #[arg(long)]
+    phase_schedule_json: Option<PathBuf>,
+
     /// ffprobe executable used to inspect the selected video stream.
     #[arg(long, default_value = "ffprobe")]
     ffprobe: PathBuf,
@@ -161,11 +168,16 @@ struct Arguments {
     #[arg(long)]
     details_jsonl: Option<PathBuf>,
 
-    /// Maximum detail records retained when --details-jsonl is enabled.
+    /// Optional bounded per-cue-update geometry trace. The temporal evaluator
+    /// can score these axes against reviewed cue endpoint labels.
+    #[arg(long)]
+    phase_cue_geometry_jsonl: Option<PathBuf>,
+
+    /// Maximum records retained in either optional detail trace.
     #[arg(long)]
     maximum_detail_records: Option<usize>,
 
-    /// Directory for this run's artifacts. Defaults to thoughts/performance-audits/<run-id>.
+    /// Directory for this run's artifacts. Defaults to a uniquely named folder in the system temporary directory.
     #[arg(long)]
     output_dir: Option<PathBuf>,
 
@@ -286,19 +298,22 @@ struct Arguments {
 fn main() -> Result<()> {
     let arguments = Arguments::parse();
     let run_id = run_identity(arguments.run_id.as_deref())?;
-    let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .context("perception crate is missing its repository root")?
-        .to_path_buf();
     let output_dir = arguments
         .output_dir
         .as_deref()
         .map(resolve_from_current_directory)
-        .unwrap_or_else(|| repo_root.join("thoughts/performance-audits").join(&run_id));
+        .unwrap_or_else(|| default_output_root().join(&run_id));
     fs::create_dir_all(&output_dir)
         .with_context(|| format!("failed to create output directory {}", output_dir.display()))?;
 
     validate_inference_arguments(&arguments)?;
+    let phase_schedule = if let Some(path) = arguments.phase_schedule_json.as_deref() {
+        let bytes = read_bounded_file(path, 4 * 1024, "phase schedule")?;
+        let json = std::str::from_utf8(&bytes).context("phase schedule JSON is not UTF-8")?;
+        parse_phase_schedule_json(json).context("phase schedule JSON is invalid")?
+    } else {
+        SchedulerConfig::default()
+    };
     let output_json = resolve_output_path(
         arguments.output_json.as_deref(),
         &output_dir,
@@ -313,14 +328,20 @@ fn main() -> Result<()> {
         .details_jsonl
         .as_deref()
         .map(|path| resolve_output_path(Some(path), &output_dir, ""));
+    let phase_cue_geometry_jsonl = arguments
+        .phase_cue_geometry_jsonl
+        .as_deref()
+        .map(|path| resolve_output_path(Some(path), &output_dir, ""));
     ensure!(
-        details_jsonl.is_some() || arguments.maximum_detail_records.is_none(),
-        "--maximum-detail-records requires --details-jsonl"
+        details_jsonl.is_some()
+            || phase_cue_geometry_jsonl.is_some()
+            || arguments.maximum_detail_records.is_none(),
+        "--maximum-detail-records requires --details-jsonl or --phase-cue-geometry-jsonl"
     );
     if let Some(limit) = arguments.maximum_detail_records {
         ensure!(limit > 0, "maximum detail records must be positive");
     }
-    let maximum_detail_records = if details_jsonl.is_some() {
+    let maximum_detail_records = if details_jsonl.is_some() || phase_cue_geometry_jsonl.is_some() {
         arguments
             .maximum_detail_records
             .unwrap_or(DEFAULT_VIDEO_MAXIMUM_DETAIL_RECORDS)
@@ -373,6 +394,7 @@ fn main() -> Result<()> {
         Some(output_json.as_path()),
         Some(output_markdown.as_path()),
         details_jsonl.as_deref(),
+        phase_cue_geometry_jsonl.as_deref(),
         detection_batches_jsonl.as_deref(),
         scene_snapshots_jsonl.as_deref(),
     ];
@@ -406,36 +428,40 @@ fn main() -> Result<()> {
     let scored_video_path = arguments.video.clone();
     let ffprobe_for_scoring = arguments.ffprobe.clone();
 
-    let mut report = run_video_audit(&VideoReplayOptions {
-        audit: AuditOptions {
-            onnx_path: arguments.onnx,
-            source_checkpoint_path: arguments.source_checkpoint,
-            input_path: arguments.video,
-            provider: arguments.provider.into(),
-            image_size: arguments.image_size,
-            confidence: arguments.confidence,
-            iou: arguments.iou,
-            max_detections: arguments.max_detections,
-            intra_op_threads: arguments.intra_op_threads,
-            warmup_runs: arguments.warmup_runs,
-            source_image_space: source_image_space.into(),
-            detection_batch_output: batch_output,
-            calibration,
-            scene_snapshot_output: scene_output,
+    let mut report = run_video_audit_with_schedule(
+        &VideoReplayOptions {
+            audit: AuditOptions {
+                onnx_path: arguments.onnx,
+                source_checkpoint_path: arguments.source_checkpoint,
+                input_path: arguments.video,
+                provider: arguments.provider.into(),
+                image_size: arguments.image_size,
+                confidence: arguments.confidence,
+                iou: arguments.iou,
+                max_detections: arguments.max_detections,
+                intra_op_threads: arguments.intra_op_threads,
+                warmup_runs: arguments.warmup_runs,
+                source_image_space: source_image_space.into(),
+                detection_batch_output: batch_output,
+                calibration,
+                scene_snapshot_output: scene_output,
+            },
+            video_stream_ordinal: arguments.video_stream_ordinal,
+            ffprobe_executable: arguments.ffprobe,
+            ffmpeg_executable: arguments.ffmpeg,
+            mode: arguments.mode.into(),
+            maximum_video_bytes: arguments.maximum_video_bytes,
+            maximum_probe_json_bytes: arguments.maximum_probe_json_bytes,
+            maximum_frame_count: arguments.maximum_frame_count,
+            maximum_pixel_count: arguments.maximum_pixel_count,
+            maximum_decoded_video_bytes: arguments.maximum_decoded_video_bytes,
+            subprocess_timeout: Duration::from_secs(arguments.subprocess_timeout_seconds),
+            details_jsonl_path: details_jsonl,
+            phase_cue_geometry_jsonl_path: phase_cue_geometry_jsonl.clone(),
+            maximum_detail_records,
         },
-        video_stream_ordinal: arguments.video_stream_ordinal,
-        ffprobe_executable: arguments.ffprobe,
-        ffmpeg_executable: arguments.ffmpeg,
-        mode: arguments.mode.into(),
-        maximum_video_bytes: arguments.maximum_video_bytes,
-        maximum_probe_json_bytes: arguments.maximum_probe_json_bytes,
-        maximum_frame_count: arguments.maximum_frame_count,
-        maximum_pixel_count: arguments.maximum_pixel_count,
-        maximum_decoded_video_bytes: arguments.maximum_decoded_video_bytes,
-        subprocess_timeout: Duration::from_secs(arguments.subprocess_timeout_seconds),
-        details_jsonl_path: details_jsonl,
-        maximum_detail_records,
-    })?;
+        Some(phase_schedule),
+    )?;
     report.run_id = Some(run_id.clone());
     report.temporal_accuracy = if let Some(annotation_path) = annotation_path.as_deref() {
         let scene_path = scoring_scene_path
@@ -452,6 +478,7 @@ fn main() -> Result<()> {
                 ffprobe_timeout: Duration::from_secs(arguments.subprocess_timeout_seconds),
                 maximum_video_bytes: arguments.maximum_video_bytes,
                 maximum_annotation_bytes: DEFAULT_MAXIMUM_ANNOTATION_BYTES,
+                cue_geometry_jsonl_path: phase_cue_geometry_jsonl.clone(),
                 ..FileEvaluationConfig::default()
             },
         )?)
@@ -574,6 +601,28 @@ fn render_markdown(
         measurement.latest_frame_replacements,
     ));
     output.push_str(&render_measurement_rates(measurement));
+    if let Some(phase) = &report.phase_schedule {
+        output.push_str(&format!(
+            "\nPhase schedule used source PTS (`{}`): {} selected frames, {} motion checks ({}/s), {} cue observations ({}/s), {} full detector calls ({}/s), and {} intentional detector skips. Trusted-layout time: {:.0} ms; recovery delays: {} samples.\n\n",
+            phase.clock,
+            phase.source_frames_considered,
+            phase.motion_checks,
+            optional_float(phase.achieved_motion_checks_hz),
+            phase.cue_observations,
+            optional_float(phase.achieved_cue_observations_hz),
+            phase.detector_calls,
+            optional_float(phase.achieved_detector_calls_hz),
+            phase.intentional_detector_skips,
+            phase.trusted_layout_duration_ms,
+            phase.recovery_delays_ms.len(),
+        ));
+        output.push_str("Effective phase schedule:\n\n```json\n");
+        output.push_str(
+            &serde_json::to_string_pretty(&phase.effective_schedule)
+                .unwrap_or_else(|_| "{}".to_owned()),
+        );
+        output.push_str("\n```\n\n");
+    }
     output.push_str(&format!(
         "- Source-to-inference-start latency ({} samples): p50 {}, p95 {}, p99 {} ms\n- Source-to-inference-complete latency ({} samples): p50 {}, p95 {}, p99 {} ms\n- Mean preprocessing: {:.2} ms; inference: {:.2} ms; decode/NMS: {:.2} ms\n- Measured wall time: {:.2} ms; offline decode {:.2} ms was excluded\n- Detailed trace records: {} written, {} omitted by the configured limit\n\n",
         measurement.source_to_inference_start_ms.sample_count,

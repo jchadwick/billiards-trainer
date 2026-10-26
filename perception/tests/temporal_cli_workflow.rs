@@ -108,6 +108,7 @@ mod unix_cli_workflow {
         let ffprobe_path = root.join("ffprobe-fixture");
         let annotations_path = root.join("temporal-annotations.json");
         let scene_path = root.join("rust-scenes.jsonl");
+        let cue_geometry_path = root.join("cue-geometry.jsonl");
         let report_path = root.join("evaluation-report.json");
 
         // The CLIs bind annotations to the exact input bytes. The video is a
@@ -182,6 +183,25 @@ mod unix_cli_workflow {
             .expect("serialize Rust scene fixtures")
             .join("\n");
         fs::write(&scene_path, format!("{scene_jsonl}\n")).expect("write scene JSONL");
+        let cue_axis_angle = (45.0_f64).atan2(76.0).to_degrees();
+        fs::write(
+            &cue_geometry_path,
+            format!(
+                "{}\n",
+                json!({
+                    "source_video_sha256": video_hash.clone(),
+                    "source_frame_index": 0,
+                    "source_presentation_time_seconds": 0.0,
+                    "cue_present": true,
+                    "shaft_start_px": [4.0, 5.0],
+                    "shaft_end_px": [80.0, 50.0],
+                    "axis_angle_degrees": cue_axis_angle,
+                    "confidence": 0.9,
+                    "signed_direction": null
+                })
+            ),
+        )
+        .expect("write scheduled cue-geometry trace");
 
         let evaluator_output = Command::new(env!("CARGO_BIN_EXE_billiards-temporal-evaluate"))
             .arg("--video")
@@ -190,6 +210,8 @@ mod unix_cli_workflow {
             .arg(&annotations_path)
             .arg("--scene-snapshots")
             .arg(&scene_path)
+            .arg("--cue-geometry-jsonl")
+            .arg(&cue_geometry_path)
             .arg("--ffprobe-executable")
             .arg(&ffprobe_path)
             .arg("--output")
@@ -227,5 +249,17 @@ mod unix_cli_workflow {
             report_from_file["temporal_localization"]["ball_localization"]["false_negatives"],
             0
         );
+        assert_eq!(
+            report_from_file["metadata"]["cue_geometry_trace_sha256"]
+                .as_str()
+                .unwrap()
+                .len(),
+            64
+        );
+        let cue_axis_error = report_from_file["temporal_localization"]["cue"]
+            ["axis_angle_error_degrees"]["error_degrees_mean"]
+            .as_f64()
+            .unwrap();
+        assert!(cue_axis_error < 1e-9);
     }
 }

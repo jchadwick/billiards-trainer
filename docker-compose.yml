@@ -26,9 +26,8 @@ services:
       WEB_ROOT: /app/web
       LIVE_EXECUTABLE: /app/bin/billiards-perception-live
       CAPTURE_HELPER_EXECUTABLE: /app/bin/billiards-perception-gstreamer-probe
-      # The checked-in config.json is for the legacy/replay workflow and does
-      # not satisfy Rust live-capture requirements. Enable live mode only when
-      # CONFIG_HOST_FILE points to a deployment config prepared for Rust.
+      # Live mode requires model paths and capture settings in the mounted
+      # Rust configuration. Set START_LIVE=false for a gateway-only instance.
       START_LIVE: ${START_LIVE:-false}
     restart: unless-stopped
     healthcheck:

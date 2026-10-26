@@ -1,9 +1,0 @@
-# Exclude model files (large binary files)
-*.pt
-*.pth
-*.onnx
-*.pb
-*.tflite
-*.h5
-*.pkl
-*.pickle

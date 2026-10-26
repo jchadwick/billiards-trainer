@@ -130,4 +130,72 @@ describe('live WebSocket connectivity', () => {
       await store.shutdown();
     }
   });
+
+  it('orders phase deliveries independently from raw scenes and preserves the newest value of each', async () => {
+    vi.stubGlobal('WebSocket', MockWebSocket);
+    const client = new WebSocketClient({
+      url: 'ws://localhost:8000/api/v1/websocket/ws',
+      heartbeatInterval: 60_000,
+    });
+    const store = new RootStore(client);
+
+    try {
+      const socket = MockWebSocket.instances[0];
+      socket.open();
+      await new Promise(resolve => setTimeout(resolve, 0));
+
+      const publish = (
+        frameNumber: number,
+        transportSequence: number,
+        deliverySequence: number,
+      ) => {
+        socket.onmessage?.({
+          data: JSON.stringify({
+            type: 'state',
+            timestamp: new Date().toISOString(),
+            data: {
+              balls: [{ id: `frame-${frameNumber}` }],
+              frame_number: frameNumber,
+              observation_status: {
+                observation_identity: {
+                  engine_instance_id: 'engine',
+                  session_id: 'session-a',
+                },
+                transport_sequence: transportSequence,
+                perception: {
+                  event_sequence: deliverySequence,
+                  phase: 'aiming',
+                  layout_trusted: true,
+                  guidance_valid: true,
+                },
+              },
+            },
+          }),
+        } as MessageEvent);
+      };
+
+      publish(10, 10, 4);
+      publish(10, 10, 5); // phase-only delivery, same raw observation
+      expect(store.videoStore.latestGameState?.frame_number).toBe(10);
+      expect(store.videoStore.latestGameState?.observation_status?.perception?.event_sequence)
+        .toBe(5);
+
+      publish(9, 10, 4); // delayed phase event is rejected
+      expect(store.videoStore.latestGameState?.observation_status?.perception?.event_sequence)
+        .toBe(5);
+
+      publish(11, 11, 4); // new raw scene with a stale embedded phase payload
+      expect(store.videoStore.latestGameState?.frame_number).toBe(11);
+      expect(store.videoStore.latestGameState?.balls[0].id).toBe('frame-11');
+      expect(store.videoStore.latestGameState?.observation_status?.perception?.event_sequence)
+        .toBe(5);
+
+      publish(10, 10, 6); // newer phase event cannot roll raw state back
+      expect(store.videoStore.latestGameState?.frame_number).toBe(11);
+      expect(store.videoStore.latestGameState?.observation_status?.perception?.event_sequence)
+        .toBe(6);
+    } finally {
+      await store.shutdown();
+    }
+  });
 });

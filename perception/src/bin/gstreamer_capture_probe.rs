@@ -127,7 +127,7 @@ fn run(args: Args) -> Result<()> {
     let exact_capture_settings =
         read_capture_settings(&mut stdin, args.capture_settings_max_bytes)?;
     let capture_settings = parse_capture_settings_json(&exact_capture_settings)
-        .context("invalid exact Python capture-settings request")?;
+        .context("invalid exact capture-settings request")?;
     ensure!(
         capture_settings.requested_backend == "auto"
             || capture_settings.requested_backend == "gstreamer",
@@ -342,7 +342,7 @@ fn run_physical(args: Args) -> Result<()> {
     let exact_capture_settings =
         read_capture_settings(&mut stdin, args.capture_settings_max_bytes)?;
     let capture_settings = parse_capture_settings_json(&exact_capture_settings)
-        .context("invalid exact Python capture-settings request")?;
+        .context("invalid exact capture-settings request")?;
     ensure!(
         capture_settings.schema_version == 3,
         "physical helper requires capture-settings v3"

@@ -92,6 +92,114 @@ pub struct PublicStateDeliveryV1<'a> {
     pub current_state: Option<&'a CurrentSceneState>,
 }
 
+/// Self-contained phase, trust, and independent cue evidence for one live
+/// delivery. Ages are durations from the sender and are rebased by the gateway
+/// on receipt; no process-local monotonic timestamp crosses this boundary.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PerceptionStateV1 {
+    pub event_sequence: u64,
+    pub image_width_px: Option<u32>,
+    pub image_height_px: Option<u32>,
+    pub phase: String,
+    pub layout_revision: u64,
+    pub layout_trusted: bool,
+    /// True only after the phase scheduler has accepted the configured
+    /// number of consistent empty full-table observations after quiet dwell.
+    /// Raw empty `source_snapshot` values remain available independently.
+    pub empty_layout_verified: bool,
+    pub guidance_valid: bool,
+    pub trust_reason: String,
+    pub last_ball_observation_age_ms: Option<u64>,
+    pub latest_motion_check_age_ms: Option<u64>,
+    pub cue_evidence_age_ms: Option<u64>,
+    pub motion_evidence_max_age_ms: u64,
+    pub cue_evidence_max_age_ms: u64,
+    pub layout_verification_max_age_ms: u64,
+    pub cue: Option<CueGeometryStateV1>,
+    /// Exact acquisition frame on which this decision was evaluated. Missing
+    /// values cannot be joined to spatial video overlays.
+    #[serde(default)]
+    pub decision_frame_id: Option<String>,
+    #[serde(default)]
+    pub decision_calibration_revision: Option<u64>,
+    #[serde(default)]
+    pub decision_rectification_revision: Option<u64>,
+    /// Explicit calibrated-table visibility evidence. Absence is treated as
+    /// unavailable by newer consumers and never enables guidance.
+    #[serde(default)]
+    pub table_visibility: Option<TableVisibilityStateV1>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TableVisibilityStateV1 {
+    pub status: TableVisibilityStatusV1,
+    pub reason: String,
+    pub observation_frame_id: String,
+    pub observation_age_ms: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TableVisibilityStatusV1 {
+    Visible,
+    NotVisible,
+    Unknown,
+}
+
+/// Image-space shaft geometry from the independent cue update loop.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CueGeometryStateV1 {
+    pub shaft_start_px: [f64; 2],
+    pub shaft_end_px: [f64; 2],
+    pub axis_unit: [f64; 2],
+    pub confidence: f64,
+    pub observation_age_ms: u64,
+    pub signed_direction: Option<String>,
+    /// Capture frame from which this independent cue estimate was computed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_frame_id: Option<String>,
+}
+
+/// Versioned live envelope for a ball observation or a cue/phase-only update.
+/// A missing `source_snapshot` never implies a new ball observation.
+#[derive(Debug, Clone, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct PublicStateDeliveryV2<'a> {
+    pub delivery_type: &'static str,
+    pub delivery_schema_version: u8,
+    pub delivery_sequence: u64,
+    pub engine_instance_id: &'a str,
+    pub source_session_id: &'a str,
+    pub source_snapshot: Option<&'a SceneSnapshotV1>,
+    pub current_state: Option<&'a CurrentSceneState>,
+    pub perception: &'a PerceptionStateV1,
+}
+
+impl<'a> PublicStateDeliveryV2<'a> {
+    pub fn new(
+        delivery_sequence: u64,
+        engine_instance_id: &'a str,
+        source_session_id: &'a str,
+        source_snapshot: Option<&'a SceneSnapshotV1>,
+        current_state: Option<&'a CurrentSceneState>,
+        perception: &'a PerceptionStateV1,
+    ) -> Self {
+        Self {
+            delivery_type: "billiards_public_state_delivery",
+            delivery_schema_version: 2,
+            delivery_sequence,
+            engine_instance_id,
+            source_session_id,
+            source_snapshot,
+            current_state,
+            perception,
+        }
+    }
+}
+
 impl<'a> PublicStateDeliveryV1<'a> {
     pub fn new(
         source_snapshot: &'a SceneSnapshotV1,
@@ -188,6 +296,8 @@ pub struct SceneStateLifecycle {
     last_event_received_monotonic_ns: Option<u128>,
     last_observation: Option<(String, String)>,
     last_observation_timestamp: Option<ObservationTimestamp>,
+    latest_perception_status: Option<Value>,
+    perception_received_monotonic_ns: Option<u128>,
     stored: Option<StoredState>,
     stats: StateLifecycleStats,
 }
@@ -218,6 +328,8 @@ impl SceneStateLifecycle {
             last_event_received_monotonic_ns: None,
             last_observation: None,
             last_observation_timestamp: None,
+            latest_perception_status: None,
+            perception_received_monotonic_ns: None,
             stored: None,
             stats: StateLifecycleStats::default(),
         })
@@ -254,12 +366,90 @@ impl SceneStateLifecycle {
         self.last_event_received_monotonic_ns = None;
         self.last_observation = None;
         self.last_observation_timestamp = None;
+        self.latest_perception_status = None;
+        self.perception_received_monotonic_ns = None;
         self.stored = None;
         Ok(self.epoch)
     }
 
     pub fn stats(&self) -> StateLifecycleStats {
         self.stats
+    }
+
+    /// Update phase and cue evidence without renewing any ball measurement or
+    /// localization timestamp. Evidence ages continue advancing on reads, and
+    /// expired motion/cue/layout evidence fails closed for guidance.
+    pub fn update_perception_status(
+        &mut self,
+        engine_instance_id: &str,
+        session_id: &str,
+        status: Value,
+        received_monotonic_ns: u128,
+        now_monotonic_ns: u128,
+    ) -> Result<(), StateLifecycleError> {
+        let expected = self
+            .active
+            .as_ref()
+            .ok_or(StateLifecycleError::SourceNotActivated)?;
+        if expected.engine_instance_id != engine_instance_id || expected.session_id != session_id {
+            return Err(StateLifecycleError::UnexpectedIdentity);
+        }
+        if !status.is_object() {
+            return Err(StateLifecycleError::InvalidPerceptionStatus);
+        }
+        if received_monotonic_ns > now_monotonic_ns
+            || self
+                .last_event_received_monotonic_ns
+                .is_some_and(|previous| received_monotonic_ns < previous)
+            || self
+                .stored
+                .as_ref()
+                .is_some_and(|stored| received_monotonic_ns < stored.updated_monotonic_ns)
+        {
+            return Err(StateLifecycleError::ClockMovedBackwards);
+        }
+        self.latest_perception_status = Some(status);
+        self.perception_received_monotonic_ns = Some(received_monotonic_ns);
+        self.last_event_received_monotonic_ns = Some(received_monotonic_ns);
+        if let Some(stored) = self.stored.as_mut() {
+            stored.updated_monotonic_ns = received_monotonic_ns;
+        } else {
+            // Cue and phase evidence has its own update cadence and can arrive
+            // before the first successful ball localization. Publish an
+            // explicit empty, unavailable layout so subscribers can display
+            // the independent cue evidence without implying that any balls
+            // were measured or that a layout is trustworthy.
+            let expected = self
+                .active
+                .as_ref()
+                .expect("source identity was validated above");
+            self.stored = Some(StoredState {
+                payload: SceneStatePayload {
+                    balls: Vec::new(),
+                    observation_status: json!({
+                        "phase": "rust_perception",
+                        "engine_instance_id": expected.engine_instance_id,
+                        "source_session_id": expected.session_id,
+                        "ball_positions_status": "unavailable",
+                        "ball_detection_status": "unavailable",
+                        "freshness_status": "stale",
+                        "localization_age_ns": Value::Null
+                    }),
+                    table: None,
+                    game_type: None,
+                },
+                updated_monotonic_ns: received_monotonic_ns,
+                localization_received_monotonic_ns: None,
+                localization_age_offset_ns: 0,
+                ball_received_monotonic_ns: HashMap::new(),
+                ball_age_offset_ns: HashMap::new(),
+                health_forced_stale: false,
+                health_reason: None,
+                stale_counted: false,
+                expired_counted: false,
+            });
+        }
+        Ok(())
     }
 
     /// Accept one source event using local monotonic receipt time. Gaps are
@@ -516,6 +706,15 @@ impl SceneStateLifecycle {
                 remove_current_observation_fields(&mut payload.observation_status);
             }
         }
+        if let (Some(perception), Some(received_at)) = (
+            self.latest_perception_status.as_ref(),
+            self.perception_received_monotonic_ns,
+        ) {
+            payload.observation_status["perception"] = refresh_perception_status(
+                perception.clone(),
+                now_monotonic_ns.saturating_sub(received_at),
+            );
+        }
         let ball_age_ns = if freshness == StateFreshness::Expired {
             HashMap::new()
         } else {
@@ -635,6 +834,80 @@ fn mark_payload_stale(payload: &mut SceneStatePayload, reason: Option<&str>) {
     remove_current_observation_fields(&mut payload.observation_status);
 }
 
+fn refresh_perception_status(mut status: Value, age_since_delivery_ns: u128) -> Value {
+    let Some(object) = status.as_object_mut() else {
+        return Value::Null;
+    };
+    let age_ms = (age_since_delivery_ns / 1_000_000).min(u128::from(u64::MAX)) as u64;
+    object.insert("delivery_age_ms".to_owned(), json!(age_ms));
+    for (age_field, maximum_field) in [
+        ("latest_motion_check_age_ms", "motion_evidence_max_age_ms"),
+        (
+            "last_ball_observation_age_ms",
+            "layout_verification_max_age_ms",
+        ),
+    ] {
+        if let (Some(current_age), Some(maximum)) = (
+            object.get(age_field).and_then(Value::as_u64),
+            object.get(maximum_field).and_then(Value::as_u64),
+        ) {
+            object.insert(
+                age_field.to_owned(),
+                json!(current_age.saturating_add(age_ms)),
+            );
+            if current_age.saturating_add(age_ms) > maximum {
+                object.insert("layout_trusted".to_owned(), json!(false));
+                object.insert("empty_layout_verified".to_owned(), json!(false));
+                object.insert("guidance_valid".to_owned(), json!(false));
+                object.insert("phase".to_owned(), json!("recovering"));
+                object.insert(
+                    "trust_reason".to_owned(),
+                    json!(match age_field {
+                        "latest_motion_check_age_ms" => "motion_evidence_expired",
+                        _ => "layout_verification_expired",
+                    }),
+                );
+            }
+        }
+    }
+    if let (Some(current_age), Some(maximum)) = (
+        object.get("cue_evidence_age_ms").and_then(Value::as_u64),
+        object
+            .get("cue_evidence_max_age_ms")
+            .and_then(Value::as_u64),
+    ) {
+        let cue_age = current_age.saturating_add(age_ms);
+        object.insert("cue_evidence_age_ms".to_owned(), json!(cue_age));
+        if cue_age > maximum {
+            object.insert("guidance_valid".to_owned(), json!(false));
+            if object.get("layout_trusted").and_then(Value::as_bool) == Some(true) {
+                object.insert("phase".to_owned(), json!("pre_shot"));
+            }
+        }
+    }
+    if object.get("empty_layout_verified").and_then(Value::as_bool) == Some(true) {
+        let evidence_is_fresh = |age_field: &str, maximum_field: &str| {
+            matches!(
+                (
+                    object.get(age_field).and_then(Value::as_u64),
+                    object.get(maximum_field).and_then(Value::as_u64)
+                ),
+                (Some(age), Some(maximum)) if age <= maximum
+            )
+        };
+        if object.get("layout_trusted").and_then(Value::as_bool) != Some(true)
+            || !evidence_is_fresh("latest_motion_check_age_ms", "motion_evidence_max_age_ms")
+            || !evidence_is_fresh(
+                "last_ball_observation_age_ms",
+                "layout_verification_max_age_ms",
+            )
+        {
+            object.insert("empty_layout_verified".to_owned(), json!(false));
+        }
+    }
+    status
+}
+
 fn remove_current_observation_fields(status: &mut Value) {
     if let Some(object) = status.as_object_mut() {
         for field in [
@@ -657,6 +930,51 @@ fn remove_current_observation_fields(status: &mut Value) {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn expired_layout_evidence_clears_trust_and_verified_empty_status() {
+        let status = json!({
+            "phase": "pre_shot",
+            "layout_trusted": true,
+            "empty_layout_verified": true,
+            "guidance_valid": false,
+            "trust_reason": "trusted",
+            "last_ball_observation_age_ms": 1_499,
+            "latest_motion_check_age_ms": 0,
+            "cue_evidence_age_ms": null,
+            "motion_evidence_max_age_ms": 200,
+            "cue_evidence_max_age_ms": 250,
+            "layout_verification_max_age_ms": 1_500
+        });
+
+        let refreshed = refresh_perception_status(status, 2_000_000);
+        assert_eq!(refreshed["layout_trusted"], false);
+        assert_eq!(refreshed["empty_layout_verified"], false);
+        assert_eq!(refreshed["phase"], "recovering");
+        assert_eq!(refreshed["trust_reason"], "layout_verification_expired");
+    }
+
+    #[test]
+    fn verified_empty_status_fails_closed_without_motion_evidence() {
+        let status = json!({
+            "layout_trusted": true,
+            "empty_layout_verified": true,
+            "guidance_valid": false,
+            "last_ball_observation_age_ms": 0,
+            "latest_motion_check_age_ms": null,
+            "motion_evidence_max_age_ms": 200,
+            "layout_verification_max_age_ms": 1_500
+        });
+
+        let refreshed = refresh_perception_status(status, 0);
+        assert_eq!(refreshed["layout_trusted"], true);
+        assert_eq!(refreshed["empty_layout_verified"], false);
+    }
+}
+
 #[derive(Debug)]
 pub enum StateLifecycleError {
     PublicState(PublicStateError),
@@ -671,6 +989,7 @@ pub enum StateLifecycleError {
     StaleObservationTimestamp,
     InvalidSourceTimestamp,
     ClockMovedBackwards,
+    InvalidPerceptionStatus,
     MissingLocalizationPayload,
     BallLimitExceeded { actual: usize, maximum: usize },
 }
@@ -695,6 +1014,7 @@ impl fmt::Display for StateLifecycleError {
                 f.write_str("source timestamp is not a decimal nanosecond value")
             }
             Self::ClockMovedBackwards => f.write_str("local monotonic clock moved backwards"),
+            Self::InvalidPerceptionStatus => f.write_str("perception status must be a JSON object"),
             Self::MissingLocalizationPayload => {
                 f.write_str("successful observation produced no state payload")
             }

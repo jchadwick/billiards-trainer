@@ -21,10 +21,13 @@ use serde::{Deserialize, Serialize};
 use crate::calibration::{
     solve_table_calibration, CalibrationError, TableCalibrationSolverInput, TableCalibrationV1,
 };
+use crate::table_visibility::{validate_reference_structure, TableVisibilityReference};
 
-const STORE_SCHEMA_VERSION: u8 = 2;
+const STORE_SCHEMA_VERSION: u8 = 3;
 const MINIMUM_SUPPORTED_STORE_SCHEMA_VERSION: u8 = 1;
 const MAX_SAFE_STORE_REVISION: u64 = 9_007_199_254_740_991;
+const MAXIMUM_VISIBILITY_FRAME_DIMENSION: u32 = 16_384;
+const MAXIMUM_VISIBILITY_FEATURES: usize = 16_384;
 // Calibration records are small fixed-size matrices and metadata. Bound reads
 // so a damaged or externally replaced file cannot cause unbounded allocation.
 const LOCK_RETRY_INTERVAL: Duration = Duration::from_millis(5);
@@ -42,6 +45,9 @@ pub struct CalibrationStoreSnapshot {
     /// records have no binding context and are deliberately not activated by
     /// the live application, though they remain readable for migration.
     pub binding_context: Option<CalibrationCaptureContextV1>,
+    /// Immutable appearance evidence captured with operator-confirmed
+    /// calibration. Legacy records have no reference and cannot enable aim.
+    pub visibility_reference: Option<TableVisibilityReference>,
 }
 
 impl CalibrationStoreSnapshot {
@@ -50,6 +56,7 @@ impl CalibrationStoreSnapshot {
             revision: None,
             calibration: None,
             binding_context: None,
+            visibility_reference: None,
         }
     }
 }
@@ -91,6 +98,7 @@ pub enum CalibrationStoreError {
     UnsupportedStoreSchemaVersion(u8),
     InvalidStoreRevision,
     InvalidCaptureContext,
+    InvalidVisibilityReference,
     CalibrationRevisionMismatch {
         store_revision: u64,
         calibration_revision: u64,
@@ -130,6 +138,9 @@ impl Display for CalibrationStoreError {
             Self::InvalidStoreRevision => write!(formatter, "invalid calibration store revision"),
             Self::InvalidCaptureContext => {
                 write!(formatter, "calibration capture context does not match its bundle")
+            }
+            Self::InvalidVisibilityReference => {
+                write!(formatter, "calibration table-visibility reference is invalid")
             }
             Self::CalibrationRevisionMismatch {
                 store_revision,
@@ -226,8 +237,25 @@ impl CalibrationStore {
     pub fn save_with_context(
         &self,
         expected_current_revision: Option<u64>,
+        input: TableCalibrationSolverInput,
+        binding_context: Option<CalibrationCaptureContextV1>,
+    ) -> Result<CalibrationStoreSnapshot, CalibrationStoreError> {
+        self.save_with_context_and_visibility(
+            expected_current_revision,
+            input,
+            binding_context,
+            None,
+        )
+    }
+
+    /// Solve and persist calibration provenance and an optional immutable
+    /// operator-confirmed visibility reference in one atomic store update.
+    pub fn save_with_context_and_visibility(
+        &self,
+        expected_current_revision: Option<u64>,
         mut input: TableCalibrationSolverInput,
         binding_context: Option<CalibrationCaptureContextV1>,
+        visibility_reference: Option<TableVisibilityReference>,
     ) -> Result<CalibrationStoreSnapshot, CalibrationStoreError> {
         let _lock = self.acquire_lock()?;
         let current = self.load_unlocked()?;
@@ -246,11 +274,24 @@ impl CalibrationStore {
         {
             return Err(CalibrationStoreError::InvalidCaptureContext);
         }
+        if visibility_reference.as_ref().is_some_and(|reference| {
+            !validate_reference_structure(
+                reference,
+                MAXIMUM_VISIBILITY_FRAME_DIMENSION,
+                MAXIMUM_VISIBILITY_FEATURES,
+            )
+        }) {
+            return Err(CalibrationStoreError::InvalidVisibilityReference);
+        }
+        if visibility_reference.is_some() && binding_context.is_none() {
+            return Err(CalibrationStoreError::InvalidCaptureContext);
+        }
 
         let snapshot = CalibrationStoreSnapshot {
             revision: Some(next_revision),
             calibration: Some(calibration),
             binding_context,
+            visibility_reference,
         };
         self.write_snapshot(&snapshot)?;
         Ok(snapshot)
@@ -269,6 +310,7 @@ impl CalibrationStore {
             revision: Some(next_revision(current.revision)?),
             calibration: None,
             binding_context: None,
+            visibility_reference: None,
         };
         self.write_snapshot(&snapshot)?;
         Ok(snapshot)
@@ -376,11 +418,31 @@ impl CalibrationStore {
                 return Err(CalibrationStoreError::InvalidCaptureContext);
             }
         }
+        if envelope
+            .visibility_reference
+            .as_ref()
+            .is_some_and(|reference| {
+                let Some(context) = envelope.binding_context.as_ref() else {
+                    return true;
+                };
+                envelope.calibration.is_none()
+                    || !validate_reference_structure(
+                        reference,
+                        MAXIMUM_VISIBILITY_FRAME_DIMENSION,
+                        MAXIMUM_VISIBILITY_FEATURES,
+                    )
+                    || reference.source_width != context.source_width_px
+                    || reference.source_height != context.source_height_px
+            })
+        {
+            return Err(CalibrationStoreError::InvalidVisibilityReference);
+        }
 
         Ok(CalibrationStoreSnapshot {
             revision: Some(envelope.store_revision),
             calibration: envelope.calibration,
             binding_context: envelope.binding_context,
+            visibility_reference: envelope.visibility_reference,
         })
     }
 
@@ -405,11 +467,31 @@ impl CalibrationStore {
                 });
             }
         }
+        if snapshot
+            .visibility_reference
+            .as_ref()
+            .is_some_and(|reference| {
+                let Some(context) = snapshot.binding_context.as_ref() else {
+                    return true;
+                };
+                snapshot.calibration.is_none()
+                    || !validate_reference_structure(
+                        reference,
+                        MAXIMUM_VISIBILITY_FRAME_DIMENSION,
+                        MAXIMUM_VISIBILITY_FEATURES,
+                    )
+                    || reference.source_width != context.source_width_px
+                    || reference.source_height != context.source_height_px
+            })
+        {
+            return Err(CalibrationStoreError::InvalidVisibilityReference);
+        }
         let envelope = StoreEnvelope {
             schema_version: STORE_SCHEMA_VERSION,
             store_revision: revision,
             calibration: snapshot.calibration.clone(),
             binding_context: snapshot.binding_context.clone(),
+            visibility_reference: snapshot.visibility_reference.clone(),
         };
         let bytes = serde_json::to_vec(&envelope)
             .map_err(|error| CalibrationStoreError::MalformedStore(error.to_string()))?;
@@ -456,6 +538,8 @@ struct StoreEnvelope {
     calibration: Option<TableCalibrationV1>,
     #[serde(default)]
     binding_context: Option<CalibrationCaptureContextV1>,
+    #[serde(default)]
+    visibility_reference: Option<TableVisibilityReference>,
 }
 
 impl CalibrationCaptureContextV1 {

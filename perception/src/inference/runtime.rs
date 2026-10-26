@@ -1,8 +1,8 @@
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fs::{self, File, OpenOptions};
-use std::io::{BufWriter, Read, Seek, SeekFrom, Write};
+use std::io::{BufRead, BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread;
@@ -22,6 +22,11 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
+use crate::calibration::CalibrationContext;
+use crate::cue_geometry::{
+    estimate_cue_geometry, orient_cue_geometry_from_playing_surface, CueGeometry,
+    CueGeometryConfig, CueProposal, SignedCueDirection,
+};
 use crate::detection_batch::{
     encode_detection_batch_v1, BatchOutcome, BatchTimestamp, BoundingBox, ClockKind,
     Detection as BatchDetection, DetectionBatchV1, ImageSpace, InferenceSettings, ModelClass,
@@ -30,6 +35,11 @@ use crate::detection_batch::{
 };
 use crate::geometry::{calibrate_detection_batch, AppliedCalibrationContext, GeometryError};
 use crate::live_timing_spans::{FrameTimingContext, SpanId};
+use crate::motion_monitor::{MotionClassification, MotionMonitor, MotionMonitorConfig};
+use crate::phase_scheduler::{
+    CueEvidence, ImagePoint, LayoutObservation, MotionEvidence, Phase, PhaseScheduler,
+    SchedulerConfig,
+};
 use crate::tracking::{SceneTrackerV1, TrackingConfigV1};
 use crate::{
     calibration::{TableCalibrationV1, ValidatedTableCalibrationV1},
@@ -38,7 +48,10 @@ use crate::{
 
 use crate::video_timeline::{parse_ffprobe_timeline, VideoTimeline, VideoTimelineLimits};
 
-use super::{decode_yolo_v8_output, prepare_rgb8, prepare_rgb_image, Detection, PreparedInput};
+use super::{
+    decode_yolo_v8_output_with_coordinate_scale, prepare_rgb8, prepare_rgb8_nhwc,
+    prepare_rgb_image, Detection, LetterboxGeometry, PreparedInput, PreparedNhwcInput,
+};
 
 const INPUT_NAME: &str = "images";
 const OUTPUT_NAME: &str = "output0";
@@ -69,8 +82,20 @@ const MAXIMUM_VIDEO_CHILD_STDERR_BYTES: usize = 16 * 1024;
 /// passes one immutable RGB image to the inference engine.
 #[derive(Debug, Clone)]
 pub struct FrameInferenceOptions {
-    pub onnx_path: PathBuf,
+    /// ONNX model used by CPU, auto, and OpenVINO backends. Coral uses the
+    /// separately compiled TensorFlow Lite artifact instead.
+    pub onnx_path: Option<PathBuf>,
     pub source_checkpoint_path: PathBuf,
+    /// Compiled `.tflite` model used only by the explicit Coral provider.
+    pub coral_model_path: Option<PathBuf>,
+    /// Python executable that provides TensorFlow Lite on the target device.
+    pub coral_python_executable: PathBuf,
+    /// Shared library name or path for Coral's Edge TPU delegate.
+    pub coral_delegate_library: String,
+    /// Delay before recreating the Coral interpreter after a failed frame.
+    pub coral_worker_restart_backoff: Duration,
+    /// Maximum worker recreations allowed while retrying a failed frame.
+    pub coral_maximum_worker_restarts_per_frame: usize,
     pub provider: ProviderSelection,
     pub image_size: u32,
     pub confidence: f32,
@@ -98,7 +123,39 @@ pub struct FrameInferenceOutput {
     pub timings: FrameInferenceTimings,
 }
 
-/// Reusable ONNX session for single-frame RGB inference.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PreparedTensorLayout {
+    Nchw,
+    Nhwc,
+}
+
+struct PreparedFrameInput {
+    values: Vec<f32>,
+    geometry: LetterboxGeometry,
+    layout: PreparedTensorLayout,
+}
+
+impl From<PreparedInput> for PreparedFrameInput {
+    fn from(prepared: PreparedInput) -> Self {
+        Self {
+            values: prepared.values,
+            geometry: prepared.geometry,
+            layout: PreparedTensorLayout::Nchw,
+        }
+    }
+}
+
+impl From<PreparedNhwcInput> for PreparedFrameInput {
+    fn from(prepared: PreparedNhwcInput) -> Self {
+        Self {
+            values: prepared.values,
+            geometry: prepared.geometry,
+            layout: PreparedTensorLayout::Nhwc,
+        }
+    }
+}
+
+/// Reusable inference session for single-frame RGB inference.
 ///
 /// The mutable session is deliberately not shared: a live runtime should keep
 /// this value on its inference worker and hand it only one frame at a time.
@@ -106,9 +163,10 @@ pub struct FrameInferenceOutput {
 /// dropped before its ONNX Runtime environment.
 pub struct FrameInferenceEngine {
     session: InferenceSession,
-    _environment: Environment,
+    _environment: Option<Environment>,
     expected_output_shape: Vec<i64>,
     class_names: Vec<String>,
+    output_coordinate_scale: f32,
     image_size: usize,
     confidence: f32,
     iou: f32,
@@ -122,10 +180,116 @@ impl FrameInferenceEngine {
     /// Load a hash-verified model session using an environment owned by the
     /// application. One environment may be shared by multiple sessions.
     pub fn new(environment: Environment, options: FrameInferenceOptions) -> Result<Self> {
+        Self::new_with_environment(Some(environment), options)
+    }
+
+    /// Load the hardware-backed Coral path without initializing ONNX Runtime.
+    /// Other providers still require an ONNX Runtime environment.
+    pub fn new_without_onnx_runtime(options: FrameInferenceOptions) -> Result<Self> {
+        Self::new_with_environment(None, options)
+    }
+
+    fn new_with_environment(
+        environment: Option<Environment>,
+        options: FrameInferenceOptions,
+    ) -> Result<Self> {
         validate_frame_inference_options(&options)?;
-        let model_contract =
-            load_and_verify_manifest(&options.onnx_path, &options.source_checkpoint_path)?;
-        Self::from_verified_model(environment, options, model_contract).map(|(engine, _)| engine)
+        let model_contract = match options.provider {
+            ProviderSelection::Coral => load_and_verify_coral_manifest(
+                options
+                    .coral_model_path
+                    .as_deref()
+                    .context("coral_model_path is required when provider is coral")?,
+                &options.source_checkpoint_path,
+                options.image_size,
+            )?,
+            _ => load_and_verify_manifest(
+                options
+                    .onnx_path
+                    .as_deref()
+                    .context("onnx_path is required for the selected provider")?,
+                &options.source_checkpoint_path,
+            )?,
+        };
+        let expected_output_shape = vec![
+            1_i64,
+            (4 + model_contract.class_names.len()) as i64,
+            expected_anchor_count(options.image_size)? as i64,
+        ];
+        let session = match options.provider {
+            ProviderSelection::Coral => {
+                InferenceSession::Coral(CoralSession::new(CoralSessionOptions {
+                    model_path: options
+                        .coral_model_path
+                        .as_deref()
+                        .context("coral_model_path is required when provider is coral")?,
+                    python_executable: &options.coral_python_executable,
+                    delegate_library: &options.coral_delegate_library,
+                    intra_op_threads: options.intra_op_threads,
+                    image_size: options.image_size,
+                    expected_output_shape: &expected_output_shape,
+                    worker_restart_backoff: options.coral_worker_restart_backoff,
+                    maximum_worker_restarts_per_frame: options
+                        .coral_maximum_worker_restarts_per_frame,
+                })?)
+            }
+            provider => {
+                let environment = environment
+                    .as_ref()
+                    .context("ONNX Runtime environment is required for this provider")?;
+                create_session_for_model(
+                    environment,
+                    options
+                        .onnx_path
+                        .as_deref()
+                        .context("onnx_path is required for the selected provider")?,
+                    provider,
+                    options.intra_op_threads,
+                    None,
+                )?
+            }
+        };
+        let actual_output_shape =
+            validate_session(&session, options.image_size, &model_contract.class_names)?;
+        ensure!(
+            actual_output_shape == expected_output_shape,
+            "model output signature does not match the requested inference profile: {actual_output_shape:?}"
+        );
+        let model_identity = ModelIdentity {
+            artifact_sha256: model_contract.artifact_sha256.clone(),
+            source_checkpoint_sha256: Some(model_contract.source_checkpoint_sha256),
+            classes: model_contract
+                .class_names
+                .iter()
+                .enumerate()
+                .map(|(class_id, class_name)| ModelClass {
+                    class_id: class_id as u32,
+                    class_name: class_name.clone(),
+                })
+                .collect(),
+        };
+        let inference_settings = InferenceSettings {
+            input_width_px: options.image_size,
+            input_height_px: options.image_size,
+            confidence_threshold: options.confidence as f64,
+            iou_threshold: options.iou as f64,
+            max_detections: options.max_detections as u32,
+        };
+
+        Ok(Self {
+            session,
+            _environment: environment,
+            expected_output_shape,
+            class_names: model_contract.class_names,
+            output_coordinate_scale: model_contract.output_coordinate_scale,
+            image_size: options.image_size as usize,
+            confidence: options.confidence,
+            iou: options.iou,
+            max_detections: options.max_detections,
+            model_identity,
+            inference_settings,
+            requested_provider: options.provider,
+        })
     }
 
     /// Build from a model contract already verified by the caller and report
@@ -146,7 +310,10 @@ impl FrameInferenceEngine {
         let session_start = Instant::now();
         let session = create_session_for_model(
             &environment,
-            &options.onnx_path,
+            options
+                .onnx_path
+                .as_deref()
+                .context("ONNX model path is required for recorded-video inference")?,
             options.provider,
             options.intra_op_threads,
             None,
@@ -183,9 +350,10 @@ impl FrameInferenceEngine {
         Ok((
             Self {
                 session,
-                _environment: environment,
+                _environment: Some(environment),
                 expected_output_shape,
                 class_names: model_contract.class_names,
+                output_coordinate_scale: model_contract.output_coordinate_scale,
                 image_size: options.image_size as usize,
                 confidence: options.confidence,
                 iou: options.iou,
@@ -198,7 +366,7 @@ impl FrameInferenceEngine {
         ))
     }
 
-    /// Run preprocessing, ONNX inference, and YOLO decoding on one RGB frame.
+    /// Run provider-specific preprocessing, inference, and YOLO decoding on one RGB frame.
     pub fn infer_rgb(&mut self, image: &RgbImage) -> Result<FrameInferenceOutput> {
         self.infer_rgb8(image.width(), image.height(), image.as_raw())
     }
@@ -213,11 +381,17 @@ impl FrameInferenceEngine {
     ) -> Result<FrameInferenceOutput> {
         let engine_start = Instant::now();
         let preprocess_start = Instant::now();
-        let prepared = prepare_rgb8(source_width, source_height, pixels, self.image_size as u32)
+        let prepared = self
+            .prepare_rgb8_for_provider(source_width, source_height, pixels)
             .context("failed to preprocess RGB frame")?;
         let preprocess_ms = elapsed_ms(preprocess_start);
 
-        let mut output = self.infer_prepared(&prepared)?;
+        let mut output = self.infer_input_with_spans(
+            &prepared.values,
+            prepared.geometry,
+            prepared.layout,
+            None,
+        )?;
         output.timings.preprocess_ms = preprocess_ms;
         output.timings.engine_total_ms = elapsed_ms(engine_start);
         Ok(output)
@@ -237,12 +411,18 @@ impl FrameInferenceEngine {
         let engine_start = Instant::now();
         let preprocess_start = Instant::now();
         let preprocess_span = timing.start_child_span("preprocess", parent).ok();
-        let prepared = prepare_rgb8(source_width, source_height, pixels, self.image_size as u32)
+        let prepared = self
+            .prepare_rgb8_for_provider(source_width, source_height, pixels)
             .context("failed to preprocess RGB frame")?;
         drop(preprocess_span);
         let preprocess_ms = elapsed_ms(preprocess_start);
 
-        let mut output = self.infer_prepared_with_spans(&prepared, Some((timing, parent)))?;
+        let mut output = self.infer_input_with_spans(
+            &prepared.values,
+            prepared.geometry,
+            prepared.layout,
+            Some((timing, parent)),
+        )?;
         output.timings.preprocess_ms = preprocess_ms;
         output.timings.engine_total_ms = elapsed_ms(engine_start);
         Ok(output)
@@ -257,43 +437,78 @@ impl FrameInferenceEngine {
         prepared: &PreparedInput,
         timing: Option<(&FrameTimingContext, SpanId)>,
     ) -> Result<FrameInferenceOutput> {
+        self.infer_input_with_spans(
+            &prepared.values,
+            prepared.geometry,
+            PreparedTensorLayout::Nchw,
+            timing,
+        )
+    }
+
+    fn prepare_rgb8_for_provider(
+        &self,
+        source_width: u32,
+        source_height: u32,
+        pixels: &[u8],
+    ) -> Result<PreparedFrameInput> {
+        let model_size = self.image_size as u32;
+        match self.requested_provider {
+            ProviderSelection::Coral => {
+                let prepared = prepare_rgb8_nhwc(source_width, source_height, pixels, model_size)?;
+                Ok(PreparedFrameInput::from(prepared))
+            }
+            _ => {
+                let prepared = prepare_rgb8(source_width, source_height, pixels, model_size)?;
+                Ok(PreparedFrameInput::from(prepared))
+            }
+        }
+    }
+
+    fn infer_input_with_spans(
+        &mut self,
+        values: &[f32],
+        geometry: LetterboxGeometry,
+        layout: PreparedTensorLayout,
+        timing: Option<(&FrameTimingContext, SpanId)>,
+    ) -> Result<FrameInferenceOutput> {
         let engine_start = Instant::now();
 
         let inference_start = Instant::now();
         let inference_span = timing
             .and_then(|(context, parent)| context.start_child_span("model_execute", parent).ok());
-        let session_result = run_session(&mut self.session, &prepared.values, self.image_size);
+        let session_result = run_session(&mut self.session, values, self.image_size, layout);
         drop(inference_span);
         let (output_shape, output_values) =
-            session_result.context("ONNX inference failed for RGB frame")?;
+            session_result.context("inference backend failed for RGB frame")?;
         let inference_ms = elapsed_ms(inference_start);
         ensure!(
             output_shape == self.expected_output_shape,
-            "ONNX output tensor shape changed at runtime: {output_shape:?}"
+            "model output tensor shape changed at runtime: {output_shape:?}"
         );
 
         let decode_start = Instant::now();
         let decode_span = timing
             .and_then(|(context, parent)| context.start_child_span("decode_nms", parent).ok());
-        let detections = decode_yolo_v8_output(
+        let detections = decode_yolo_v8_output_with_coordinate_scale(
             &output_shape
                 .iter()
                 .map(|dimension| *dimension as usize)
                 .collect::<Vec<_>>(),
             &output_values,
             &self.class_names,
-            prepared.geometry,
+            geometry,
             self.confidence,
             self.iou,
             self.max_detections,
+            self.output_coordinate_scale,
         )
-        .context("failed to decode ONNX output for RGB frame")?;
+        .context("failed to decode model output for RGB frame")?;
         drop(decode_span);
         let decode_and_nms_ms = elapsed_ms(decode_start);
 
         Ok(FrameInferenceOutput {
-            source_width_px: prepared.geometry.source_width,
-            source_height_px: prepared.geometry.source_height,
+            source_width_px: geometry.source_width,
+            source_height_px: geometry.source_height,
             detections,
             timings: FrameInferenceTimings {
                 preprocess_ms: 0.0,
@@ -378,6 +593,9 @@ pub struct VideoReplayOptions {
     /// Optional bounded JSONL details. Aggregate reports and requested
     /// detection/scene artifacts are independent of this trace cap.
     pub details_jsonl_path: Option<PathBuf>,
+    /// Optional bounded image-space cue-geometry observations for review and
+    /// annotation scoring. This trace contains scheduled cue updates only.
+    pub phase_cue_geometry_jsonl_path: Option<PathBuf>,
     pub maximum_detail_records: usize,
 }
 
@@ -480,6 +698,8 @@ pub enum ProviderSelection {
     /// Explicitly request the native OpenVINO Runtime CPU backend.
     #[serde(rename = "openvino")]
     Openvino,
+    /// Run a compiled TensorFlow Lite model through the Coral Edge TPU delegate.
+    Coral,
 }
 
 impl ProviderSelection {
@@ -488,6 +708,7 @@ impl ProviderSelection {
             Self::Cpu => CPU::NAME,
             Self::Auto => "AutoDevicePolicy::MaxEfficiency",
             Self::Openvino => "OpenVINO CPU (native)",
+            Self::Coral => "Coral Edge TPU (TFLite delegate)",
         }
     }
 
@@ -497,6 +718,11 @@ impl ProviderSelection {
                 "openvino-rs",
                 "0.11.1",
                 "Native OpenVINO CPU backend selected and invoked; this API does not expose per-node fallback assignment, so node counts are unavailable",
+            ),
+            Self::Coral => (
+                "tflite_runtime",
+                "target-installed",
+                "TensorFlow Lite interpreter with the Coral Edge TPU delegate; hardware execution requires target-device validation",
             ),
             Self::Cpu | Self::Auto => (
                 "ort",
@@ -522,6 +748,8 @@ pub struct VideoReplayReport {
     pub runtime: VideoReplayRuntimeReport,
     pub settings: VideoReplaySettingsReport,
     pub measurement: VideoReplayMeasurementReport,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub phase_schedule: Option<VideoReplayPhaseReport>,
     pub artifacts: VideoReplayArtifactsReport,
     pub effective_tracking_configuration: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -531,6 +759,29 @@ pub struct VideoReplayReport {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub temporal_accuracy: Option<Value>,
     pub unsupported_measurements: Vec<&'static str>,
+}
+
+/// Source-timeline diagnostics for the shared phase scheduler used by replay.
+/// Rates are computed against normalized media duration, independently from
+/// wall-clock inference throughput in `measurement`.
+#[derive(Debug, Serialize)]
+pub struct VideoReplayPhaseReport {
+    pub clock: &'static str,
+    pub source_frames_considered: usize,
+    pub motion_checks: usize,
+    pub cue_observations: usize,
+    pub detector_calls: usize,
+    pub intentional_detector_skips: usize,
+    /// Synchronous offline replay has no worker contention, but emits the
+    /// field so the live and replay work counters share one vocabulary.
+    pub overload_skips: usize,
+    pub obsolete_results: usize,
+    pub trusted_layout_duration_ms: f64,
+    pub recovery_delays_ms: Vec<u64>,
+    pub achieved_motion_checks_hz: Option<f64>,
+    pub achieved_cue_observations_hz: Option<f64>,
+    pub achieved_detector_calls_hz: Option<f64>,
+    pub effective_schedule: Value,
 }
 
 #[derive(Debug, Serialize)]
@@ -632,6 +883,9 @@ pub struct VideoReplayArtifactsReport {
     pub detailed_trace_path: Option<String>,
     pub detailed_trace_written: usize,
     pub detailed_trace_dropped_by_limit: usize,
+    pub phase_cue_geometry_trace_path: Option<String>,
+    pub phase_cue_geometry_trace_written: usize,
+    pub phase_cue_geometry_trace_dropped_by_limit: usize,
     pub artifact_writes_included_in_measurement: bool,
     pub offline_decode_excluded_from_measurement: bool,
 }
@@ -733,6 +987,53 @@ struct ExportedModelManifest {
 }
 
 #[derive(Debug, Deserialize)]
+struct CoralExportManifest {
+    artifact_type: String,
+    source: CoralSourceManifest,
+    model_contract: CoralModelContractManifest,
+    files: BTreeMap<String, CoralFileManifest>,
+}
+
+#[derive(Debug, Deserialize)]
+struct CoralSourceManifest {
+    checkpoint: CoralCheckpointManifest,
+}
+
+#[derive(Debug, Deserialize)]
+struct CoralCheckpointManifest {
+    sha256: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct CoralModelContractManifest {
+    input: CoralInputContractManifest,
+    output: CoralOutputContractManifest,
+}
+
+#[derive(Debug, Deserialize)]
+struct CoralInputContractManifest {
+    shape: Vec<i64>,
+    layout: String,
+    dtype: String,
+    color_order: String,
+    normalization: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct CoralOutputContractManifest {
+    shape: Vec<i64>,
+    dtype: String,
+    class_order: Vec<String>,
+    box_coordinate_space: String,
+    nms_embedded: bool,
+}
+
+#[derive(Debug, Deserialize)]
+struct CoralFileManifest {
+    sha256: String,
+}
+
+#[derive(Debug, Deserialize)]
 struct ModelManifest {
     class_count: usize,
     class_names: Vec<ClassManifest>,
@@ -751,6 +1052,7 @@ struct LoadedModelContract {
     artifact_sha256: String,
     source_checkpoint_sha256: String,
     class_names: Vec<String>,
+    output_coordinate_scale: f32,
 }
 
 struct ProviderEvidence {
@@ -836,7 +1138,22 @@ enum SceneSnapshotSink {
 /// inference schedule, while preserving source PTS for the realtime mode.
 /// The temporary file is removed automatically on every return path.
 pub fn run_video_audit(options: &VideoReplayOptions) -> Result<VideoReplayReport> {
+    run_video_audit_with_schedule(options, Some(SchedulerConfig::default()))
+}
+
+/// Run the recorded-video coordinator with an optional deterministic phase
+/// schedule. Scheduler time is derived only from normalized source PTS, so
+/// capacity-mode execution speed cannot change dispatch cadence or settlement.
+pub fn run_video_audit_with_schedule(
+    options: &VideoReplayOptions,
+    scheduler_config: Option<SchedulerConfig>,
+) -> Result<VideoReplayReport> {
     let audit = &options.audit;
+    if let Some(config) = scheduler_config.as_ref() {
+        config
+            .validate()
+            .context("invalid recorded-video phase schedule")?;
+    }
     validate_video_audit_options(audit)?;
     ensure!(
         options.maximum_video_bytes > 0
@@ -848,8 +1165,10 @@ pub fn run_video_audit(options: &VideoReplayOptions) -> Result<VideoReplayReport
         "video replay resource limits and subprocess timeout must be positive"
     );
     ensure!(
-        options.details_jsonl_path.is_some() || options.maximum_detail_records == 0,
-        "a nonzero detail-record limit requires a detail JSONL destination"
+        options.details_jsonl_path.is_some()
+            || options.phase_cue_geometry_jsonl_path.is_some()
+            || options.maximum_detail_records == 0,
+        "a nonzero detail-record limit requires a detail or cue-geometry JSONL destination"
     );
 
     let video_path = &audit.input_path;
@@ -982,8 +1301,13 @@ pub fn run_video_audit(options: &VideoReplayOptions) -> Result<VideoReplayReport
         FrameInferenceEngine::from_verified_model(
             environment.clone(),
             FrameInferenceOptions {
-                onnx_path: audit.onnx_path.clone(),
+                onnx_path: Some(audit.onnx_path.clone()),
                 source_checkpoint_path: audit.source_checkpoint_path.clone(),
+                coral_model_path: None,
+                coral_python_executable: PathBuf::from("python3"),
+                coral_delegate_library: "libedgetpu.so.1".to_owned(),
+                coral_worker_restart_backoff: Duration::from_millis(1),
+                coral_maximum_worker_restarts_per_frame: 1,
                 provider: audit.provider,
                 image_size: audit.image_size,
                 confidence: audit.confidence,
@@ -1019,6 +1343,11 @@ pub fn run_video_audit(options: &VideoReplayOptions) -> Result<VideoReplayReport
         .as_ref()
         .map(|path| create_new_buffered_file(path, "video detail trace"))
         .transpose()?;
+    let mut cue_geometry_writer = options
+        .phase_cue_geometry_jsonl_path
+        .as_ref()
+        .map(|path| create_new_buffered_file(path, "phase cue geometry trace"))
+        .transpose()?;
 
     let measurement_started = Instant::now();
     let source_duration_seconds = timeline_media_duration(&timeline);
@@ -1038,6 +1367,28 @@ pub fn run_video_audit(options: &VideoReplayOptions) -> Result<VideoReplayReport
         scene_output: &mut scene_output,
         batch_clock_origin: measurement_started,
     };
+    let effective_scheduler_config = scheduler_config.clone();
+    let mut phase_scheduler = scheduler_config
+        .map(PhaseScheduler::new)
+        .transpose()
+        .context("could not initialize recorded-video phase scheduler")?;
+    let mut motion_monitor = phase_scheduler
+        .as_ref()
+        .map(|_| MotionMonitor::new(MotionMonitorConfig::default()))
+        .transpose()
+        .context("could not initialize recorded-video motion monitor")?;
+    let cue_geometry_config = CueGeometryConfig::default();
+    let mut cue_proposals = Vec::<CueProposal>::new();
+    let mut phase_source_frames = 0usize;
+    let mut phase_motion_checks = 0usize;
+    let mut phase_cue_observations = 0usize;
+    let mut phase_detector_calls = 0usize;
+    let mut phase_intentional_skips = 0usize;
+    let mut trusted_layout_duration = Duration::ZERO;
+    let mut recovery_started = None;
+    let mut recovery_delays_ms = Vec::new();
+    let mut previous_scheduler_time = None;
+    let mut previous_layout_trusted = false;
     let mut next_source_index = 0usize;
     let mut processed_source_frames = 0usize;
     let mut latest_frame_replacements = 0usize;
@@ -1055,6 +1406,8 @@ pub fn run_video_audit(options: &VideoReplayOptions) -> Result<VideoReplayReport
     let mut batch_export_total_ms = 0.0;
     let mut trace_written = 0usize;
     let mut trace_limited = 0usize;
+    let mut cue_geometry_trace_written = 0usize;
+    let mut cue_geometry_trace_limited = 0usize;
     let mut last_progress = measurement_started;
 
     while next_source_index < timeline.frame_count() {
@@ -1092,6 +1445,159 @@ pub fn run_video_audit(options: &VideoReplayOptions) -> Result<VideoReplayReport
             timeline.width,
             timeline.height,
         )?;
+        let source_time = checked_duration_from_seconds(source_pts_seconds)?;
+        let mut run_detector = phase_scheduler.is_none();
+        let mut cue_geometry_observation = None;
+        if let Some(scheduler) = phase_scheduler.as_mut() {
+            phase_source_frames = phase_source_frames.saturating_add(1);
+            if let Some(previous_time) = previous_scheduler_time {
+                if previous_layout_trusted {
+                    trusted_layout_duration = trusted_layout_duration
+                        .saturating_add(source_time.saturating_sub(previous_time));
+                }
+            }
+            let phase_before = scheduler.phase();
+            let mut decision = scheduler
+                .tick(
+                    source_time,
+                    crate::phase_scheduler::WorkAvailability::default(),
+                )
+                .context("recorded-video scheduler rejected source presentation time")?;
+            if decision.run_motion {
+                let assessment = motion_monitor
+                    .as_mut()
+                    .expect("phase scheduler and motion monitor are initialized together")
+                    .observe_rgb8(source_time, timeline.width, timeline.height, image.as_raw())
+                    .context("recorded-video motion assessment failed")?;
+                phase_motion_checks = phase_motion_checks.saturating_add(1);
+                let motion_evidence = match assessment.classification {
+                    MotionClassification::Quiet => MotionEvidence::Quiet,
+                    MotionClassification::Moving => MotionEvidence::Moving,
+                    MotionClassification::OccludedOrUncertain => {
+                        MotionEvidence::OccludedOrUncertain
+                    }
+                };
+                scheduler
+                    .observe_motion(source_time, motion_evidence)
+                    .context("recorded-video scheduler rejected motion evidence")?;
+            }
+            if scheduler.phase() != phase_before {
+                decision = scheduler
+                    .tick(
+                        source_time,
+                        crate::phase_scheduler::WorkAvailability::default(),
+                    )
+                    .context("recorded-video scheduler rejected phase transition")?;
+                decision.run_motion = false;
+            }
+            let mut evidence = scheduler
+                .evidence(source_time)
+                .context("recorded-video scheduler evidence is unavailable")?;
+            if evidence.phase == Phase::Shot {
+                recovery_started.get_or_insert(source_time);
+            }
+            if decision.run_cue && evidence.phase != Phase::Shot {
+                let mut cue = estimate_cue_geometry(
+                    image.as_raw(),
+                    timeline.width,
+                    timeline.height,
+                    &cue_proposals,
+                    Duration::ZERO,
+                    cue_geometry_config,
+                )
+                .map_err(|error| {
+                    anyhow::anyhow!("recorded-video cue geometry assessment failed: {error:?}")
+                })?;
+                if let (Some(geometry), Some(calibration)) =
+                    (cue.as_mut(), audit.calibration.as_ref())
+                {
+                    let context = CalibrationContext {
+                        calibration_revision: calibration.applied_calibration_revision,
+                        camera_profile_id: &calibration.applied_camera_profile_id,
+                        rectification_revision: calibration.applied_rectification_revision,
+                        image_space: match audit.source_image_space {
+                            ImageSpace::Raw => crate::ImageSpace::Raw,
+                            ImageSpace::Rectified => crate::ImageSpace::Rectified,
+                        },
+                        source_width_px: timeline.width,
+                        source_height_px: timeline.height,
+                    };
+                    orient_cue_geometry_from_playing_surface(
+                        geometry,
+                        &calibration.calibration,
+                        context,
+                    );
+                }
+                cue_geometry_observation = Some(cue);
+                phase_cue_observations = phase_cue_observations.saturating_add(1);
+                scheduler
+                    .observe_cue(
+                        source_time,
+                        if cue.is_some() {
+                            CueEvidence::Visible
+                        } else {
+                            CueEvidence::NotVisible
+                        },
+                    )
+                    .context("recorded-video scheduler rejected cue evidence")?;
+                evidence = scheduler
+                    .evidence(source_time)
+                    .context("recorded-video scheduler evidence is unavailable after cue update")?;
+            }
+            // Ball observations remain useful while balls are moving. The
+            // scheduler still invalidates verified layout/guidance immediately
+            // on motion, and only quiet dwell plus consensus can restore trust.
+            run_detector = decision.run_ball;
+            if run_detector {
+                phase_detector_calls = phase_detector_calls.saturating_add(1);
+            } else {
+                phase_intentional_skips = phase_intentional_skips.saturating_add(1);
+            }
+            let layout_trusted = evidence.map_trusted;
+            if previous_layout_trusted && !layout_trusted {
+                recovery_started = Some(source_time);
+            } else if !previous_layout_trusted && layout_trusted {
+                if let Some(started) = recovery_started.take() {
+                    recovery_delays_ms.push(
+                        source_time
+                            .saturating_sub(started)
+                            .as_millis()
+                            .min(u128::from(u64::MAX)) as u64,
+                    );
+                }
+            }
+            previous_layout_trusted = layout_trusted;
+            previous_scheduler_time = Some(source_time);
+        }
+        if !run_detector {
+            if let Some(cue) = cue_geometry_observation {
+                if let Some(writer) = cue_geometry_writer.as_mut() {
+                    if cue_geometry_trace_written < options.maximum_detail_records {
+                        write_cue_geometry_trace(
+                            writer,
+                            &source_video_sha256,
+                            source_index,
+                            source_pts_seconds,
+                            cue,
+                        )?;
+                        cue_geometry_trace_written += 1;
+                    } else {
+                        cue_geometry_trace_limited += 1;
+                    }
+                }
+            }
+            next_source_index = source_index + 1;
+            if last_progress.elapsed() >= Duration::from_secs(1) {
+                eprintln!(
+                    "video audit: mode={:?} selected={phase_source_frames}/{} detector_calls={phase_detector_calls} replaced={latest_frame_replacements} source_elapsed_ms={:.0}",
+                    options.mode,
+                    timeline.frame_count(),
+                    measurement_started.elapsed().as_secs_f64() * 1000.0
+                );
+                last_progress = Instant::now();
+            }
+            continue;
+        }
         let source_arrived_at = source_scheduled_at.or_else(|| Some(Instant::now()));
         let timed_input = prepare_decoded_image(image, 0.0, audit.image_size)?;
         let (result, export_ms, inference_completed_at) = process_frame(
@@ -1105,6 +1611,46 @@ pub fn run_video_audit(options: &VideoReplayOptions) -> Result<VideoReplayReport
             },
             processed_source_frames + 1,
         )?;
+        if let Some(scheduler) = phase_scheduler.as_mut() {
+            let was_trusted = scheduler.map_trusted();
+            let ball_positions = result
+                .detections
+                .iter()
+                .filter(|detection| detection.class_name.eq_ignore_ascii_case("ball"))
+                .map(|detection| ImagePoint {
+                    x: f64::from(detection.center_xy_px[0]),
+                    y: f64::from(detection.center_xy_px[1]),
+                })
+                .collect();
+            scheduler
+                .observe_layout(source_time, LayoutObservation::Success(ball_positions))
+                .context("recorded-video scheduler rejected detector result")?;
+            cue_proposals = replay_cue_proposals(
+                &result.detections,
+                timeline.width,
+                timeline.height,
+                cue_geometry_config.max_proposals,
+            );
+            let is_trusted = scheduler.map_trusted();
+            if !was_trusted && is_trusted {
+                motion_monitor
+                    .as_mut()
+                    .expect("phase scheduler and motion monitor are initialized together")
+                    .set_current_as_verified_reference()
+                    .context("failed to promote verified replay layout motion reference")?;
+                if let Some(started) = recovery_started.take() {
+                    recovery_delays_ms.push(
+                        source_time
+                            .saturating_sub(started)
+                            .as_millis()
+                            .min(u128::from(u64::MAX)) as u64,
+                    );
+                }
+            } else if was_trusted && !is_trusted {
+                recovery_started = Some(source_time);
+            }
+            previous_layout_trusted = is_trusted;
+        }
         if options.mode == VideoReplayMode::RealtimeLatestFrame {
             if let Some(next_pts) = timeline
                 .presentation_times_seconds
@@ -1153,6 +1699,22 @@ pub fn run_video_audit(options: &VideoReplayOptions) -> Result<VideoReplayReport
                 trace_limited += 1;
             }
         }
+        if let Some(cue) = cue_geometry_observation {
+            if let Some(writer) = cue_geometry_writer.as_mut() {
+                if cue_geometry_trace_written < options.maximum_detail_records {
+                    write_cue_geometry_trace(
+                        writer,
+                        &source_video_sha256,
+                        source_index,
+                        source_pts_seconds,
+                        cue,
+                    )?;
+                    cue_geometry_trace_written += 1;
+                } else {
+                    cue_geometry_trace_limited += 1;
+                }
+            }
+        }
         processed_source_frames += 1;
         next_source_index = source_index + 1;
         if last_progress.elapsed() >= Duration::from_secs(1) {
@@ -1165,10 +1727,24 @@ pub fn run_video_audit(options: &VideoReplayOptions) -> Result<VideoReplayReport
             last_progress = Instant::now();
         }
     }
+    if previous_layout_trusted {
+        if let (Some(last_time), Some(duration_seconds)) =
+            (previous_scheduler_time, source_duration_seconds)
+        {
+            let media_end = checked_duration_from_seconds(duration_seconds)?;
+            trusted_layout_duration =
+                trusted_layout_duration.saturating_add(media_end.saturating_sub(last_time));
+        }
+    }
     if let Some(writer) = detail_writer.as_mut() {
         writer
             .flush()
             .context("failed to flush video detail trace")?;
+    }
+    if let Some(writer) = cue_geometry_writer.as_mut() {
+        writer
+            .flush()
+            .context("failed to flush phase cue geometry trace")?;
     }
     let measured_wall_ms = elapsed_ms(measurement_started);
     let processed_observations_per_second = match options.mode {
@@ -1288,6 +1864,28 @@ pub fn run_video_audit(options: &VideoReplayOptions) -> Result<VideoReplayReport
                 source_to_calibration_samples,
             ),
         },
+        phase_schedule: effective_scheduler_config.as_ref().map(|config| {
+            let media_duration = source_duration_seconds.filter(|duration| *duration > 0.0);
+            VideoReplayPhaseReport {
+                clock: "normalized_source_presentation_timestamps",
+                source_frames_considered: phase_source_frames,
+                motion_checks: phase_motion_checks,
+                cue_observations: phase_cue_observations,
+                detector_calls: phase_detector_calls,
+                intentional_detector_skips: phase_intentional_skips,
+                overload_skips: 0,
+                obsolete_results: 0,
+                trusted_layout_duration_ms: trusted_layout_duration.as_secs_f64() * 1000.0,
+                recovery_delays_ms,
+                achieved_motion_checks_hz: media_duration
+                    .map(|duration| phase_motion_checks as f64 / duration),
+                achieved_cue_observations_hz: media_duration
+                    .map(|duration| phase_cue_observations as f64 / duration),
+                achieved_detector_calls_hz: media_duration
+                    .map(|duration| phase_detector_calls as f64 / duration),
+                effective_schedule: replay_schedule_value(config),
+            }
+        }),
         artifacts: VideoReplayArtifactsReport {
             detection_batch_path: audit
                 .detection_batch_output
@@ -1311,9 +1909,16 @@ pub fn run_video_audit(options: &VideoReplayOptions) -> Result<VideoReplayReport
                 .map(|path| path.display().to_string()),
             detailed_trace_written: trace_written,
             detailed_trace_dropped_by_limit: trace_limited,
+            phase_cue_geometry_trace_path: options
+                .phase_cue_geometry_jsonl_path
+                .as_ref()
+                .map(|path| path.display().to_string()),
+            phase_cue_geometry_trace_written: cue_geometry_trace_written,
+            phase_cue_geometry_trace_dropped_by_limit: cue_geometry_trace_limited,
             artifact_writes_included_in_measurement: audit.detection_batch_output.is_some()
                 || audit.scene_snapshot_output.is_some()
-                || options.details_jsonl_path.is_some(),
+                || options.details_jsonl_path.is_some()
+                || options.phase_cue_geometry_jsonl_path.is_some(),
             offline_decode_excluded_from_measurement: true,
         },
         effective_tracking_configuration: audit.scene_snapshot_output.as_ref().map(|output| {
@@ -1862,6 +2467,53 @@ struct VideoFrameDetail<'a> {
     detections: &'a [Detection],
 }
 
+#[derive(Serialize)]
+struct VideoCueGeometryDetail {
+    source_video_sha256: String,
+    source_frame_index: usize,
+    source_presentation_time_seconds: f64,
+    cue_present: bool,
+    shaft_start_px: Option<[f64; 2]>,
+    shaft_end_px: Option<[f64; 2]>,
+    axis_angle_degrees: Option<f64>,
+    confidence: Option<f64>,
+    signed_direction: Option<&'static str>,
+}
+
+fn write_cue_geometry_trace<W: Write>(
+    writer: &mut W,
+    source_video_sha256: &str,
+    source_frame_index: usize,
+    source_pts_seconds: f64,
+    cue: Option<CueGeometry>,
+) -> Result<()> {
+    let detail = VideoCueGeometryDetail {
+        source_video_sha256: source_video_sha256.to_owned(),
+        source_frame_index,
+        source_presentation_time_seconds: source_pts_seconds,
+        cue_present: cue.is_some(),
+        shaft_start_px: cue.map(|geometry| geometry.shaft_start_px),
+        shaft_end_px: cue.map(|geometry| geometry.shaft_end_px),
+        axis_angle_degrees: cue.map(|geometry| {
+            geometry.axis_unit[1]
+                .atan2(geometry.axis_unit[0])
+                .to_degrees()
+        }),
+        confidence: cue.map(|geometry| geometry.confidence),
+        signed_direction: cue.and_then(|geometry| match geometry.signed_direction {
+            Some(SignedCueDirection::TowardStart) => Some("toward_start"),
+            Some(SignedCueDirection::TowardEnd) => Some("toward_end"),
+            None => None,
+        }),
+    };
+    serde_json::to_writer(&mut *writer, &detail)
+        .context("could not encode phase cue geometry trace")?;
+    writer
+        .write_all(b"\n")
+        .context("could not delimit phase cue geometry trace")?;
+    Ok(())
+}
+
 fn write_video_detail<W: Write>(
     writer: &mut W,
     source_frame_index: usize,
@@ -1882,6 +2534,52 @@ fn write_video_detail<W: Write>(
         .write_all(b"\n")
         .context("could not delimit video detail trace")?;
     Ok(())
+}
+
+fn replay_cue_proposals(
+    detections: &[Detection],
+    width_px: u32,
+    height_px: u32,
+    maximum_proposals: usize,
+) -> Vec<CueProposal> {
+    detections
+        .iter()
+        .filter(|detection| detection.class_name.eq_ignore_ascii_case("cue"))
+        .take(maximum_proposals)
+        .filter_map(|detection| {
+            let [left, top, right, bottom] = detection.bbox_xyxy_px;
+            let proposal = CueProposal {
+                left: left.floor().clamp(0.0, width_px as f32) as u32,
+                top: top.floor().clamp(0.0, height_px as f32) as u32,
+                right: right.ceil().clamp(0.0, width_px as f32) as u32,
+                bottom: bottom.ceil().clamp(0.0, height_px as f32) as u32,
+            };
+            (proposal.right > proposal.left && proposal.bottom > proposal.top).then_some(proposal)
+        })
+        .collect()
+}
+
+fn replay_schedule_value(config: &SchedulerConfig) -> Value {
+    fn cadence(value: crate::phase_scheduler::PhaseCadence) -> Value {
+        serde_json::json!({
+            "motion_hz": value.motion_hz,
+            "ball_hz": value.ball_hz,
+            "cue_hz": value.cue_hz,
+        })
+    }
+
+    serde_json::json!({
+        "recovering": cadence(config.recovering),
+        "pre_shot": cadence(config.pre_shot),
+        "aiming": cadence(config.aiming),
+        "shot": cadence(config.shot),
+        "quiet_dwell_ms": config.quiet_dwell.as_secs_f64() * 1000.0,
+        "layout_consensus_count": config.layout_consensus_count,
+        "layout_position_tolerance_px": config.layout_position_tolerance_px,
+        "motion_evidence_expiry_ms": config.motion_evidence_expiry.as_secs_f64() * 1000.0,
+        "cue_evidence_expiry_ms": config.cue_evidence_expiry.as_secs_f64() * 1000.0,
+        "layout_evidence_expiry_ms": config.layout_evidence_expiry.as_secs_f64() * 1000.0,
+    })
 }
 
 fn mean_or_zero(total: f64, count: usize) -> f64 {
@@ -2186,11 +2884,38 @@ fn validate_video_audit_options(options: &AuditOptions) -> Result<()> {
 }
 
 fn validate_frame_inference_options(options: &FrameInferenceOptions) -> Result<()> {
-    ensure!(
-        options.onnx_path.is_file(),
-        "ONNX model does not exist: {}",
-        options.onnx_path.display()
-    );
+    match options.provider {
+        ProviderSelection::Coral => {
+            let model_path = options
+                .coral_model_path
+                .as_deref()
+                .context("coral_model_path is required when provider is coral")?;
+            ensure!(
+                model_path.is_file(),
+                "Coral TensorFlow Lite model does not exist: {}",
+                model_path.display()
+            );
+            ensure!(
+                !options.coral_python_executable.as_os_str().is_empty(),
+                "coral_python_executable cannot be empty"
+            );
+            ensure!(
+                !options.coral_delegate_library.trim().is_empty(),
+                "coral_delegate_library cannot be empty"
+            );
+        }
+        _ => {
+            let model_path = options
+                .onnx_path
+                .as_deref()
+                .context("onnx_path is required for the selected provider")?;
+            ensure!(
+                model_path.is_file(),
+                "ONNX model does not exist: {}",
+                model_path.display()
+            );
+        }
+    }
     ensure!(
         options.source_checkpoint_path.is_file(),
         "source checkpoint does not exist: {}",
@@ -2571,6 +3296,117 @@ fn load_and_verify_manifest(
         artifact_sha256: actual_model_hash,
         source_checkpoint_sha256: manifest.source_model.sha256,
         class_names,
+        output_coordinate_scale: 1.0,
+    })
+}
+
+/// Verify the compiled Coral artifact against its export manifest before the
+/// runtime loads native libraries or opens the accelerator. The generated
+/// artifact manifest is kept beside the `.tflite` file as `manifest.json`.
+fn load_and_verify_coral_manifest(
+    model_path: &Path,
+    source_checkpoint_path: &Path,
+    image_size: u32,
+) -> Result<LoadedModelContract> {
+    let manifest_path = model_path
+        .parent()
+        .context("Coral model path must have a parent directory")?
+        .join("manifest.json");
+    ensure!(
+        manifest_path.is_file(),
+        "Coral export manifest is required beside the compiled TensorFlow Lite model: {}",
+        manifest_path.display()
+    );
+    let manifest_bytes = fs::read(&manifest_path).with_context(|| {
+        format!(
+            "failed to read Coral export manifest {}",
+            manifest_path.display()
+        )
+    })?;
+    let manifest_sha256 = format!("{:x}", Sha256::digest(&manifest_bytes));
+    let manifest: CoralExportManifest = serde_json::from_slice(&manifest_bytes)
+        .with_context(|| format!("invalid Coral export manifest: {}", manifest_path.display()))?;
+    ensure!(
+        manifest.artifact_type == "Coral Edge TPU compiled TensorFlow Lite model",
+        "manifest does not describe a Coral Edge TPU compiled TensorFlow Lite model"
+    );
+
+    let model_file_name = model_path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .context("Coral model filename is not valid UTF-8")?;
+    let expected_file = manifest
+        .files
+        .get(model_file_name)
+        .with_context(|| format!("Coral manifest has no digest for {model_file_name}"))?;
+    let actual_model_hash = sha256_file(model_path)?;
+    ensure!(
+        expected_file.sha256 == actual_model_hash,
+        "compiled Coral model hash does not match its manifest"
+    );
+
+    let actual_source_hash = sha256_file(source_checkpoint_path)?;
+    ensure!(
+        manifest.source.checkpoint.sha256 == actual_source_hash,
+        "source checkpoint hash does not match the Coral export manifest"
+    );
+
+    let expected_input_shape = vec![1_i64, image_size as i64, image_size as i64, 3];
+    ensure!(
+        manifest.model_contract.input.shape == expected_input_shape,
+        "Coral manifest input signature {:?} does not match expected NHWC signature {expected_input_shape:?}",
+        manifest.model_contract.input.shape
+    );
+    ensure!(
+        manifest.model_contract.input.layout == "NHWC"
+            && manifest.model_contract.input.dtype == "float32"
+            && manifest.model_contract.input.color_order == "RGB"
+            && manifest.model_contract.input.normalization == "[0,1]",
+        "Coral manifest input must be float32 RGB NHWC normalized to [0,1]"
+    );
+    ensure!(
+        manifest.model_contract.output.dtype == "float32",
+        "Coral manifest output must be float32"
+    );
+    ensure!(
+        manifest.model_contract.output.class_order.len() == EXPECTED_CLASS_COUNT
+            && manifest.model_contract.output.class_order == ["cue".to_owned(), "ball".to_owned()],
+        "Coral manifest must preserve the two-class cue, ball order"
+    );
+    ensure!(
+        !manifest.model_contract.output.nms_embedded,
+        "Coral export must leave non-maximum suppression to the Rust decoder"
+    );
+    let output_coordinate_scale = match manifest
+        .model_contract
+        .output
+        .box_coordinate_space
+        .as_str()
+    {
+        "normalized_0_1" => image_size as f32,
+        "model_pixels" => 1.0,
+        coordinate_space => bail!(
+            "unsupported Coral box coordinate space {coordinate_space:?}; expected normalized_0_1 or model_pixels"
+        ),
+    };
+    let expected_output_shape = vec![
+        1_i64,
+        (4 + manifest.model_contract.output.class_order.len()) as i64,
+        expected_anchor_count(image_size)? as i64,
+    ];
+    ensure!(
+        manifest.model_contract.output.shape == expected_output_shape,
+        "Coral manifest output signature {:?} does not match expected YOLO signature {expected_output_shape:?}",
+        manifest.model_contract.output.shape
+    );
+
+    Ok(LoadedModelContract {
+        manifest_path,
+        manifest_sha256,
+        artifact_sha256: actual_model_hash,
+        source_checkpoint_sha256: actual_source_hash,
+        class_names: manifest.model_contract.output.class_order,
+        output_coordinate_scale,
     })
 }
 
@@ -2619,6 +3455,9 @@ fn create_session_for_model(
             .with_auto_device(AutoDevicePolicy::MaxEfficiency)
             .map_err(|error| anyhow::anyhow!(error.to_string()))?,
         ProviderSelection::Openvino => unreachable!("native OpenVINO returned above"),
+        ProviderSelection::Coral => {
+            bail!("Coral uses a compiled TensorFlow Lite model and is supported for live frame inference only")
+        }
     };
     if let Some(threads) = intra_op_threads {
         builder = builder
@@ -2641,6 +3480,361 @@ fn create_session_for_model(
 enum InferenceSession {
     Ort(Session),
     Openvino(OpenVinoSession),
+    Coral(CoralSession),
+}
+
+/// Persistent TFLite worker process with the Edge TPU delegate loaded once.
+/// Keeping the interpreter alive avoids per-frame import, model-load, and TPU
+/// initialization costs while preserving a narrow binary protocol boundary.
+struct CoralSession {
+    child: Child,
+    stdin: std::process::ChildStdin,
+    stdout: BufReader<std::process::ChildStdout>,
+    input_shape: Vec<i64>,
+    output_shape: Vec<i64>,
+    input_value_count: usize,
+    output_value_count: usize,
+    model_path: PathBuf,
+    python_executable: PathBuf,
+    delegate_library: String,
+    intra_op_threads: Option<usize>,
+    image_size: u32,
+    expected_output_shape: Vec<i64>,
+    worker_restart_backoff: Duration,
+    maximum_worker_restarts_per_frame: usize,
+}
+
+/// Parameters required to launch and validate one persistent Coral worker.
+/// Keeping them together makes the worker's startup contract explicit at both
+/// initial creation and restart sites.
+struct CoralSessionOptions<'a> {
+    model_path: &'a Path,
+    python_executable: &'a Path,
+    delegate_library: &'a str,
+    intra_op_threads: Option<usize>,
+    image_size: u32,
+    expected_output_shape: &'a [i64],
+    worker_restart_backoff: Duration,
+    maximum_worker_restarts_per_frame: usize,
+}
+
+/// Reaps the child on any failure before its startup handshake is accepted.
+/// `std::process::Child` does not kill or wait for a process when dropped.
+struct CoralStartupChild(Option<Child>);
+
+impl CoralStartupChild {
+    fn new(child: Child) -> Self {
+        Self(Some(child))
+    }
+
+    fn child_mut(&mut self) -> &mut Child {
+        self.0.as_mut().expect("startup child is present")
+    }
+
+    fn take(&mut self) -> Child {
+        self.0.take().expect("startup child is present")
+    }
+}
+
+impl Drop for CoralStartupChild {
+    fn drop(&mut self) {
+        if let Some(child) = self.0.as_mut() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
+}
+
+#[derive(Deserialize)]
+struct CoralWorkerHandshake {
+    ok: bool,
+    error: Option<String>,
+    input: Option<CoralTensorSignature>,
+    output: Option<CoralTensorSignature>,
+}
+
+#[derive(Deserialize)]
+struct CoralTensorSignature {
+    shape: Vec<i64>,
+    dtype: String,
+}
+
+impl CoralSession {
+    fn new(options: CoralSessionOptions<'_>) -> Result<Self> {
+        let CoralSessionOptions {
+            model_path,
+            python_executable,
+            delegate_library,
+            intra_op_threads,
+            image_size,
+            expected_output_shape,
+            worker_restart_backoff,
+            maximum_worker_restarts_per_frame,
+        } = options;
+        ensure!(
+            cfg!(target_endian = "little"),
+            "Coral TFLite worker protocol requires a little-endian target"
+        );
+        ensure!(
+            !worker_restart_backoff.is_zero(),
+            "Coral worker restart backoff must be positive"
+        );
+        ensure!(
+            maximum_worker_restarts_per_frame > 0,
+            "maximum Coral worker restarts per frame must be positive"
+        );
+        let child = Command::new(python_executable)
+            .arg("-u")
+            .arg("-c")
+            .arg(include_str!("coral_worker.py"))
+            .arg(model_path)
+            .arg(delegate_library)
+            .arg(
+                intra_op_threads
+                    .map(|count| count.to_string())
+                    .unwrap_or_default(),
+            )
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::inherit())
+            .spawn()
+            .with_context(|| {
+                format!(
+                    "could not start Coral TFLite worker with Python executable {}",
+                    python_executable.display()
+                )
+            })?;
+        let mut child = CoralStartupChild::new(child);
+        let stdin = child
+            .child_mut()
+            .stdin
+            .take()
+            .context("Coral TFLite worker stdin was not piped")?;
+        let stdout = child
+            .child_mut()
+            .stdout
+            .take()
+            .context("Coral TFLite worker stdout was not piped")?;
+        let mut stdout = BufReader::new(stdout);
+        let mut handshake_line = String::new();
+        stdout
+            .read_line(&mut handshake_line)
+            .context("could not read the Coral TFLite worker startup response")?;
+        ensure!(
+            !handshake_line.is_empty(),
+            "Coral TFLite worker exited before startup; install tflite_runtime, ai-edge-litert, or TensorFlow with TFLite support, install the Coral Edge TPU runtime, and verify target-device access"
+        );
+        let handshake: CoralWorkerHandshake = serde_json::from_str(&handshake_line)
+            .context("Coral TFLite worker returned an invalid startup response")?;
+        ensure!(
+            handshake.ok,
+            "Coral TFLite worker could not initialize: {}",
+            handshake
+                .error
+                .as_deref()
+                .unwrap_or("no error details were supplied")
+        );
+        let input = handshake
+            .input
+            .context("Coral TFLite worker omitted the input tensor signature")?;
+        let output = handshake
+            .output
+            .context("Coral TFLite worker omitted the output tensor signature")?;
+        let expected_input_shape = vec![1, image_size as i64, image_size as i64, 3];
+        ensure!(
+            input.dtype == "float32" && input.shape == expected_input_shape,
+            "Coral TFLite input signature {:?} {:?} does not match required float32 NHWC {expected_input_shape:?}",
+            input.dtype,
+            input.shape
+        );
+        ensure!(
+            output.dtype == "float32" && output.shape == expected_output_shape,
+            "Coral TFLite output signature {:?} {:?} does not match required float32 YOLO shape {expected_output_shape:?}",
+            output.dtype,
+            output.shape
+        );
+        let input_value_count = checked_shape_value_count(&input.shape)?;
+        let output_value_count = checked_shape_value_count(&output.shape)?;
+
+        Ok(Self {
+            child: child.take(),
+            stdin,
+            stdout,
+            input_shape: input.shape,
+            output_shape: output.shape,
+            input_value_count,
+            output_value_count,
+            model_path: model_path.to_path_buf(),
+            python_executable: python_executable.to_path_buf(),
+            delegate_library: delegate_library.to_owned(),
+            intra_op_threads,
+            image_size,
+            expected_output_shape: expected_output_shape.to_vec(),
+            worker_restart_backoff,
+            maximum_worker_restarts_per_frame,
+        })
+    }
+
+    fn infer_nhwc(&mut self, values: &[f32]) -> Result<Vec<f32>> {
+        ensure!(
+            values.len() == self.input_value_count,
+            "prepared Coral input has {} values, expected {}",
+            values.len(),
+            self.input_value_count
+        );
+        match self.infer_nhwc_once(values) {
+            Ok(output) => Ok(output),
+            Err(mut last_error) => {
+                for attempt in 0..self.maximum_worker_restarts_per_frame {
+                    self.restart_worker().with_context(|| {
+                        format!(
+                            "Coral worker restart attempt {} failed after inference error: {last_error:#}",
+                            attempt + 1
+                        )
+                    })?;
+                    match self.infer_nhwc_once(values) {
+                        Ok(output) => return Ok(output),
+                        Err(error) => last_error = error,
+                    }
+                }
+                bail!(
+                    "Coral inference still failed after {} configured worker restart attempt(s): {last_error:#}",
+                    self.maximum_worker_restarts_per_frame
+                );
+            }
+        }
+    }
+
+    fn infer_nhwc_once(&mut self, values: &[f32]) -> Result<Vec<f32>> {
+        let input_bytes = values
+            .len()
+            .checked_mul(std::mem::size_of::<f32>())
+            .context("Coral input byte count overflow")?;
+        let input_bytes = u64::try_from(input_bytes)
+            .context("Coral input byte count exceeds the worker protocol limit")?;
+        self.stdin
+            .write_all(&input_bytes.to_le_bytes())
+            .context("failed to send input length to the Coral TFLite worker")?;
+        // SAFETY: `values` is an initialized, contiguous slice of f32 values;
+        // the target-endian guard above guarantees its byte representation is
+        // the little-endian float32 format used by the worker protocol.
+        let value_bytes = unsafe {
+            std::slice::from_raw_parts(values.as_ptr().cast::<u8>(), std::mem::size_of_val(values))
+        };
+        self.stdin
+            .write_all(value_bytes)
+            .context("failed to send input tensor to the Coral TFLite worker")?;
+        self.stdin
+            .flush()
+            .context("failed to flush input tensor to the Coral TFLite worker")?;
+
+        let mut status = [0_u8; 1];
+        self.stdout
+            .read_exact(&mut status)
+            .context("Coral TFLite worker stopped before returning an inference result")?;
+        if status[0] == 1 {
+            let mut error_length = [0_u8; 4];
+            self.stdout
+                .read_exact(&mut error_length)
+                .context("Coral TFLite worker returned a truncated inference error")?;
+            let error_length = u32::from_le_bytes(error_length) as usize;
+            ensure!(
+                error_length <= 16 * 1024,
+                "Coral TFLite worker returned an oversized inference error"
+            );
+            let mut error_message = vec![0; error_length];
+            self.stdout
+                .read_exact(&mut error_message)
+                .context("Coral TFLite worker returned a truncated inference error message")?;
+            bail!(
+                "Coral TFLite inference failed: {}",
+                String::from_utf8_lossy(&error_message)
+            );
+        }
+        ensure!(
+            status[0] == 0,
+            "Coral TFLite worker returned unknown status {}",
+            status[0]
+        );
+
+        let byte_count = self
+            .output_value_count
+            .checked_mul(std::mem::size_of::<f32>())
+            .context("Coral output byte count overflow")?;
+        let mut output_bytes = vec![0_u8; byte_count];
+        self.stdout
+            .read_exact(&mut output_bytes)
+            .context("Coral TFLite worker returned a truncated output tensor")?;
+        let output_values = output_bytes
+            .as_chunks::<{ std::mem::size_of::<f32>() }>()
+            .0
+            .iter()
+            .map(|bytes| f32::from_le_bytes(*bytes))
+            .collect();
+        Ok(output_values)
+    }
+
+    /// Replace a worker after a transfer or worker-protocol error. The failed
+    /// delegate is shut down and reaped before a new interpreter is created,
+    /// which releases the USB device handle so a transient reset can recover.
+    fn restart_worker(&mut self) -> Result<()> {
+        self.stop_worker();
+        thread::sleep(self.worker_restart_backoff);
+        let replacement = Self::new(CoralSessionOptions {
+            model_path: &self.model_path,
+            python_executable: &self.python_executable,
+            delegate_library: &self.delegate_library,
+            intra_op_threads: self.intra_op_threads,
+            image_size: self.image_size,
+            expected_output_shape: &self.expected_output_shape,
+            worker_restart_backoff: self.worker_restart_backoff,
+            maximum_worker_restarts_per_frame: self.maximum_worker_restarts_per_frame,
+        })
+        .context("failed to initialize a replacement Coral worker")?;
+        let stopped = std::mem::replace(self, replacement);
+        drop(stopped);
+        Ok(())
+    }
+
+    fn stop_worker(&mut self) {
+        // Ask the worker to leave its inference loop first. Give the Python
+        // process a short bounded window to release the interpreter and TPU
+        // delegate before killing it if native shutdown is blocked.
+        let _ = self.stdin.write_all(&0_u64.to_le_bytes());
+        let _ = self.stdin.flush();
+
+        let shutdown_deadline = Instant::now() + Duration::from_millis(100);
+        loop {
+            match self.child.try_wait() {
+                Ok(Some(_)) => return,
+                Ok(None) if Instant::now() < shutdown_deadline => {
+                    thread::sleep(Duration::from_millis(5));
+                }
+                Ok(None) | Err(_) => break,
+            }
+        }
+
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+
+impl Drop for CoralSession {
+    fn drop(&mut self) {
+        self.stop_worker();
+    }
+}
+
+fn checked_shape_value_count(shape: &[i64]) -> Result<usize> {
+    shape.iter().try_fold(1_usize, |count, dimension| {
+        ensure!(
+            *dimension > 0,
+            "tensor shape contains a non-positive dimension"
+        );
+        count
+            .checked_mul(*dimension as usize)
+            .context("tensor shape value count overflow")
+    })
 }
 
 /// Reuses an OpenVINO infer request and its input tensor across frames. The
@@ -2810,6 +4004,27 @@ fn validate_session(
     image_size: u32,
     class_names: &[String],
 ) -> Result<Vec<i64>> {
+    if let InferenceSession::Coral(session) = session {
+        let expected_input = vec![1_i64, image_size as i64, image_size as i64, 3];
+        ensure!(
+            session.input_shape == expected_input,
+            "unexpected Coral TFLite input shape {:?}; expected NHWC {expected_input:?}",
+            session.input_shape
+        );
+        let expected_channels = (4 + class_names.len()) as i64;
+        let expected_output = vec![
+            1_i64,
+            expected_channels,
+            expected_anchor_count(image_size)? as i64,
+        ];
+        ensure!(
+            session.output_shape == expected_output,
+            "unexpected Coral TFLite output shape {:?}; expected {expected_output:?}",
+            session.output_shape
+        );
+        return Ok(session.output_shape.clone());
+    }
+
     let (input_name, input_shape, output_name, output_shape) = match session {
         InferenceSession::Ort(session) => {
             ensure!(
@@ -2837,6 +4052,7 @@ fn validate_session(
             session.output_name.clone(),
             session.output_shape.clone(),
         ),
+        InferenceSession::Coral(_) => unreachable!("Coral validation returned above"),
     };
     ensure!(
         input_name == INPUT_NAME,
@@ -2909,8 +4125,12 @@ fn profile_provider(
         );
         let session_init_ms = elapsed_ms(init_start);
         let inference_start = Instant::now();
-        let (actual_output_shape, _) =
-            run_session(&mut session, &sample.values, options.image_size as usize)?;
+        let (actual_output_shape, _) = run_session(
+            &mut session,
+            &sample.values,
+            options.image_size as usize,
+            PreparedTensorLayout::Nchw,
+        )?;
         let inference_ms = elapsed_ms(inference_start);
         ensure!(
             actual_output_shape == expected_output_shape,
@@ -2942,7 +4162,12 @@ fn profile_provider(
     let session_init_ms = elapsed_ms(init_start);
 
     let inference_start = Instant::now();
-    let (output_shape, _) = run_session(&mut session, &sample.values, options.image_size as usize)?;
+    let (output_shape, _) = run_session(
+        &mut session,
+        &sample.values,
+        options.image_size as usize,
+        PreparedTensorLayout::Nchw,
+    )?;
     let inference_ms = elapsed_ms(inference_start);
     ensure!(
         output_shape == expected_output_shape,
@@ -3011,9 +4236,14 @@ fn run_session(
     session: &mut InferenceSession,
     values: &[f32],
     image_size: usize,
+    layout: PreparedTensorLayout,
 ) -> Result<(Vec<i64>, Vec<f32>)> {
     match session {
         InferenceSession::Ort(session) => {
+            ensure!(
+                layout == PreparedTensorLayout::Nchw,
+                "ONNX Runtime requires planar NCHW input"
+            );
             let tensor =
                 TensorRef::<f32>::from_array_view(([1_usize, 3, image_size, image_size], values))
                     .context("failed to create ONNX input tensor view")?;
@@ -3035,6 +4265,10 @@ fn run_session(
             Ok((shape, data.to_vec()))
         }
         InferenceSession::Openvino(session) => {
+            ensure!(
+                layout == PreparedTensorLayout::Nchw,
+                "OpenVINO requires planar NCHW input"
+            );
             let input = session
                 .input_tensor
                 .get_data_mut::<f32>()
@@ -3069,7 +4303,39 @@ fn run_session(
                 .to_vec();
             Ok((shape, values))
         }
+        InferenceSession::Coral(session) => {
+            let transposed = match layout {
+                PreparedTensorLayout::Nchw => Some(nchw_to_nhwc(values, image_size)?),
+                PreparedTensorLayout::Nhwc => None,
+            };
+            let input = transposed.as_deref().unwrap_or(values);
+            let output = session.infer_nhwc(input)?;
+            Ok((session.output_shape.clone(), output))
+        }
     }
+}
+
+/// Transpose the shared preprocessor's planar RGB input into the Coral
+/// artifact's interleaved NHWC layout without changing color order or values.
+fn nchw_to_nhwc(values: &[f32], image_size: usize) -> Result<Vec<f32>> {
+    let plane_size = image_size
+        .checked_mul(image_size)
+        .context("Coral input plane size overflow")?;
+    let expected_values = plane_size
+        .checked_mul(3)
+        .context("Coral input tensor size overflow")?;
+    ensure!(
+        values.len() == expected_values,
+        "prepared NCHW input has {} values, expected {expected_values}",
+        values.len()
+    );
+    let mut output = vec![0.0_f32; expected_values];
+    for pixel_index in 0..plane_size {
+        output[pixel_index * 3] = values[pixel_index];
+        output[pixel_index * 3 + 1] = values[plane_size + pixel_index];
+        output[pixel_index * 3 + 2] = values[plane_size * 2 + pixel_index];
+    }
+    Ok(output)
 }
 
 fn prepare_decoded_image(image: RgbImage, decode_ms: f64, image_size: u32) -> Result<TimedInput> {
@@ -3155,16 +4421,17 @@ mod tests {
     use super::{
         build_detection_batch, calibration_latency_summary, calibration_report_for_batch,
         checked_duration_from_seconds, completed_after_source_deadline, expected_anchor_count,
-        find_versioned_openvino_c_library, latest_due_source_index, load_and_verify_manifest,
-        open_detection_batch_sink, open_scene_snapshot_output,
-        paced_source_to_calibration_latency_ms, parse_provider_profile, percentile_summary,
-        run_bounded_command, sha256_file, timeline_media_duration, validate_batch_identifier,
-        validate_frame_inference_options, validate_inference_parameters,
+        find_versioned_openvino_c_library, latest_due_source_index, load_and_verify_coral_manifest,
+        load_and_verify_manifest, nchw_to_nhwc, open_detection_batch_sink,
+        open_scene_snapshot_output, paced_source_to_calibration_latency_ms, parse_provider_profile,
+        percentile_summary, run_bounded_command, sha256_file, timeline_media_duration,
+        validate_batch_identifier, validate_frame_inference_options, validate_inference_parameters,
         validate_scene_calibration_context, versioned_openvino_library_version,
         write_detection_batch_line, write_scene_snapshot_line, AuditOptions, BatchOutputOptions,
-        CalibrationAuditOptions, CalibrationStatus, FrameInferenceEngine, FrameInferenceOptions,
-        PacedReplayMeasurementWindow, ProviderSelection, SceneSnapshotOutputDestination,
-        SceneSnapshotOutputOptions, VideoReplayMode, VideoTimeline,
+        CalibrationAuditOptions, CalibrationStatus, CoralSession, CoralSessionOptions,
+        FrameInferenceEngine, FrameInferenceOptions, PacedReplayMeasurementWindow,
+        ProviderSelection, SceneSnapshotOutputDestination, SceneSnapshotOutputOptions,
+        VideoReplayMode, VideoTimeline,
     };
     use crate::detection_batch::{decode_detection_batch_v1, DetectionBatchV1, ImageSpace};
     use crate::inference::Detection;
@@ -3176,7 +4443,7 @@ mod tests {
     use std::fs;
     #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
     #[cfg(unix)]
     use std::process::Command;
     use std::time::{Duration, Instant};
@@ -3641,6 +4908,10 @@ mod tests {
             "OpenVINO CPU (native)"
         );
         assert_eq!(
+            ProviderSelection::Coral.requested_provider_name(),
+            "Coral Edge TPU (TFLite delegate)"
+        );
+        assert_eq!(
             ProviderSelection::Openvino.binding(),
             (
                 "openvino-rs",
@@ -3653,6 +4924,188 @@ mod tests {
             "ort",
             "portable CPU inference remains on ONNX Runtime"
         );
+    }
+
+    #[test]
+    fn coral_preprocessing_transposes_planar_rgb_to_interleaved_nhwc() {
+        let nchw = vec![
+            1.0, 2.0, 3.0, 4.0, 10.0, 20.0, 30.0, 40.0, 100.0, 200.0, 250.0, 255.0,
+        ];
+        assert_eq!(
+            nchw_to_nhwc(&nchw, 2).unwrap(),
+            [1.0, 10.0, 100.0, 2.0, 20.0, 200.0, 3.0, 30.0, 250.0, 4.0, 40.0, 255.0]
+        );
+        assert!(nchw_to_nhwc(&nchw[..11], 2).is_err());
+    }
+
+    #[test]
+    fn coral_manifest_verifies_compiled_model_checkpoint_and_tensor_contract() {
+        let temporary = tempfile::tempdir().unwrap();
+        let model_path = temporary.path().join("detector_edgetpu.tflite");
+        let checkpoint_path = temporary.path().join("detector.pt");
+        fs::write(&model_path, b"compiled tflite bytes").unwrap();
+        fs::write(&checkpoint_path, b"source checkpoint bytes").unwrap();
+        let model_hash = sha256_file(&model_path).unwrap();
+        let checkpoint_hash = sha256_file(&checkpoint_path).unwrap();
+        fs::write(
+            temporary.path().join("manifest.json"),
+            serde_json::to_vec(&json!({
+                "artifact_type": "Coral Edge TPU compiled TensorFlow Lite model",
+                "source": {"checkpoint": {"sha256": checkpoint_hash}},
+                "model_contract": {
+                    "input": {
+                        "shape": [1, 32, 32, 3],
+                        "layout": "NHWC",
+                        "dtype": "float32",
+                        "color_order": "RGB",
+                        "normalization": "[0,1]"
+                    },
+                    "output": {
+                        "shape": [1, 6, 21],
+                        "dtype": "float32",
+                        "class_order": ["cue", "ball"],
+                        "box_coordinate_space": "normalized_0_1",
+                        "nms_embedded": false
+                    }
+                },
+                "files": {
+                    "detector_edgetpu.tflite": {
+                        "sha256": model_hash
+                    }
+                }
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let loaded = load_and_verify_coral_manifest(&model_path, &checkpoint_path, 32).unwrap();
+        assert_eq!(loaded.class_names, ["cue", "ball"]);
+        assert_eq!(loaded.artifact_sha256, model_hash);
+        assert_eq!(loaded.source_checkpoint_sha256, checkpoint_hash);
+        assert_eq!(loaded.output_coordinate_scale, 32.0);
+
+        let mut manifest: Value =
+            serde_json::from_slice(&fs::read(temporary.path().join("manifest.json")).unwrap())
+                .unwrap();
+        manifest["model_contract"]["output"]["box_coordinate_space"] = json!("model_pixels");
+        fs::write(
+            temporary.path().join("manifest.json"),
+            serde_json::to_vec(&manifest).unwrap(),
+        )
+        .unwrap();
+        let pixel_contract =
+            load_and_verify_coral_manifest(&model_path, &checkpoint_path, 32).unwrap();
+        assert_eq!(pixel_contract.output_coordinate_scale, 1.0);
+
+        manifest["model_contract"]["output"]["box_coordinate_space"] =
+            json!("unrecognized_coordinates");
+        fs::write(
+            temporary.path().join("manifest.json"),
+            serde_json::to_vec(&manifest).unwrap(),
+        )
+        .unwrap();
+        let error = load_and_verify_coral_manifest(&model_path, &checkpoint_path, 32).unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("unsupported Coral box coordinate space"));
+
+        fs::write(&model_path, b"changed tflite bytes").unwrap();
+        let error = load_and_verify_coral_manifest(&model_path, &checkpoint_path, 32).unwrap_err();
+        assert!(error.to_string().contains("model hash does not match"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn coral_worker_handshake_inference_error_frame_and_shutdown_are_bounded() {
+        let temporary = tempfile::tempdir().unwrap();
+        let expected_output_shape = [1, 6, 21];
+
+        let success_python = write_fake_coral_python(temporary.path(), "success", false);
+        let success_marker = temporary.path().join("success.stopped");
+        let mut session = CoralSession::new(CoralSessionOptions {
+            model_path: Path::new("unused-model.tflite"),
+            python_executable: &success_python,
+            delegate_library: "unused-delegate",
+            intra_op_threads: Some(1),
+            image_size: 32,
+            expected_output_shape: &expected_output_shape,
+            worker_restart_backoff: Duration::from_millis(1),
+            maximum_worker_restarts_per_frame: 1,
+        })
+        .unwrap();
+        let input = (0..32 * 32 * 3)
+            .map(|value| value as f32)
+            .collect::<Vec<_>>();
+        let output = session.infer_nhwc(&input).unwrap();
+        assert_eq!(output, input[..126]);
+        drop(session);
+        assert!(
+            success_marker.is_file(),
+            "worker observed the shutdown frame"
+        );
+
+        let error_python = write_fake_coral_python(temporary.path(), "error", true);
+        let error_marker = temporary.path().join("error.stopped");
+        let mut session = CoralSession::new(CoralSessionOptions {
+            model_path: Path::new("unused-model.tflite"),
+            python_executable: &error_python,
+            delegate_library: "unused-delegate",
+            intra_op_threads: None,
+            image_size: 32,
+            expected_output_shape: &expected_output_shape,
+            worker_restart_backoff: Duration::from_millis(1),
+            maximum_worker_restarts_per_frame: 1,
+        })
+        .unwrap();
+        let error = session.infer_nhwc(&vec![0.0; 32 * 32 * 3]).unwrap_err();
+        assert!(error.to_string().contains("simulated invoke error"));
+        drop(session);
+        assert!(error_marker.is_file(), "worker observed the shutdown frame");
+    }
+
+    #[cfg(unix)]
+    fn write_fake_coral_python(directory: &Path, name: &str, fail_inference: bool) -> PathBuf {
+        let script_path = directory.join(format!("fake-coral-{name}"));
+        let stopped_marker = directory.join(format!("{name}.stopped"));
+        let stopped_marker = serde_json::to_string(&stopped_marker.display().to_string()).unwrap();
+        let source = r##"#!/usr/bin/env python3
+import json
+import struct
+import sys
+
+fail_inference = __FAIL_INFERENCE__
+print(json.dumps({"ok": True, "input": {"shape": [1, 32, 32, 3], "dtype": "float32"}, "output": {"shape": [1, 6, 21], "dtype": "float32"}}), flush=True)
+while True:
+    header = sys.stdin.buffer.read(8)
+    if not header:
+        break
+    length = struct.unpack("<Q", header)[0]
+    if length == 0:
+        open(__STOPPED_MARKER__, "wb").close()
+        break
+    payload = bytearray()
+    while len(payload) < length:
+        chunk = sys.stdin.buffer.read(length - len(payload))
+        if not chunk:
+            raise RuntimeError("unexpected end of tensor")
+        payload.extend(chunk)
+    if fail_inference:
+        message = b"simulated invoke error"
+        sys.stdout.buffer.write(b"\x01" + struct.pack("<I", len(message)) + message)
+    else:
+        sys.stdout.buffer.write(b"\x00" + payload[:126 * 4])
+    sys.stdout.buffer.flush()
+"##
+            .replace(
+                "__FAIL_INFERENCE__",
+                if fail_inference { "True" } else { "False" },
+            )
+            .replace("__STOPPED_MARKER__", &stopped_marker);
+        fs::write(&script_path, source).unwrap();
+        let mut permissions = fs::metadata(&script_path).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&script_path, permissions).unwrap();
+        script_path
     }
 
     #[test]
@@ -3987,8 +5440,13 @@ mod tests {
         let mut engine = FrameInferenceEngine::new(
             environment,
             FrameInferenceOptions {
-                onnx_path: model_path.clone(),
+                onnx_path: Some(model_path.clone()),
                 source_checkpoint_path: checkpoint_path,
+                coral_model_path: None,
+                coral_python_executable: PathBuf::from("python3"),
+                coral_delegate_library: "libedgetpu.so.1".to_owned(),
+                coral_worker_restart_backoff: Duration::from_millis(1),
+                coral_maximum_worker_restarts_per_frame: 1,
                 provider: ProviderSelection::Cpu,
                 image_size: 32,
                 confidence: 0.4,
@@ -4058,8 +5516,13 @@ mod tests {
 
         let scratch = tempfile::tempdir().unwrap();
         let options = FrameInferenceOptions {
-            onnx_path: scratch.path().join("missing.onnx"),
+            onnx_path: Some(scratch.path().join("missing.onnx")),
             source_checkpoint_path: scratch.path().join("missing.pt"),
+            coral_model_path: None,
+            coral_python_executable: PathBuf::from("python3"),
+            coral_delegate_library: "libedgetpu.so.1".to_owned(),
+            coral_worker_restart_backoff: Duration::from_millis(1),
+            coral_maximum_worker_restarts_per_frame: 1,
             provider: ProviderSelection::Cpu,
             image_size: 32,
             confidence: 0.4,

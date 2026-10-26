@@ -28,6 +28,7 @@ use billiards_perception::detection_batch::{
 };
 use billiards_perception::framing::{read_framed_message, write_framed_message};
 use billiards_perception::inference::{Detection, FrameInferenceOutput, FrameInferenceTimings};
+use billiards_perception::phase_scheduler::{PhaseCadence, SchedulerConfig};
 use billiards_perception::tracking::TrackingConfigV1;
 use billiards_perception::SceneTransportConfig;
 use serde_json::{json, Value};
@@ -40,6 +41,8 @@ struct TestDetector {
     model: ModelIdentity,
     settings: InferenceSettings,
     calls: Arc<AtomicUsize>,
+    first_call_release: Option<mpsc::Receiver<()>>,
+    shifting_cue_detection: bool,
 }
 
 impl Rgb8FrameDetector for TestDetector {
@@ -49,18 +52,40 @@ impl Rgb8FrameDetector for TestDetector {
         height_px: u32,
         pixels: &[u8],
     ) -> anyhow::Result<FrameInferenceOutput> {
-        self.calls.fetch_add(1, Ordering::SeqCst);
+        let call_index = self.calls.fetch_add(1, Ordering::SeqCst);
+        if call_index == 0 {
+            if let Some(release) = self.first_call_release.as_ref() {
+                release.recv().map_err(|error| anyhow::anyhow!(error))?;
+            }
+        }
         anyhow::ensure!(pixels.len() == (width_px * height_px * 3) as usize);
+        let mut detections = vec![Detection {
+            class_id: 1,
+            class_name: "ball".to_owned(),
+            confidence: 0.95,
+            bbox_xyxy_px: [3.0, 4.0, 9.0, 10.0],
+            center_xy_px: [6.0, 7.0],
+        }];
+        if self.shifting_cue_detection {
+            // The cue moves between completed inferences while the ball stays
+            // fixed. Cue detections must not affect ball-layout consensus.
+            let cue_center_x = if call_index.is_multiple_of(2) {
+                2.0
+            } else {
+                14.0
+            };
+            detections.push(Detection {
+                class_id: 0,
+                class_name: "cue".to_owned(),
+                confidence: 0.9,
+                bbox_xyxy_px: [cue_center_x - 1.0, 6.0, cue_center_x + 1.0, 8.0],
+                center_xy_px: [cue_center_x, 7.0],
+            });
+        }
         Ok(FrameInferenceOutput {
             source_width_px: width_px,
             source_height_px: height_px,
-            detections: vec![Detection {
-                class_id: 1,
-                class_name: "ball".to_owned(),
-                confidence: 0.95,
-                bbox_xyxy_px: [3.0, 4.0, 9.0, 10.0],
-                center_xy_px: [6.0, 7.0],
-            }],
+            detections,
             timings: FrameInferenceTimings {
                 preprocess_ms: 0.1,
                 inference_ms: 0.2,
@@ -93,6 +118,7 @@ struct TestFactory {
     releases: Arc<AtomicUsize>,
     opens: Arc<AtomicUsize>,
     frame_count: usize,
+    frame_interval: Duration,
 }
 
 impl CaptureSourceFactory for TestFactory {
@@ -108,6 +134,7 @@ impl CaptureSourceFactory for TestFactory {
             releases: self.releases,
             emitted: 0,
             frame_count: self.frame_count,
+            frame_interval: self.frame_interval,
         }))
     }
 }
@@ -118,6 +145,7 @@ struct TestSource {
     releases: Arc<AtomicUsize>,
     emitted: usize,
     frame_count: usize,
+    frame_interval: Duration,
 }
 
 impl CaptureSource for TestSource {
@@ -133,6 +161,9 @@ impl CaptureSource for TestSource {
     ) -> Result<CaptureReadOutcome, String> {
         if self.interrupted.load(Ordering::Acquire) || self.emitted >= self.frame_count {
             return Ok(CaptureReadOutcome::End);
+        }
+        if self.emitted > 0 && !self.frame_interval.is_zero() {
+            thread::sleep(self.frame_interval);
         }
         self.emitted += 1;
         let geometry = self.metadata.output_frame_geometry().unwrap_or_else(|| {
@@ -195,6 +226,7 @@ impl CaptureSourceFactory for BlockingOpenFactory {
             releases: Arc::new(AtomicUsize::new(0)),
             emitted: 0,
             frame_count: 0,
+            frame_interval: Duration::ZERO,
         }))
     }
 }
@@ -256,6 +288,8 @@ fn model_and_calls() -> (TestDetector, Arc<AtomicUsize>) {
             max_detections: 32,
         },
         calls: Arc::clone(&calls),
+        first_call_release: None,
+        shifting_cue_detection: false,
     };
     (detector, calls)
 }
@@ -270,6 +304,7 @@ fn pipeline_config(
         capture_configuration_revision: revision,
         image_space: BatchImageSpace::Raw,
         maximum_frame_age,
+        phase_schedule: None,
         calibration: None,
         scene_transport: SceneTransportConfig {
             address,
@@ -392,6 +427,7 @@ fn runtime_with_session_id(
         releases: Arc::clone(&releases),
         opens: Arc::clone(&opens),
         frame_count,
+        frame_interval: Duration::ZERO,
     };
     let track_settings = tracking(
         settings.expected.camera_profile_id(),
@@ -449,6 +485,258 @@ fn receive_live_scene(listener: TcpListener) -> (Value, Value) {
     (hello, scene)
 }
 
+fn acknowledge_and_drain_live_session(listener: TcpListener) {
+    let (mut stream, _) = listener.accept().unwrap();
+    stream
+        .set_read_timeout(Some(Duration::from_secs(3)))
+        .unwrap();
+    stream
+        .set_write_timeout(Some(Duration::from_secs(3)))
+        .unwrap();
+    let hello = read_message(&mut stream);
+    let acknowledgement = &hello["capture_session_ack"];
+    write_message(
+        &mut stream,
+        &json!({
+            "type": "ready",
+            "protocol_version": 3,
+            "configuration_revision": acknowledgement["configuration_revision"],
+            "request_sha256": acknowledgement["request_sha256"],
+            "last_transport_sequence": null
+        }),
+    );
+    while read_framed_message(&mut stream, MAXIMUM_MESSAGE_BYTES).is_ok() {}
+}
+
+fn phase_test_schedule(
+    ball_hz: f64,
+    motion_hz: f64,
+    quiet_dwell: Duration,
+    layout_consensus_count: usize,
+) -> SchedulerConfig {
+    let cadence = PhaseCadence {
+        motion_hz,
+        ball_hz,
+        cue_hz: 0.0,
+    };
+    SchedulerConfig {
+        recovering: cadence,
+        pre_shot: cadence,
+        aiming: cadence,
+        shot: PhaseCadence {
+            motion_hz,
+            ball_hz: 0.0,
+            cue_hz: 0.0,
+        },
+        quiet_dwell,
+        layout_consensus_count,
+        layout_position_tolerance_px: 4.0,
+        motion_evidence_expiry: Duration::from_secs(1),
+        cue_evidence_expiry: Duration::from_millis(500),
+        layout_evidence_expiry: Duration::from_secs(2),
+    }
+}
+
+fn phase_runtime(
+    request: &str,
+    address: SocketAddr,
+    detector: TestDetector,
+    frame_count: usize,
+    frame_interval: Duration,
+    schedule: SchedulerConfig,
+) -> LiveCaptureRuntime<TestDetector> {
+    let settings = parse_capture_settings_json(request).unwrap();
+    let interrupted = Arc::new(AtomicBool::new(false));
+    let releases = Arc::new(AtomicUsize::new(0));
+    let opens = Arc::new(AtomicUsize::new(0));
+    let mut config = pipeline_config(
+        address,
+        settings.configuration_revision,
+        settings.expected.maximum_frame_age(),
+    );
+    config.phase_schedule = Some(schedule);
+    config.scene_transport.public_state_delivery_enabled = true;
+    LiveCaptureRuntime::start(
+        request,
+        detector,
+        tracking(
+            settings.expected.camera_profile_id(),
+            settings.expected.rectification_revision(),
+        ),
+        config,
+        TestFactory {
+            metadata: metadata(&settings.expected),
+            interrupted,
+            releases,
+            opens,
+            frame_count,
+            frame_interval,
+        },
+    )
+    .unwrap()
+}
+
+fn wait_for_detector_calls(calls: &AtomicUsize, minimum: usize) {
+    let deadline = std::time::Instant::now() + Duration::from_secs(1);
+    while calls.load(Ordering::SeqCst) < minimum && std::time::Instant::now() < deadline {
+        thread::yield_now();
+    }
+    assert!(calls.load(Ordering::SeqCst) >= minimum);
+}
+
+#[test]
+fn cue_detections_do_not_change_ball_layout_settlement_consensus() {
+    let _guard = TEST_LOCK.lock().unwrap();
+    let request = request_json();
+    let listener = TcpListener::bind(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0)).unwrap();
+    let address = listener.local_addr().unwrap();
+    let receiver = thread::spawn(move || acknowledge_and_drain_live_session(listener));
+    let (mut detector, calls) = model_and_calls();
+    detector.shifting_cue_detection = true;
+    let mut runtime = phase_runtime(
+        &request,
+        address,
+        detector,
+        10,
+        Duration::from_millis(60),
+        phase_test_schedule(10.0, 20.0, Duration::from_millis(1), 2),
+    );
+    let session_id = runtime.session_id().to_owned();
+    assert_eq!(
+        runtime.wait_until_ready(Duration::from_secs(2)),
+        &LiveCaptureLifecycle::Ready { session_id }
+    );
+
+    for _ in 0..10 {
+        match runtime.receive_one(Duration::from_secs(2)).unwrap() {
+            CaptureReceiveOutcome::Frame(Ok(_)) => {}
+            CaptureReceiveOutcome::TimedOut => {
+                panic!("scripted source did not emit its next frame")
+            }
+            CaptureReceiveOutcome::Closed => break,
+            other => panic!("unexpected live receive result: {other:?}"),
+        }
+        if runtime
+            .scheduler_evidence()
+            .unwrap()
+            .is_some_and(|evidence| evidence.map_trusted)
+        {
+            break;
+        }
+    }
+
+    wait_for_detector_calls(&calls, 2);
+    let evidence = runtime.scheduler_evidence().unwrap().unwrap();
+    assert!(
+        evidence.map_trusted,
+        "moving cue detections must not reset otherwise consistent ball consensus: {evidence:?}"
+    );
+    assert!(matches!(
+        runtime.stop(Duration::from_secs(2)),
+        billiards_perception::capture::CaptureRuntimeWait::Completed(_)
+    ));
+    receiver.join().unwrap();
+}
+
+#[test]
+fn scheduled_cue_work_runs_on_a_single_flight_worker_and_reports_completion() {
+    let _guard = TEST_LOCK.lock().unwrap();
+    let request = request_json();
+    let listener = TcpListener::bind(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0)).unwrap();
+    let address = listener.local_addr().unwrap();
+    let receiver = thread::spawn(move || acknowledge_and_drain_live_session(listener));
+    let (detector, _) = model_and_calls();
+    let mut schedule = phase_test_schedule(10.0, 30.0, Duration::from_millis(1), 2);
+    schedule.recovering.cue_hz = 30.0;
+    schedule.pre_shot.cue_hz = 30.0;
+    schedule.aiming.cue_hz = 30.0;
+    let mut runtime = phase_runtime(
+        &request,
+        address,
+        detector,
+        8,
+        Duration::from_millis(40),
+        schedule,
+    );
+    let session_id = runtime.session_id().to_owned();
+    assert_eq!(
+        runtime.wait_until_ready(Duration::from_secs(2)),
+        &LiveCaptureLifecycle::Ready { session_id }
+    );
+
+    for _ in 0..6 {
+        match runtime.receive_one(Duration::from_secs(2)).unwrap() {
+            CaptureReceiveOutcome::Frame(Ok(_)) => {}
+            CaptureReceiveOutcome::TimedOut => {
+                panic!("scripted source did not emit its next frame")
+            }
+            other => panic!("unexpected live receive result: {other:?}"),
+        }
+    }
+    let stats = runtime.phase_stats();
+    assert!(
+        stats.cue_dispatches > 0,
+        "cue cadence should submit bounded work"
+    );
+    assert!(
+        stats.cue_observations > 0,
+        "at least one asynchronous estimate should complete"
+    );
+    assert!(stats.cue_overload_skips <= stats.cue_dispatches);
+
+    assert!(matches!(
+        runtime.stop(Duration::from_secs(2)),
+        billiards_perception::capture::CaptureRuntimeWait::Completed(_)
+    ));
+    receiver.join().unwrap();
+}
+
+#[test]
+fn ready_detector_completion_is_consumed_before_a_due_frame_dispatch() {
+    let _guard = TEST_LOCK.lock().unwrap();
+    let request = request_json();
+    let listener = TcpListener::bind(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0)).unwrap();
+    let address = listener.local_addr().unwrap();
+    let receiver = thread::spawn(move || acknowledge_and_drain_live_session(listener));
+    let (mut detector, calls) = model_and_calls();
+    let (release_tx, release_rx) = mpsc::channel();
+    detector.first_call_release = Some(release_rx);
+    let mut runtime = phase_runtime(
+        &request,
+        address,
+        detector,
+        3,
+        Duration::from_millis(120),
+        phase_test_schedule(10.0, 100.0, Duration::from_millis(800), 3),
+    );
+    let session_id = runtime.session_id().to_owned();
+    assert_eq!(
+        runtime.wait_until_ready(Duration::from_secs(2)),
+        &LiveCaptureLifecycle::Ready { session_id }
+    );
+
+    assert!(matches!(
+        runtime.receive_one(Duration::from_secs(2)).unwrap(),
+        CaptureReceiveOutcome::Frame(Ok(CapturePipelineOutcome::Skipped(_)))
+    ));
+    wait_for_detector_calls(&calls, 1);
+    release_tx.send(()).unwrap();
+
+    // The source holds frame two for longer than the configured detector
+    // interval, making the first result ready before a full-layout slot is due.
+    assert!(matches!(
+        runtime.receive_one(Duration::from_secs(2)).unwrap(),
+        CaptureReceiveOutcome::Frame(Ok(CapturePipelineOutcome::Published(_)))
+    ));
+    wait_for_detector_calls(&calls, 2);
+
+    assert!(matches!(
+        runtime.stop(Duration::from_secs(2)),
+        billiards_perception::capture::CaptureRuntimeWait::Completed(_)
+    ));
+    receiver.join().unwrap();
+}
+
 #[test]
 fn exact_request_preflight_v3_readiness_and_rgb8_scene_run_end_to_end() {
     let _guard = TEST_LOCK.lock().unwrap();
@@ -456,9 +744,9 @@ fn exact_request_preflight_v3_readiness_and_rgb8_scene_run_end_to_end() {
     let listener = TcpListener::bind(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0)).unwrap();
     let address = listener.local_addr().unwrap();
     let receiver = thread::spawn(move || receive_live_scene(listener));
-    let python_session_id = "gateway-session-73d507";
+    let source_session_id = "gateway-session-73d507";
     let (mut runtime, calls, releases, _) =
-        runtime_with_session_id(&request, address, None, Some(python_session_id), 1);
+        runtime_with_session_id(&request, address, None, Some(source_session_id), 1);
     assert!(matches!(
         runtime.lifecycle(),
         LiveCaptureLifecycle::Pending { .. }
@@ -482,16 +770,16 @@ fn exact_request_preflight_v3_readiness_and_rgb8_scene_run_end_to_end() {
     assert_eq!(calls.load(Ordering::SeqCst), 1);
 
     let (hello, scene) = receiver.join().unwrap();
-    assert_eq!(hello["source_session_id"], python_session_id);
+    assert_eq!(hello["source_session_id"], source_session_id);
     assert_eq!(
         hello["capture_session_ack"]["source_report"]["session_id"],
-        python_session_id
+        source_session_id
     );
     assert_eq!(
         hello["capture_session_ack"]["request_sha256"],
         runtime.request_sha256()
     );
-    assert_eq!(scene["source"]["session_id"], python_session_id);
+    assert_eq!(scene["source"]["session_id"], source_session_id);
     assert_eq!(scene["source"]["frame_id"], "frame-1");
     assert!(matches!(
         runtime.stop(Duration::from_secs(2)),
@@ -575,6 +863,7 @@ fn invalid_supervisor_session_identity_is_rejected_before_source_open() {
             releases: Arc::new(AtomicUsize::new(0)),
             opens: Arc::clone(&opens),
             frame_count: 1,
+            frame_interval: Duration::ZERO,
         },
     );
 
@@ -765,6 +1054,7 @@ fn duplicate_pipeline_configuration_is_rejected_before_factory_open() {
             releases: Arc::new(AtomicUsize::new(0)),
             opens: Arc::clone(&opens),
             frame_count: 1,
+            frame_interval: Duration::ZERO,
         },
     );
     assert!(result.is_err());

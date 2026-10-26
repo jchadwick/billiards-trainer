@@ -44,9 +44,33 @@ if [[ "$START_LIVE" == "true" || "$START_LIVE" == "1" || "$START_LIVE" == "yes" 
     require_executable "$LIVE" "Rust live detector binary"
     require_executable "$CAPTURE_HELPER" "Rust GStreamer capture helper"
     if [[ "$CONFIG" == "$SCRIPT_DIR/config.json" ]]; then
-        require_file "$PROJECT_ROOT/models/billiards-yolov8n.onnx" "packaged ONNX model"
-        require_file "$PROJECT_ROOT/models/billiards-yolov8n.pt" "packaged source checkpoint"
-        require_file "$PROJECT_ROOT/models/billiards-yolov8n.onnx.manifest.json" "packaged ONNX export manifest"
+        # The distribution builder records the selected provider separately so
+        # startup can validate the right model bundle without adding a JSON
+        # parser dependency to the target device.
+        inference_provider="onnx"
+        if [[ -f "$SCRIPT_DIR/.billiards-inference-provider" ]]; then
+            inference_provider="$(cat -- "$SCRIPT_DIR/.billiards-inference-provider")"
+        fi
+        case "$inference_provider" in
+            coral)
+                require_file "$PROJECT_ROOT/models/billiards-yolov8n.pt" "packaged source checkpoint"
+                shopt -s nullglob
+                coral_models=("$PROJECT_ROOT"/models/*.tflite)
+                shopt -u nullglob
+                ((${#coral_models[@]} == 1)) || fail "expected exactly one packaged Coral .tflite model under $PROJECT_ROOT/models"
+                coral_model="${coral_models[0]}"
+                require_file "$coral_model" "packaged compiled Coral model"
+                require_file "$(dirname -- "$coral_model")/manifest.json" "packaged Coral export manifest"
+                ;;
+            cpu|auto|openvino|onnx)
+                require_file "$PROJECT_ROOT/models/billiards-yolov8n.onnx" "packaged ONNX model"
+                require_file "$PROJECT_ROOT/models/billiards-yolov8n.pt" "packaged source checkpoint"
+                require_file "$PROJECT_ROOT/models/billiards-yolov8n.onnx.manifest.json" "packaged ONNX export manifest"
+                ;;
+            *)
+                fail "unsupported packaged inference provider '$inference_provider'"
+                ;;
+        esac
     fi
 elif [[ "$START_LIVE" != "false" && "$START_LIVE" != "0" && "$START_LIVE" != "no" ]]; then
     fail "BILLIARDS_START_LIVE must be true or false (received: $START_LIVE)"

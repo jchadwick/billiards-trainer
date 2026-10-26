@@ -1,81 +1,34 @@
-# Backend import, formatting, and hardware-free regression checks.
-name: Backend Tests
+name: Model Export Tool Checks
 
 on:
   push:
     branches: [main, develop]
     paths:
-      - "backend/**"
       - "tools/**"
-      - "frontend/projector/**"
-      - "Makefile"
-      - ".github/workflows/**"
+      - "perception/contracts/model-export/**"
       - "pyproject.toml"
       - "uv.lock"
+      - ".github/workflows/test.yml"
   pull_request:
     branches: [main, develop]
     paths:
-      - "backend/**"
       - "tools/**"
-      - "frontend/projector/**"
-      - "Makefile"
-      - ".github/workflows/**"
+      - "perception/contracts/model-export/**"
       - "pyproject.toml"
       - "uv.lock"
-
-env:
-  PYTHON_VERSION: "3.11"
+      - ".github/workflows/test.yml"
+  workflow_dispatch:
 
 permissions: {}
 
+concurrency:
+  group: model-export-tools-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  code-quality:
-    name: Code Quality
-    runs-on: ubuntu-latest
-    steps:
-      - name: Fetch public source without credentials
-        env:
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-        run: |
-          set -euo pipefail
-          git init .
-          git remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
-          if [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
-            git -c credential.helper= fetch --no-tags --depth=1 origin "refs/pull/${PR_NUMBER}/merge"
-          else
-            git -c credential.helper= fetch --no-tags --depth=1 origin "${GITHUB_SHA}"
-          fi
-          git checkout --quiet --detach FETCH_HEAD
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-
-      - uses: astral-sh/setup-uv@v10.3.2
-        with:
-          version: "0.9.26"
-
-      - name: Install quality tools and backend dependencies
-        run: uv sync --locked --extra python-tooling --extra dev
-
-      - name: Check Ruff rules
-        run: uv run --locked --no-sync python -m ruff check backend tools
-
-      - name: Check strict backend types
-        if: ${{ !cancelled() }}
-        run: uv run --locked --no-sync python -m mypy --strict --python-version 3.11 backend
-
-      - name: Check Black formatting
-        if: ${{ !cancelled() }}
-        run: uv run --locked --no-sync python -m black --check --diff backend tools
-
-      - name: Check import sorting
-        if: ${{ !cancelled() }}
-        run: uv run --locked --no-sync python -m isort --check-only --diff backend tools
-
   tests:
-    name: Backend Tests and Coverage
-    runs-on: ubuntu-latest
+    name: Verify the ONNX exporter contract
+    runs-on: ubuntu-24.04
     steps:
       - name: Fetch public source without credentials
         env:
@@ -93,31 +46,14 @@ jobs:
 
       - uses: actions/setup-python@v5
         with:
-          python-version: ${{ env.PYTHON_VERSION }}
+          python-version: "3.11"
 
       - uses: astral-sh/setup-uv@v10.3.2
         with:
           version: "0.9.26"
 
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libgl1 libglib2.0-0 libsm6 libxext6 libxrender-dev libgomp1 lua5.4
+      - name: Install exporter test dependencies
+        run: uv sync --locked --group dev
 
-      - name: Install backend and test dependencies
-        run: uv sync --locked --extra python-tooling --extra dev
-
-      - name: Collect all backend tests
-        run: uv run --locked --no-sync python -m pytest --collect-only --no-cov backend/tests
-
-      - name: Run retained projector coordinate contract
-        run: |
-          lua5.4 frontend/projector/test_coordinate_contract.lua
-          luac5.4 -p frontend/projector/core/coordinate_contract.lua
-
-      - name: Run backend tests with coverage
-        run: >-
-          uv run --locked --no-sync python -m pytest backend/tests
-          --cov-report=xml:backend/coverage.xml
-          --cov-report=html:backend/coverage-html
-          --junitxml=backend/junit.xml
+      - name: Test model exporter and shared Rust manifest contract
+        run: uv run --locked --no-sync python -m pytest tools/tests

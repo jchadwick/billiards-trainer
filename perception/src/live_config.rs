@@ -105,7 +105,7 @@ pub struct ExpectedCaptureSettings {
     rectification_revision: u64,
     calibration_revision: u64,
     calibration: Option<ValidatedTableCalibrationV1>,
-    /// Digest of the exact Python-canonical request bytes, when created from
+    /// Digest of the exact canonical request bytes, when created from
     /// the strict wire parser. Hand-built expectations remain replay-compatible.
     request_sha256: Option<String>,
     timestamp_semantics: CaptureTimestampSemantics,
@@ -336,7 +336,7 @@ impl ExpectedCaptureSettings {
         Ok(self)
     }
 
-    /// Bind the exact serialized Python request to the settings validated by
+    /// Bind the exact serialized request to the settings validated by
     /// this expectation. This is crate-only because the wire parser computes
     /// the digest from the original bytes before parsing can normalize them.
     pub(crate) fn with_request_sha256(mut self, request_sha256: String) -> Self {
@@ -690,7 +690,7 @@ impl CaptureSessionCompatibility {
         &self.source_report
     }
 
-    /// SHA-256 of the exact request bytes from Python's deterministic encoder.
+    /// SHA-256 of the exact bytes from the deterministic request encoder.
     /// `None` means this compatibility was created from hand-built settings
     /// and is suitable for the existing replay protocol only.
     pub fn request_sha256(&self) -> Option<&str> {

@@ -75,6 +75,21 @@ struct Args {
     /// Maximum time to wait for connected clients after shutdown starts.
     #[arg(long, default_value_t = DEFAULT_SHUTDOWN_GRACE_SECONDS)]
     shutdown_grace_seconds: u64,
+    /// Fixture producer identity copied into every multipart frame header.
+    #[arg(long, default_value = "fixture-engine")]
+    engine_instance_id: String,
+    /// Capture session identity copied into every multipart frame header.
+    #[arg(long, default_value = "fixture-session")]
+    source_session_id: String,
+    /// Capture configuration revision applied to every fixture frame.
+    #[arg(long, default_value_t = 0)]
+    configuration_revision: u64,
+    /// Calibration revision applied to every fixture frame.
+    #[arg(long, default_value_t = 0)]
+    calibration_revision: u64,
+    /// Rectification revision applied to every fixture frame.
+    #[arg(long, default_value_t = 0)]
+    rectification_revision: u64,
 }
 
 #[derive(Clone, Debug)]
@@ -89,7 +104,21 @@ struct PublishedFrame {
     sequence: u64,
     source_index: usize,
     source_name: String,
+    engine_instance_id: String,
+    source_session_id: String,
+    configuration_revision: u64,
+    calibration_revision: u64,
+    rectification_revision: u64,
     jpeg: Bytes,
+}
+
+#[derive(Debug, Clone)]
+struct FrameStreamIdentity {
+    engine_instance_id: String,
+    source_session_id: String,
+    configuration_revision: u64,
+    calibration_revision: u64,
+    rectification_revision: u64,
 }
 
 #[derive(Clone)]
@@ -142,6 +171,13 @@ async fn main() -> Result<()> {
         latest,
         frames,
         Duration::from_secs_f64(1.0 / args.fps),
+        FrameStreamIdentity {
+            engine_instance_id: safe_header_value(&args.engine_instance_id),
+            source_session_id: safe_header_value(&args.source_session_id),
+            configuration_revision: args.configuration_revision,
+            calibration_revision: args.calibration_revision,
+            rectification_revision: args.rectification_revision,
+        },
     ));
 
     eprintln!(
@@ -230,6 +266,25 @@ fn validate_args(args: &Args) -> Result<()> {
     ensure!(
         (1..=60).contains(&args.shutdown_grace_seconds),
         "--shutdown-grace-seconds must be between 1 and 60"
+    );
+    for (name, value) in [
+        ("--engine-instance-id", args.engine_instance_id.as_str()),
+        ("--source-session-id", args.source_session_id.as_str()),
+    ] {
+        ensure!(
+            !value.is_empty() && value.len() <= 128 && !value.chars().any(char::is_control),
+            "{name} must contain between 1 and 128 non-control characters"
+        );
+    }
+    ensure!(
+        [
+            args.configuration_revision,
+            args.calibration_revision,
+            args.rectification_revision
+        ]
+        .into_iter()
+        .all(|revision| revision <= 9_007_199_254_740_991),
+        "frame revisions must fit the JSON safe-integer range"
     );
     Ok(())
 }
@@ -333,6 +388,7 @@ async fn publish_frames(
     latest: watch::Sender<Option<Arc<PublishedFrame>>>,
     frames: Vec<SourceFrame>,
     period: Duration,
+    identity: FrameStreamIdentity,
 ) {
     let mut ticker = time::interval(period);
     ticker.set_missed_tick_behavior(MissedTickBehavior::Skip);
@@ -344,6 +400,11 @@ async fn publish_frames(
             sequence,
             source_index: frame.index,
             source_name: frame.name.clone(),
+            engine_instance_id: identity.engine_instance_id.clone(),
+            source_session_id: identity.source_session_id.clone(),
+            configuration_revision: identity.configuration_revision,
+            calibration_revision: identity.calibration_revision,
+            rectification_revision: identity.rectification_revision,
             jpeg: frame.jpeg.clone(),
         })));
         sequence = sequence.wrapping_add(1);
@@ -380,8 +441,16 @@ async fn stream_mjpeg(State(state): State<AppState>) -> Response {
                 let (part, next) = match stage {
                     PartStage::Header => {
                         let header = format!(
-                            "--{MULTIPART_BOUNDARY}\r\nContent-Type: image/jpeg\r\nContent-Length: {}\r\nX-Frame-Id: {}\r\nX-Source-Frame-Index: {}\r\nX-Source-Frame-Name: {}\r\n\r\n",
-                            frame.jpeg.len(), frame.sequence, frame.source_index, frame.source_name
+                            "--{MULTIPART_BOUNDARY}\r\nContent-Type: image/jpeg\r\nContent-Length: {}\r\nX-Frame-Id: {}\r\nX-Engine-Instance-Id: {}\r\nX-Source-Session-Id: {}\r\nX-Configuration-Revision: {}\r\nX-Calibration-Revision: {}\r\nX-Rectification-Revision: {}\r\nX-Source-Frame-Index: {}\r\nX-Source-Frame-Name: {}\r\n\r\n",
+                            frame.jpeg.len(),
+                            frame.sequence,
+                            frame.engine_instance_id,
+                            frame.source_session_id,
+                            frame.configuration_revision,
+                            frame.calibration_revision,
+                            frame.rectification_revision,
+                            frame.source_index,
+                            frame.source_name,
                         );
                         (Bytes::from(header), Some(PartStage::Image))
                     }
@@ -444,6 +513,11 @@ mod tests {
     struct ReceivedFrame {
         sequence: u64,
         source_index: usize,
+        engine_instance_id: String,
+        source_session_id: String,
+        configuration_revision: u64,
+        calibration_revision: u64,
+        rectification_revision: u64,
         jpeg: Vec<u8>,
     }
 
@@ -561,6 +635,11 @@ mod tests {
             let mut content_length = None;
             let mut sequence = None;
             let mut source_index = None;
+            let mut engine_instance_id = None;
+            let mut source_session_id = None;
+            let mut configuration_revision = None;
+            let mut calibration_revision = None;
+            let mut rectification_revision = None;
             loop {
                 let line = self.read_body_line().await?;
                 if line.is_empty() {
@@ -575,6 +654,17 @@ mod tests {
                 match name.to_ascii_lowercase().as_str() {
                     "content-length" => content_length = value.trim().parse::<usize>().ok(),
                     "x-frame-id" => sequence = value.trim().parse::<u64>().ok(),
+                    "x-engine-instance-id" => engine_instance_id = Some(value.trim().to_owned()),
+                    "x-source-session-id" => source_session_id = Some(value.trim().to_owned()),
+                    "x-configuration-revision" => {
+                        configuration_revision = value.trim().parse::<u64>().ok()
+                    }
+                    "x-calibration-revision" => {
+                        calibration_revision = value.trim().parse::<u64>().ok()
+                    }
+                    "x-rectification-revision" => {
+                        rectification_revision = value.trim().parse::<u64>().ok()
+                    }
                     "x-source-frame-index" => source_index = value.trim().parse::<usize>().ok(),
                     _ => {}
                 }
@@ -592,6 +682,16 @@ mod tests {
                 sequence: sequence.ok_or_else(|| io::Error::other("missing frame sequence"))?,
                 source_index: source_index
                     .ok_or_else(|| io::Error::other("missing source frame index"))?,
+                engine_instance_id: engine_instance_id
+                    .ok_or_else(|| io::Error::other("missing engine identity"))?,
+                source_session_id: source_session_id
+                    .ok_or_else(|| io::Error::other("missing source session identity"))?,
+                configuration_revision: configuration_revision
+                    .ok_or_else(|| io::Error::other("missing configuration revision"))?,
+                calibration_revision: calibration_revision
+                    .ok_or_else(|| io::Error::other("missing calibration revision"))?,
+                rectification_revision: rectification_revision
+                    .ok_or_else(|| io::Error::other("missing rectification revision"))?,
                 jpeg,
             })
         }
@@ -627,6 +727,11 @@ mod tests {
             sequence,
             source_index,
             source_name: format!("frame-{source_index:04}.jpg"),
+            engine_instance_id: "engine-test".to_owned(),
+            source_session_id: "session-test".to_owned(),
+            configuration_revision: 7,
+            calibration_revision: 2,
+            rectification_revision: 3,
             jpeg,
         })));
     }
@@ -667,6 +772,11 @@ mod tests {
             max_frame_bytes: DEFAULT_MAX_FRAME_BYTES,
             max_total_bytes: DEFAULT_MAX_TOTAL_BYTES,
             shutdown_grace_seconds: DEFAULT_SHUTDOWN_GRACE_SECONDS,
+            engine_instance_id: "fixture-engine".to_owned(),
+            source_session_id: "fixture-session".to_owned(),
+            configuration_revision: 0,
+            calibration_revision: 0,
+            rectification_revision: 0,
         };
         assert!(validate_args(&args).is_ok());
         args.max_frames = MAX_FRAME_COUNT + 1;
@@ -711,6 +821,11 @@ mod tests {
         let right = right.unwrap();
         assert_eq!(left.sequence, 10);
         assert_eq!(right.sequence, 10);
+        assert_eq!(left.engine_instance_id, "engine-test");
+        assert_eq!(left.source_session_id, "session-test");
+        assert_eq!(left.configuration_revision, 7);
+        assert_eq!(left.calibration_revision, 2);
+        assert_eq!(left.rectification_revision, 3);
         assert_eq!(left.jpeg, first_frame);
         assert_eq!(right.jpeg, left.jpeg);
 

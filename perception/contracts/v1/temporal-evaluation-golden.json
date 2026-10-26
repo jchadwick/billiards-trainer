@@ -149,6 +149,12 @@
       "status": "complete"
     },
     "cue": {
+      "axis_angle_error_degrees": {
+        "error_degrees_count": 0,
+        "error_degrees_mean": null,
+        "error_degrees_p50": null,
+        "error_degrees_p95": null
+      },
       "butt_error_px": {
         "error_px_count": 1,
         "error_px_mean": 1.0,

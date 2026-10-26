@@ -238,6 +238,27 @@ impl LatestSceneWriter {
         )
     }
 
+    /// Enqueue a live phase/cue update that has no new capture-frame identity.
+    /// Its independent delivery sequence still participates in the same
+    /// bounded newest-only stream and expires on a local deadline.
+    pub(crate) fn submit_live_event_with_deadline(
+        &self,
+        sequence: u64,
+        engine_instance_id: &str,
+        source_session_id: &str,
+        freshness_deadline: Instant,
+        payload: Vec<u8>,
+    ) -> Result<()> {
+        self.submit_with_optional_frame_id_and_deadline(
+            sequence,
+            engine_instance_id,
+            source_session_id,
+            None,
+            Some(freshness_deadline),
+            payload,
+        )
+    }
+
     #[cfg(test)]
     fn submit_with_optional_frame_id(
         &self,

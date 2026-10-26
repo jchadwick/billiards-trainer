@@ -51,7 +51,7 @@ pub struct GstreamerCaptureSourceConfig {
     pub helper_executable_path: PathBuf,
     /// Remote HTTP(S) multipart MJPEG URL for the explicit stream source.
     pub http_mjpeg_url: Option<String>,
-    /// Exact serialized bytes from the Python capture-settings owner.
+    /// Exact serialized bytes produced by the Rust configuration authority.
     pub exact_capture_settings_json: Vec<u8>,
     /// Maximum number of request bytes the helper accepts.
     pub capture_settings_max_bytes: usize,

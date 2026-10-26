@@ -68,6 +68,7 @@
       },
       "measurement": {
         "image_center_px": { "x": 1882.4, "y": 1024.7 },
+        "image_radius_px": { "x": 32.0, "y": 32.0 },
         "image_space": "raw",
         "image_width_px": 3840,
         "image_height_px": 2160,

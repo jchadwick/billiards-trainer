@@ -558,12 +558,10 @@ impl SceneTrackerV1 {
         for (track_index, detection_index) in assignments {
             let detection = ball_detections[detection_index];
             let measurement = image_measurement(
-                detection.center_image_px.x,
-                detection.center_image_px.y,
+                detection,
                 source_image_space,
                 batch.source.width_px,
                 batch.source.height_px,
-                detection.confidence,
                 detection_table_centers
                     .get(&detection.detection_index)
                     .copied(),
@@ -603,12 +601,10 @@ impl SceneTrackerV1 {
                 last_timestamp_ns: now_ns,
                 last_observation: last_observation.clone(),
                 measurement: image_measurement(
-                    center.x,
-                    center.y,
+                    detection,
                     source_image_space,
                     batch.source.width_px,
                     batch.source.height_px,
-                    detection.confidence,
                     detection_table_centers
                         .get(&detection.detection_index)
                         .copied(),
@@ -900,27 +896,39 @@ fn validate_precalibrated_batch(
 }
 
 fn image_measurement(
-    x: f64,
-    y: f64,
+    detection: &crate::detection_batch::Detection,
     image_space: ImageSpace,
     width_px: u32,
     height_px: u32,
-    confidence: f64,
     table_center_mm: Option<Point2d>,
 ) -> Measurement {
     Measurement {
-        image_center_px: Point2d { x, y },
+        image_center_px: Point2d {
+            x: detection.center_image_px.x,
+            y: detection.center_image_px.y,
+        },
+        image_radius_px: bbox_half_extent(detection),
         image_space,
         image_width_px: width_px,
         image_height_px: height_px,
         table_center_mm,
-        detector_confidence: confidence,
+        detector_confidence: detection.confidence,
         table_position_uncertainty: PositionUncertainty {
             status: UncertaintyStatus::Unavailable,
             sigma_x_mm: None,
             sigma_y_mm: None,
         },
     }
+}
+
+/// Detector boxes are frame-scoped measurements. Keep their half-width and
+/// half-height with the track so the overlay can match balls at their actual
+/// apparent size, including perspective and changes in source resolution.
+fn bbox_half_extent(detection: &crate::detection_batch::Detection) -> Option<Point2d> {
+    let bbox = detection.bbox_image_px;
+    let x = (bbox.right - bbox.left) / 2.0;
+    let y = (bbox.bottom - bbox.top) / 2.0;
+    (x.is_finite() && y.is_finite() && x > 0.0 && y > 0.0).then_some(Point2d { x, y })
 }
 
 fn unavailable_uncertainty() -> PositionUncertainty {

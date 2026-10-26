@@ -857,7 +857,7 @@ fn import_configuration_sync(
         ];
         return Err(UpdateFailure::route_error(
             StatusCode::UNPROCESSABLE_ENTITY,
-            python_dict_repr(&detail),
+            compatibility_dict_repr(&detail),
         ));
     }
 
@@ -901,7 +901,7 @@ fn import_configuration_sync(
         ];
         return Err(UpdateFailure::route_error(
             StatusCode::UNPROCESSABLE_ENTITY,
-            python_dict_repr(&detail),
+            compatibility_dict_repr(&detail),
         ));
     }
     if warnings.as_array().is_some_and(|items| !items.is_empty()) && !query.force_update {
@@ -916,7 +916,7 @@ fn import_configuration_sync(
         ];
         return Err(UpdateFailure::route_error(
             StatusCode::BAD_REQUEST,
-            python_dict_repr(&detail),
+            compatibility_dict_repr(&detail),
         ));
     }
 
@@ -1296,7 +1296,7 @@ fn update_configuration_sync(
         ];
         return Err(UpdateFailure::route_error(
             StatusCode::BAD_REQUEST,
-            python_dict_repr(&detail),
+            compatibility_dict_repr(&detail),
         ));
     }
 
@@ -1333,7 +1333,7 @@ fn update_configuration_sync(
         ];
         return Err(UpdateFailure::route_error(
             StatusCode::UNPROCESSABLE_ENTITY,
-            python_dict_repr(&detail),
+            compatibility_dict_repr(&detail),
         ));
     }
     if warnings
@@ -1352,7 +1352,7 @@ fn update_configuration_sync(
         ];
         return Err(UpdateFailure::route_error(
             StatusCode::BAD_REQUEST,
-            python_dict_repr(&detail),
+            compatibility_dict_repr(&detail),
         ));
     }
     let updated = match authority_operation(
@@ -1447,7 +1447,10 @@ fn authority_update_failure(error: &Value) -> UpdateFailure {
                         .unwrap_or_else(|| json!([])),
                 ),
             ];
-            UpdateFailure::route_error(StatusCode::UNPROCESSABLE_ENTITY, python_dict_repr(&detail))
+            UpdateFailure::route_error(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                compatibility_dict_repr(&detail),
+            )
         }
         "warnings_require_force" => {
             let detail = vec![
@@ -1462,14 +1465,14 @@ fn authority_update_failure(error: &Value) -> UpdateFailure {
                     error.get("warnings").cloned().unwrap_or_else(|| json!([])),
                 ),
             ];
-            UpdateFailure::route_error(StatusCode::BAD_REQUEST, python_dict_repr(&detail))
+            UpdateFailure::route_error(StatusCode::BAD_REQUEST, compatibility_dict_repr(&detail))
         }
         "revision_conflict" => {
             let mut detail = vec![("message", Value::String(error_message.to_owned()))];
             if let Some(revision) = error.get("current_revision") {
                 detail.push(("current_revision", revision.clone()));
             }
-            UpdateFailure::route_error(StatusCode::CONFLICT, python_dict_repr(&detail))
+            UpdateFailure::route_error(StatusCode::CONFLICT, compatibility_dict_repr(&detail))
         }
         "invalid_section" => UpdateFailure::route_error(StatusCode::BAD_REQUEST, error_message),
         _ => UpdateFailure::service_unavailable(),
@@ -1494,28 +1497,28 @@ fn nested_value<'a>(root: &'a Value, path: &str) -> Option<&'a Value> {
         .try_fold(root, |value, component| value.get(component))
 }
 
-fn python_dict_repr(entries: &[(&str, Value)]) -> String {
-    // The legacy error middleware stringifies HTTPException dictionaries with
-    // Python repr while leaving the structured `details` field null.
+fn compatibility_dict_repr(entries: &[(&str, Value)]) -> String {
+    // The established error response formats HTTP exception dictionaries with
+    // a stable dictionary representation while leaving the structured `details` field null.
     let fields = entries
         .iter()
-        .map(|(key, value)| format!("'{}': {}", key, python_value_repr(value)))
+        .map(|(key, value)| format!("'{}': {}", key, compatibility_value_repr(value)))
         .collect::<Vec<_>>()
         .join(", ");
     format!("{{{fields}}}")
 }
 
-fn python_value_repr(value: &Value) -> String {
+fn compatibility_value_repr(value: &Value) -> String {
     match value {
         Value::Null => "None".to_owned(),
         Value::Bool(value) => if *value { "True" } else { "False" }.to_owned(),
         Value::Number(value) => value.to_string(),
-        Value::String(value) => python_string_repr(value),
+        Value::String(value) => compatibility_string_repr(value),
         Value::Array(values) => format!(
             "[{}]",
             values
                 .iter()
-                .map(python_value_repr)
+                .map(compatibility_value_repr)
                 .collect::<Vec<_>>()
                 .join(", ")
         ),
@@ -1524,7 +1527,11 @@ fn python_value_repr(value: &Value) -> String {
             values
                 .iter()
                 .map(|(key, value)| {
-                    format!("{}: {}", python_string_repr(key), python_value_repr(value))
+                    format!(
+                        "{}: {}",
+                        compatibility_string_repr(key),
+                        compatibility_value_repr(value)
+                    )
                 })
                 .collect::<Vec<_>>()
                 .join(", ")
@@ -1532,7 +1539,7 @@ fn python_value_repr(value: &Value) -> String {
     }
 }
 
-fn python_string_repr(value: &str) -> String {
+fn compatibility_string_repr(value: &str) -> String {
     let quote = if value.contains('\'') && !value.contains('"') {
         '"'
     } else {

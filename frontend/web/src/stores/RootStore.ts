@@ -1,5 +1,6 @@
 import { makeAutoObservable, runInAction } from 'mobx';
 import axiosClient from '../api/axios-client';
+import { buildLiveStateWebSocketUrl } from '../api/live-state-websocket-url';
 import { createWebSocketClient, type WebSocketClient } from '../services/websocket-client';
 import { isGameStateMessage, type GameStateData, type WebSocketMessage } from '../types/api';
 
@@ -16,19 +17,24 @@ export class RootStore {
 
   private readonly websocketClient: WebSocketClient;
   private latestProducerEpoch: string | null = null;
+  private latestDeliverySequence: number | null = null;
   private latestTransportSequence: number | null = null;
   private latestSnapshotRevision: number | null = null;
   private latestSourceFrameNumber: number | null = null;
 
   constructor(websocketClient?: WebSocketClient) {
     this.websocketClient = websocketClient ?? createWebSocketClient({
-      url: axiosClient.getWebSocketUrl('/api/v1/websocket/ws'),
+      url: buildLiveStateWebSocketUrl(
+        axiosClient.getWebSocketUrl('/api/v1/websocket/ws'),
+        typeof window === 'undefined' ? '' : window.location.search,
+      ),
       autoReconnect: true,
     });
 
     makeAutoObservable(this, {
       websocketClient: false,
       latestProducerEpoch: false,
+      latestDeliverySequence: false,
       latestTransportSequence: false,
       latestSnapshotRevision: false,
       latestSourceFrameNumber: false,
@@ -51,12 +57,18 @@ export class RootStore {
 
   private handleStateMessage = (message: WebSocketMessage): void => {
     if (!isGameStateMessage(message)) return;
-    if (!this.acceptObservation(message.data)) return;
-    this.videoStore.latestGameState = message.data;
+    const acceptedState = this.acceptObservation(message.data);
+    if (!acceptedState) return;
+    this.videoStore.latestGameState = acceptedState;
   };
 
-  /** Reject delayed state within an explicitly identified producer session. */
-  private acceptObservation(state: GameStateData): boolean {
+  /**
+   * Track phase-delivery and raw-scene sequence spaces independently. A phase
+   * event may repeat the current scene transport sequence, while a later raw
+   * scene may carry the last phase event again; neither stream may block or
+   * roll back the other.
+   */
+  private acceptObservation(state: GameStateData): GameStateData | null {
     const status = state.observation_status;
     const identity = status?.observation_identity;
     const engineId = identity?.engine_instance_id
@@ -68,45 +80,84 @@ export class RootStore {
     if (
       typeof engineId !== 'string'
       || (typeof reportedSessionId !== 'string' && typeof reportedSessionId !== 'number')
-    ) return true;
+    ) return state;
 
     const producerEpoch = `${engineId}\u0000${reportedSessionId}`;
-    if (producerEpoch !== this.latestProducerEpoch) {
+    const producerEpochChanged = producerEpoch !== this.latestProducerEpoch;
+    if (producerEpochChanged) {
       this.latestProducerEpoch = producerEpoch;
+      this.latestDeliverySequence = null;
       this.latestTransportSequence = null;
       this.latestSnapshotRevision = null;
       this.latestSourceFrameNumber = null;
     }
 
+    // Phase-only V2 events have a delivery sequence independent of the raw
+    // scene transport sequence. Accept them even when ball measurements are
+    // unchanged, while still rejecting a delayed/coalesced older event.
+    const deliverySequence = status?.perception?.event_sequence;
+    const hasDeliverySequence = typeof deliverySequence === 'number'
+      && Number.isSafeInteger(deliverySequence);
+    let deliveryIsNew = false;
+    if (hasDeliverySequence) {
+      deliveryIsNew = this.latestDeliverySequence === null
+        || deliverySequence > this.latestDeliverySequence;
+      if (deliveryIsNew) this.latestDeliverySequence = deliverySequence;
+    }
+
+    let observationIsNew = false;
     const transportSequence = status?.transport_sequence;
     if (typeof transportSequence === 'number' && Number.isSafeInteger(transportSequence)) {
-      if (
-        this.latestTransportSequence !== null
-        && transportSequence <= this.latestTransportSequence
-      ) return false;
-      this.latestTransportSequence = transportSequence as number;
-      return true;
+      observationIsNew = this.latestTransportSequence === null
+        || transportSequence > this.latestTransportSequence;
+      if (observationIsNew) this.latestTransportSequence = transportSequence;
+    } else {
+      const snapshotRevision = identity?.snapshot_revision ?? status?.snapshot_revision;
+      if (typeof snapshotRevision === 'number' && Number.isSafeInteger(snapshotRevision)) {
+        observationIsNew = this.latestSnapshotRevision === null
+          || snapshotRevision > this.latestSnapshotRevision;
+        if (observationIsNew) this.latestSnapshotRevision = snapshotRevision;
+      } else {
+        const sourceFrameNumber = status?.source_frame_number ?? state.frame_number;
+        if (typeof sourceFrameNumber === 'number' && Number.isSafeInteger(sourceFrameNumber)) {
+          observationIsNew = this.latestSourceFrameNumber === null
+            || sourceFrameNumber >= this.latestSourceFrameNumber;
+          if (observationIsNew) this.latestSourceFrameNumber = sourceFrameNumber;
+        } else {
+          // Preserve the legacy acceptance behavior when the producer does
+          // not supply any ordering field.
+          observationIsNew = !hasDeliverySequence;
+        }
+      }
     }
 
-    const snapshotRevision = identity?.snapshot_revision ?? status?.snapshot_revision;
-    if (typeof snapshotRevision === 'number' && Number.isSafeInteger(snapshotRevision)) {
-      if (
-        this.latestSnapshotRevision !== null
-        && snapshotRevision <= this.latestSnapshotRevision
-      ) return false;
-      this.latestSnapshotRevision = snapshotRevision as number;
-      return true;
+    if (!deliveryIsNew && !observationIsNew) return null;
+
+    const currentState = producerEpochChanged ? null : this.videoStore.latestGameState;
+    if (deliveryIsNew && !observationIsNew && currentState) {
+      // A phase-only event is self-contained for perception status but must
+      // not replace the currently accepted ball layout with an older copy.
+      return {
+        ...currentState,
+        observation_status: {
+          ...currentState.observation_status,
+          perception: state.observation_status?.perception,
+        },
+      };
     }
 
-    const sourceFrameNumber = status?.source_frame_number ?? state.frame_number;
-    if (typeof sourceFrameNumber === 'number' && Number.isSafeInteger(sourceFrameNumber)) {
-      if (
-        this.latestSourceFrameNumber !== null
-        && sourceFrameNumber < this.latestSourceFrameNumber
-      ) return false;
-      this.latestSourceFrameNumber = sourceFrameNumber as number;
+    if (observationIsNew && !deliveryIsNew && currentState?.observation_status?.perception) {
+      // Raw scenes can be delivered after a newer coalesced phase event while
+      // still carrying an older perception payload. Keep the newer evidence.
+      return {
+        ...state,
+        observation_status: {
+          ...status,
+          perception: currentState.observation_status.perception,
+        },
+      };
     }
-    return true;
+    return state;
   }
 
   async shutdown(): Promise<void> {

@@ -35,6 +35,35 @@ pub fn decode_yolo_v8_output(
     iou_threshold: f32,
     max_detections: usize,
 ) -> Result<Vec<Detection>> {
+    decode_yolo_v8_output_with_coordinate_scale(
+        shape,
+        values,
+        class_names,
+        geometry,
+        confidence_threshold,
+        iou_threshold,
+        max_detections,
+        1.0,
+    )
+}
+
+/// Decode YOLO output after scaling its center/size coordinates into model
+/// pixels. The class-score channels remain unchanged. ONNX exports use model
+/// pixels already; the Coral TFLite contract declares normalized coordinates
+/// and supplies the model-size scale here.
+// Preserve the explicit public API so callers can pass the model's independent
+// decode thresholds without constructing a one-off options object.
+#[allow(clippy::too_many_arguments)]
+pub fn decode_yolo_v8_output_with_coordinate_scale(
+    shape: &[usize],
+    values: &[f32],
+    class_names: &[String],
+    geometry: LetterboxGeometry,
+    confidence_threshold: f32,
+    iou_threshold: f32,
+    max_detections: usize,
+    coordinate_scale: f32,
+) -> Result<Vec<Detection>> {
     ensure!(!class_names.is_empty(), "model class list is empty");
     ensure!(
         confidence_threshold.is_finite() && (0.0..=1.0).contains(&confidence_threshold),
@@ -45,6 +74,10 @@ pub fn decode_yolo_v8_output(
         "IoU threshold must be finite and between 0 and 1"
     );
     ensure!(max_detections > 0, "max detections must be positive");
+    ensure!(
+        coordinate_scale.is_finite() && coordinate_scale > 0.0,
+        "model output coordinate scale must be finite and positive"
+    );
     ensure!(
         shape.len() == 3,
         "YOLO output must have three dimensions, got {shape:?}"
@@ -89,10 +122,10 @@ pub fn decode_yolo_v8_output(
             continue;
         }
 
-        let center_x = values[anchor];
-        let center_y = values[anchors + anchor];
-        let width = values[2 * anchors + anchor];
-        let height = values[3 * anchors + anchor];
+        let center_x = values[anchor] * coordinate_scale;
+        let center_y = values[anchors + anchor] * coordinate_scale;
+        let width = values[2 * anchors + anchor] * coordinate_scale;
+        let height = values[3 * anchors + anchor] * coordinate_scale;
         ensure!(
             width >= 0.0 && height >= 0.0,
             "YOLO output contains a negative box size at anchor {anchor}"
@@ -178,7 +211,7 @@ fn intersection_over_union(left: [f32; 4], right: [f32; 4]) -> f32 {
 
 #[cfg(test)]
 mod tests {
-    use super::decode_yolo_v8_output;
+    use super::{decode_yolo_v8_output, decode_yolo_v8_output_with_coordinate_scale};
     use crate::inference::LetterboxGeometry;
 
     fn geometry() -> LetterboxGeometry {
@@ -210,6 +243,47 @@ mod tests {
         assert_eq!(detections[0].class_name, "ball");
         assert!((detections[0].center_xy_px[0] - 50.0).abs() < 0.001);
         assert!((detections[0].center_xy_px[1] - 40.625).abs() < 0.001);
+    }
+
+    #[test]
+    fn scales_normalized_model_boxes_before_mapping_to_source_pixels() {
+        let output = [0.5, 0.5, 0.2, 0.2, 0.1, 0.9];
+        let detections = decode_yolo_v8_output_with_coordinate_scale(
+            &[1, 6, 1],
+            &output,
+            &names(),
+            geometry(),
+            0.4,
+            0.45,
+            300,
+            64.0,
+        )
+        .unwrap();
+
+        assert_eq!(detections.len(), 1);
+        assert_eq!(detections[0].class_name, "ball");
+        assert!((detections[0].center_xy_px[0] - 50.0).abs() < 0.001);
+        assert!((detections[0].center_xy_px[1] - 40.625).abs() < 0.001);
+        assert!((detections[0].bbox_xyxy_px[0] - 40.0).abs() < 0.001);
+        assert!((detections[0].bbox_xyxy_px[2] - 60.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn rejects_invalid_model_output_coordinate_scale() {
+        let output = [0.5, 0.5, 0.2, 0.2, 0.1, 0.9];
+        for scale in [0.0, -1.0, f32::NAN, f32::INFINITY] {
+            assert!(decode_yolo_v8_output_with_coordinate_scale(
+                &[1, 6, 1],
+                &output,
+                &names(),
+                geometry(),
+                0.4,
+                0.45,
+                300,
+                scale,
+            )
+            .is_err());
+        }
     }
 
     #[test]

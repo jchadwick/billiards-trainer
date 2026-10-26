@@ -20,7 +20,5 @@ only the opened source report can describe what the adapter says it applied.
 Neither fixture is proof of physical camera behavior.
 
 V1 remains a strict legacy contract with no output-geometry field. Its emitted
-frames must match the negotiated profile dimensions. The v1 rectified
-calibration path retains its historical rule that calibration dimensions are
-not bound to frame dimensions. V2 removes that ambiguity by requiring
+frames must match the negotiated profile dimensions. Under v1, a rectified calibration is not bound to emitted frame dimensions. V2 removes that ambiguity by requiring
 calibration dimensions to match emitted geometry in either image space.

@@ -752,6 +752,46 @@ enum MailboxFrame {
     Shared(Arc<RgbFrameEnvelope>),
 }
 
+/// Owned lease for one received capture frame.
+///
+/// In the normal capture path this owns the original envelope. When the
+/// optional preview also retains the frame, the lease owns a reference to the
+/// same envelope instead. Both forms preserve the original pixel allocation
+/// and its memory-budget reservation without copying full-resolution bytes.
+#[derive(Debug)]
+pub struct OwnedCaptureFrame {
+    frame: MailboxFrame,
+}
+
+impl OwnedCaptureFrame {
+    /// Split one budgeted frame lease into two zero-copy leases backed by one
+    /// shared envelope. Independent workers can read the same source pixels
+    /// without allocating a second full-resolution RGB buffer; the original
+    /// frame-budget reservation remains held until both leases are dropped.
+    pub fn into_shared_pair(self) -> (Self, Self) {
+        let shared = match self.frame {
+            MailboxFrame::Owned(frame) => Arc::new(frame),
+            MailboxFrame::Shared(frame) => frame,
+        };
+        (
+            Self {
+                frame: MailboxFrame::Shared(Arc::clone(&shared)),
+            },
+            Self {
+                frame: MailboxFrame::Shared(shared),
+            },
+        )
+    }
+}
+
+impl std::ops::Deref for OwnedCaptureFrame {
+    type Target = RgbFrameEnvelope;
+
+    fn deref(&self) -> &Self::Target {
+        &self.frame
+    }
+}
+
 impl std::ops::Deref for MailboxFrame {
     type Target = RgbFrameEnvelope;
 
@@ -968,6 +1008,31 @@ impl CaptureFrameReceiver {
         callback: impl FnOnce(&RgbFrameEnvelope) -> T,
     ) -> CaptureReceiveOutcome<T> {
         self.receive_with_timeout_inner(timeout, false, |frame, _queue_wait_ns| callback(frame))
+    }
+
+    /// Transfer the newest owned RGB8 frame out of the capture mailbox.
+    ///
+    /// This API is for coordinators that must inspect a frame and then move it
+    /// to a separately owned inference worker. The frame's budget reservation
+    /// moves with the envelope, so handing it to a worker does not copy pixels
+    /// or release memory accounting early. The receiver remains the sole
+    /// consumer, and pending source frames continue to coalesce to the newest
+    /// value while the caller processes this one.
+    pub fn receive_owned_with_timeout(
+        &mut self,
+        timeout: Duration,
+    ) -> CaptureReceiveOutcome<OwnedCaptureFrame> {
+        match self.mailbox.receive_timeout(timeout) {
+            ReceiveOutcome::Frame(frame) => {
+                CaptureReceiveOutcome::Frame(OwnedCaptureFrame { frame })
+            }
+            ReceiveOutcome::TimedOut => CaptureReceiveOutcome::TimedOut,
+            ReceiveOutcome::Closed => CaptureReceiveOutcome::Closed,
+            ReceiveOutcome::Cancelled => CaptureReceiveOutcome::Cancelled,
+            ReceiveOutcome::ProducerFailed(message) => {
+                CaptureReceiveOutcome::ProducerFailed(message)
+            }
+        }
     }
 
     /// Audit-only receive path that records how long a captured frame remained
@@ -4035,7 +4100,8 @@ mod tests {
     use super::{
         test_frame_budget, BudgetedRgb8Buffer, CaptureAggregateFrameLimit, CaptureEnvelopeError,
         CaptureFrameBudget, CaptureFrameLimit, CaptureFrameReceiver, CaptureReceiveOutcome,
-        LatestFrameMailbox, MailboxTerminal, ReceiveOutcome, RgbFrameEnvelope, TEST_FRAME_LIMIT,
+        LatestFrameMailbox, MailboxFrame, MailboxTerminal, OwnedCaptureFrame, ReceiveOutcome,
+        RgbFrameEnvelope, TEST_FRAME_LIMIT,
     };
     use crate::detection_batch::{
         BatchTimestamp, ClockKind, SourceFrame, TimeUnit, TimestampStage,
@@ -4141,6 +4207,33 @@ mod tests {
         assert_eq!(frame.source.timestamp, Some(source_time));
         assert_eq!(frame.host_read_completed_at, host_read_completed_at);
         assert_eq!(frame.rgb8(), &[1, 2, 3]);
+    }
+
+    #[test]
+    fn shared_capture_leases_borrow_the_same_budgeted_pixel_buffer() {
+        let budget = CaptureFrameBudget::new(CaptureAggregateFrameLimit::new(6).unwrap());
+        let frame = envelope_from_budget(
+            &budget,
+            "shared-session",
+            "shared-frame",
+            17,
+            2,
+            1,
+            CaptureFrameLimit::new(6).unwrap(),
+        )
+        .unwrap();
+        let owned = OwnedCaptureFrame {
+            frame: MailboxFrame::Owned(frame),
+        };
+        let (first, second) = owned.into_shared_pair();
+
+        assert_eq!(first.rgb8().as_ptr(), second.rgb8().as_ptr());
+        assert_eq!(first.source().frame_id, "shared-frame");
+        assert_eq!(budget.stats().current_bytes, 6);
+        drop(first);
+        assert_eq!(budget.stats().current_bytes, 6);
+        drop(second);
+        assert_eq!(budget.stats().current_bytes, 0);
     }
 
     #[test]
@@ -4681,6 +4774,43 @@ mod tests {
             second,
             super::CaptureReceiveOutcome::Frame("frame-3".to_owned())
         );
+    }
+
+    #[test]
+    fn receiver_can_transfer_owned_frame_without_releasing_its_budget_reservation() {
+        let budget = test_frame_budget();
+        let mailbox =
+            LatestFrameMailbox::with_budget("session-owned", TEST_FRAME_LIMIT, budget.clone())
+                .unwrap();
+        let mut receiver = mailbox.claim_receiver().unwrap();
+        let frame = envelope_from_budget(
+            &budget,
+            "session-owned",
+            "frame-owned",
+            7,
+            2,
+            1,
+            TEST_FRAME_LIMIT,
+        )
+        .unwrap();
+        let source_id = frame.source.frame_id.clone();
+        let pixels = frame.rgb8.as_ptr();
+        mailbox.publish(frame).unwrap();
+
+        let CaptureReceiveOutcome::Frame(owned) =
+            receiver.receive_owned_with_timeout(Duration::from_secs(1))
+        else {
+            panic!("published owned frame should be delivered");
+        };
+
+        assert_eq!(owned.source.frame_id, source_id);
+        assert_eq!(
+            owned.rgb8.as_ptr(),
+            pixels,
+            "receive must move, not copy pixels"
+        );
+        assert_eq!(owned.rgb8.as_slice(), &[7; 6]);
+        assert_eq!(mailbox.stats().queue_depth, 0);
     }
 
     #[test]

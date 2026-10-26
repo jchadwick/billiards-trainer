@@ -57,9 +57,17 @@ fn compiled_video_replay_cli_runs_real_inference_and_writes_bounded_audit_artifa
         report["measurement"]["scheduled_source_frames"],
         FRAME_COUNT
     );
+    assert_eq!(report["measurement"]["processed_source_frames"], 1);
     assert_eq!(
-        report["measurement"]["processed_source_frames"],
+        report["phase_schedule"]["source_frames_considered"],
         FRAME_COUNT
+    );
+    assert_eq!(report["phase_schedule"]["detector_calls"], 1);
+    assert_eq!(report["phase_schedule"]["motion_checks"], 1);
+    assert_eq!(report["phase_schedule"]["intentional_detector_skips"], 1);
+    assert_eq!(
+        report["phase_schedule"]["effective_schedule"]["pre_shot"]["ball_hz"],
+        1.0
     );
     assert_eq!(report["artifacts"]["detailed_trace_written"], 0);
     assert_eq!(report["temporal_accuracy"]["status"], "unavailable");
@@ -69,6 +77,7 @@ fn compiled_video_replay_cli_runs_real_inference_and_writes_bounded_audit_artifa
     );
     assert!(markdown.contains("# Recorded-video performance audit"));
     assert!(markdown.contains("unpaced processing capacity"));
+    assert!(markdown.contains("Phase schedule used source PTS"));
     assert!(markdown.contains("Status: **unavailable**"));
     assert!(markdown.contains("no reviewed temporal annotation file was supplied"));
 }
@@ -158,6 +167,30 @@ fn paced_video_replay_cli_reports_replaced_frames_and_freshness_artifacts() {
     assert!(markdown.contains(&format!("latest-frame replacements: {replacements}")));
 }
 
+#[test]
+fn replay_can_export_scheduled_cue_geometry_for_the_temporal_scorer() {
+    let temporary = tempdir().unwrap();
+    let fixture = create_fixture(temporary.path(), &[3.0, 3.04]);
+    let cue_trace = fixture.output.join("cue-geometry.jsonl");
+    let result = run_cli_with_cue_trace(&fixture, "capacity", None, Some(&cue_trace));
+    assert_success(&result);
+
+    let report: Value =
+        serde_json::from_slice(&fs::read(fixture.output.join("video-replay-report.json")).unwrap())
+            .unwrap();
+    assert_eq!(report["phase_schedule"]["cue_observations"], 1);
+    assert_eq!(report["artifacts"]["phase_cue_geometry_trace_written"], 1);
+    assert_eq!(
+        report["artifacts"]["phase_cue_geometry_trace_path"],
+        cue_trace.display().to_string()
+    );
+    let records = fs::read_to_string(cue_trace).unwrap();
+    let record: Value = serde_json::from_str(records.trim()).unwrap();
+    assert_eq!(record["source_frame_index"], 0);
+    assert_eq!(record["cue_present"], false);
+    assert!(record["axis_angle_degrees"].is_null());
+}
+
 fn create_fixture(root: &Path, presentation_times: &[f64]) -> ReplayFixture {
     let inputs = root.join("inputs");
     let output = root.join("artifacts");
@@ -210,6 +243,15 @@ fn create_fixture(root: &Path, presentation_times: &[f64]) -> ReplayFixture {
 }
 
 fn run_cli(fixture: &ReplayFixture, mode: &str, details_jsonl: Option<&Path>) -> Output {
+    run_cli_with_cue_trace(fixture, mode, details_jsonl, None)
+}
+
+fn run_cli_with_cue_trace(
+    fixture: &ReplayFixture,
+    mode: &str,
+    details_jsonl: Option<&Path>,
+    cue_geometry_jsonl: Option<&Path>,
+) -> Output {
     let mut command = Command::new(env!("CARGO_BIN_EXE_billiards-perception-video-replay"));
     command
         .arg("--video")
@@ -242,9 +284,15 @@ fn run_cli(fixture: &ReplayFixture, mode: &str, details_jsonl: Option<&Path>) ->
         .arg("--run-id")
         .arg("cli-smoke");
     if let Some(details_jsonl) = details_jsonl {
+        command.arg("--details-jsonl").arg(details_jsonl);
+    }
+    if let Some(cue_geometry_jsonl) = cue_geometry_jsonl {
         command
-            .arg("--details-jsonl")
-            .arg(details_jsonl)
+            .arg("--phase-cue-geometry-jsonl")
+            .arg(cue_geometry_jsonl);
+    }
+    if details_jsonl.is_some() || cue_geometry_jsonl.is_some() {
+        command
             .arg("--maximum-detail-records")
             .arg(fixture.frame_count.to_string());
     }

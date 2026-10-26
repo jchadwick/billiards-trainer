@@ -18,7 +18,9 @@ use billiards_perception::capture_settings_wire::CaptureSettingsSnapshotV1;
 use billiards_perception::detection_batch::SourceFrame;
 use billiards_perception::framing::{read_framed_message, write_framed_message};
 use billiards_perception::inference::ProviderSelection;
-use billiards_perception::live_application::{run_live_application, LiveApplicationSettings};
+use billiards_perception::live_application::{
+    parse_phase_schedule_json, run_live_application, LiveApplicationSettings,
+};
 use billiards_perception::SceneTransportConfig;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -83,10 +85,11 @@ fn real_detector_and_injected_source_complete_v3_startup_scene_delivery_and_rele
         run_live_application(&worker_request, settings, factory, &worker_shutdown)
     });
 
-    let receiver_result = receiver.join().unwrap();
+    let receiver_result = receiver.join();
     shutdown_requested.store(true, Ordering::SeqCst);
     let worker_result = worker.join().unwrap();
     worker_result.expect("live application stopped cleanly");
+    let receiver_result = receiver_result.expect("live delivery receiver stopped cleanly");
     let (hello, scene) = receiver_result.expect("runtime connected and delivered one scene");
 
     assert_eq!(hello["type"], "hello");
@@ -95,11 +98,31 @@ fn real_detector_and_injected_source_complete_v3_startup_scene_delivery_and_rele
         hello["capture_session_ack"]["source_report"]["session_id"],
         "live-session-test"
     );
+    assert_eq!(scene["delivery_schema_version"], 2);
     assert_eq!(scene["engine_instance_id"], "live-engine-test");
-    assert_eq!(scene["source"]["session_id"], "live-session-test");
-    assert_eq!(scene["source"]["width_px"], 32);
-    assert_eq!(scene["source"]["height_px"], 32);
-    assert_eq!(scene["balls"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        scene["source_snapshot"]["source"]["session_id"],
+        "live-session-test"
+    );
+    assert_eq!(scene["source_snapshot"]["source"]["width_px"], 32);
+    assert_eq!(scene["source_snapshot"]["source"]["height_px"], 32);
+    assert_eq!(
+        scene["source_snapshot"]["balls"].as_array().unwrap().len(),
+        1
+    );
+    assert!(scene["perception"].is_object());
+    assert!(
+        scene["current_state"]["localization_age_ns"]
+            .as_u64()
+            .unwrap()
+            > 0
+    );
+    assert!(
+        scene["current_state"]["ball_age_ns"]["track-1"]
+            .as_u64()
+            .unwrap()
+            > 0
+    );
     assert_eq!(releases.load(Ordering::SeqCst), 1);
     assert!(interrupted.load(Ordering::SeqCst));
 }
@@ -126,8 +149,13 @@ fn live_settings(
     expected: &billiards_perception::live_config::ExpectedCaptureSettings,
 ) -> LiveApplicationSettings {
     LiveApplicationSettings {
-        onnx_path,
+        onnx_path: Some(onnx_path),
         source_checkpoint_path,
+        coral_model_path: None,
+        coral_python_executable: std::path::PathBuf::from("python3"),
+        coral_delegate_library: "libedgetpu.so.1".to_owned(),
+        coral_worker_restart_backoff: Duration::from_millis(1),
+        coral_maximum_worker_restarts_per_frame: 1,
         provider: ProviderSelection::Cpu,
         image_size: 32,
         confidence: 0.4,
@@ -149,10 +177,15 @@ fn live_settings(
         tracking_recent_observation_capacity: 8,
         tracking_configuration_revision: expected.configuration_revision(),
         tracking_rectification_revision: expected.rectification_revision(),
+        phase_schedule: parse_phase_schedule_json(
+            r#"{"recovering":{"motion_hz":15,"ball_hz":5,"cue_hz":5},"pre_shot":{"motion_hz":15,"ball_hz":1,"cue_hz":5},"aiming":{"motion_hz":15,"ball_hz":1,"cue_hz":5},"shot":{"motion_hz":15,"ball_hz":0,"cue_hz":0},"quiet_dwell_ms":800,"layout_consensus_count":3,"layout_position_tolerance_px":4.0,"motion_evidence_expiry_ms":200,"cue_evidence_expiry_ms":250,"layout_evidence_expiry_ms":1500}"#,
+        )
+        .unwrap(),
+        table_visibility: billiards_perception::table_visibility::TableVisibilityConfig::default(),
         scene_transport: SceneTransportConfig {
             address,
             maximum_message_bytes: MAXIMUM_SCENE_BYTES,
-            public_state_delivery_enabled: false,
+            public_state_delivery_enabled: true,
             connect_timeout: Duration::from_secs(1),
             write_timeout: Duration::from_secs(1),
             reconnect_initial_delay: Duration::from_millis(10),
@@ -245,8 +278,16 @@ fn receive_one_scene(listener: TcpListener) -> Result<(Value, Value), String> {
             "last_transport_sequence": null
         }),
     );
-    let scene = read_message(&mut stream);
-    Ok((hello, scene))
+    let scene_deadline = Instant::now() + Duration::from_secs(3);
+    loop {
+        let event = read_message(&mut stream);
+        if event["source_snapshot"].is_object() {
+            return Ok((hello, event));
+        }
+        if Instant::now() >= scene_deadline {
+            return Err("timed out waiting for a raw scene snapshot".to_owned());
+        }
+    }
 }
 
 fn read_message(stream: &mut TcpStream) -> Value {

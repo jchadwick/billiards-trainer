@@ -7,7 +7,8 @@ use clap::Parser;
 use billiards_perception::temporal_evaluation::{
     evaluate_files, EvaluationConfig, FileEvaluationConfig, DEFAULT_FFPROBE_TIMEOUT_SECONDS,
     DEFAULT_FRESHNESS_BUDGET_SECONDS, DEFAULT_MATCHING_RADIUS_FRACTION,
-    DEFAULT_MAXIMUM_ANNOTATION_BYTES, DEFAULT_MAXIMUM_SCENE_JSONL_BYTES,
+    DEFAULT_MAXIMUM_ANNOTATION_BYTES, DEFAULT_MAXIMUM_CUE_GEOMETRY_JSONL_BYTES,
+    DEFAULT_MAXIMUM_CUE_GEOMETRY_LINE_BYTES, DEFAULT_MAXIMUM_SCENE_JSONL_BYTES,
     DEFAULT_MAXIMUM_SCENE_LINE_BYTES, DEFAULT_MAXIMUM_VIDEO_BYTES,
 };
 
@@ -26,6 +27,9 @@ struct Arguments {
     /// Rust SceneSnapshotV1 JSON Lines output.
     #[arg(long)]
     scene_snapshots: PathBuf,
+    /// Optional scheduled cue-geometry JSONL trace to score against cue labels.
+    #[arg(long)]
+    cue_geometry_jsonl: Option<PathBuf>,
     /// Executable used to inspect video stream geometry.
     #[arg(long, default_value = "ffprobe")]
     ffprobe_executable: PathBuf,
@@ -56,6 +60,12 @@ struct Arguments {
     /// Maximum bytes in one Rust scene JSONL record.
     #[arg(long, default_value_t = DEFAULT_MAXIMUM_SCENE_LINE_BYTES)]
     maximum_scene_line_bytes: usize,
+    /// Maximum total cue geometry JSONL bytes read.
+    #[arg(long, default_value_t = DEFAULT_MAXIMUM_CUE_GEOMETRY_JSONL_BYTES)]
+    maximum_cue_geometry_jsonl_bytes: u64,
+    /// Maximum bytes in one cue geometry JSONL record.
+    #[arg(long, default_value_t = DEFAULT_MAXIMUM_CUE_GEOMETRY_LINE_BYTES)]
+    maximum_cue_geometry_line_bytes: usize,
     /// Optional report path. The report is also printed to stdout.
     #[arg(long)]
     output: Option<PathBuf>,
@@ -75,6 +85,9 @@ fn main() -> Result<()> {
         maximum_annotation_bytes: arguments.maximum_annotation_bytes,
         maximum_scene_jsonl_bytes: arguments.maximum_scene_jsonl_bytes,
         maximum_scene_line_bytes: arguments.maximum_scene_line_bytes,
+        cue_geometry_jsonl_path: arguments.cue_geometry_jsonl,
+        maximum_cue_geometry_jsonl_bytes: arguments.maximum_cue_geometry_jsonl_bytes,
+        maximum_cue_geometry_line_bytes: arguments.maximum_cue_geometry_line_bytes,
     };
     let report = evaluate_files(
         &arguments.video,
