@@ -285,8 +285,9 @@ pub enum RejectionReason {
 }
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct BallLocalizationQuality {
-    /// The stage and iteration to which every populated measurement belongs.
-    /// `None` measurements have not been computed in this iteration.
+    /// Last reached or failing stage in the current iteration. Measurements
+    /// from earlier stages in that iteration can remain populated; `None`
+    /// means the corresponding measurement was not computed in this iteration.
     pub stage: BallFitStage,
     pub fit_id: Option<usize>,
     pub boundary_candidates: Option<usize>,
@@ -1443,7 +1444,9 @@ fn refine_one(
             return Err(RejectionReason::InsufficientBoundary);
         }
         quality.stage = BallFitStage::HypothesisGeneration;
-        let mut seed = cfg.seed ^ proposal.detection_index;
+        // Sampling belongs to the crop and configuration. Detection identity
+        // is metadata only and must not change the geometry we estimate.
+        let mut seed = cfg.seed;
         let mut best: Option<(Circle, usize, f64)> = None;
         let mut best_id = 0;
         let mut hypotheses = Vec::new();

@@ -269,6 +269,50 @@ fn audit_traces_the_same_fitting_results_with_bounded_events() {
 }
 
 #[test]
+fn detection_identity_and_batch_order_do_not_change_localization_geometry() {
+    let (rgb, template) = image([240.0, 150.0], true, false);
+    let mut cfg = config();
+    cfg.batch_budget_ms = 5_000;
+    cfg.proposal_budget_ms = 400;
+
+    let proposals = (0..16)
+        .map(|detection_index| BallProposal {
+            detection_index,
+            ..template.clone()
+        })
+        .collect::<Vec<_>>();
+    let individual = proposals
+        .iter()
+        .map(|proposal| {
+            refine_ball_batch(&rgb, &intrinsics(), std::slice::from_ref(proposal), &cfg)
+                .unwrap()
+                .into_iter()
+                .next()
+                .unwrap()
+        })
+        .collect::<Vec<_>>();
+    let expected = &individual[0];
+    for result in &individual[1..] {
+        assert_eq!(result.center_image_px, expected.center_image_px);
+        assert_eq!(result.status, expected.status);
+        assert_eq!(result.reason, expected.reason);
+        assert_eq!(result.quality, expected.quality);
+        assert_eq!(result.outline, expected.outline);
+    }
+
+    let reversed = proposals.iter().rev().cloned().collect::<Vec<_>>();
+    let batched = refine_ball_batch(&rgb, &intrinsics(), &reversed, &cfg).unwrap();
+    for result in batched {
+        let expected = &individual[result.detection_index as usize];
+        assert_eq!(result.center_image_px, expected.center_image_px);
+        assert_eq!(result.status, expected.status);
+        assert_eq!(result.reason, expected.reason);
+        assert_eq!(result.quality, expected.quality);
+        assert_eq!(result.outline, expected.outline);
+    }
+}
+
+#[test]
 fn audit_distinguishes_uncomputed_invalid_proposal_and_capacity_rejection() {
     let (rgb, proposal) = image([240.0, 150.0], false, false);
     let invalid = BallProposal {
