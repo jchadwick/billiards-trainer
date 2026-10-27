@@ -1,0 +1,3617 @@
+{
+  "all_fifteen_manual_proposals_invariant": true,
+  "corpus": {
+    "path": "thoughts/calibration/native-localization-corpus-v1.json",
+    "sha256": "4389155bf13fac6dd49d45a6488a53f37f4864b586646c0ced543f151c41a1de"
+  },
+  "date": "2026-10-27",
+  "detection_indices_tested": {
+    "count": 16,
+    "first": 0,
+    "last": 15
+  },
+  "experiment": "detection-identity invariance on frozen saved image and manual proposals",
+  "experiment_harness": {
+    "path": "thoughts/calibration/offline-refiner-identity-audit-20261027.rs",
+    "sha256": "c2a0d9ebd36d3459473dfe2fca367ee0ac7bc41c0d81f49d2867863698cc8bfd"
+  },
+  "input_image": {
+    "corpus_image_record": {
+      "arrangement_id": "measured-grid-20261026-114241",
+      "ball_proposals": {
+        "annotation_source": "ball_outline_annotations",
+        "definition": "square centered at segmentation_bbox_midpoint_px; side=max(gradient_ellipse.diameters_px)+4.0 source px",
+        "detector_generated": false,
+        "proposals": [
+          {
+            "ball_id": "top-left-pocket-ball",
+            "bbox_center_source_px": [
+              109.0,
+              99.0
+            ],
+            "bbox_side_source_px": 40.75556945800781,
+            "bbox_xyxy_source_px": [
+              88.6222152709961,
+              78.6222152709961,
+              129.3777847290039,
+              119.3777847290039
+            ],
+            "detection_index_in_frozen_audit": 0,
+            "localization_review_flags": [
+              "segmentation likely selected an internal highlight/fragment rather than full ball",
+              "segmentation threshold sensitivity exceeds 1 px",
+              "methods disagree by more than 2 px; neither establishes true center",
+              "gradient center sensitive to omitted arc",
+              "no physical XY ground truth; pocket/jaw silhouette may be occluded"
+            ],
+            "origin": "manual saved segmentation/gradient annotations; not detector output",
+            "physical_reference_id": null,
+            "physical_reference_present": false,
+            "source_annotation_id": "top-left-pocket-ball"
+          },
+          {
+            "ball_id": "top-orange-solid-second-left-ball",
+            "bbox_center_source_px": [
+              352.0,
+              96.5
+            ],
+            "bbox_side_source_px": 35.981536865234375,
+            "bbox_xyxy_source_px": [
+              334.0092315673828,
+              78.50923156738281,
+              369.9907684326172,
+              114.49076843261719
+            ],
+            "detection_index_in_frozen_audit": 1,
+            "localization_review_flags": [],
+            "origin": "manual saved segmentation/gradient annotations; not detector output",
+            "physical_reference_id": "top-orange-solid-second-left-ball",
+            "physical_reference_present": true,
+            "source_annotation_id": "top-orange-solid-second-left-ball"
+          },
+          {
+            "ball_id": "top-middle-pocket-ball",
+            "bbox_center_source_px": [
+              642.0,
+              93.5
+            ],
+            "bbox_side_source_px": 33.25906181335449,
+            "bbox_xyxy_source_px": [
+              625.3704690933228,
+              76.87046909332275,
+              658.6295309066772,
+              110.12953090667725
+            ],
+            "detection_index_in_frozen_audit": 2,
+            "localization_review_flags": [
+              "methods disagree by more than 2 px; neither establishes true center",
+              "no physical XY ground truth; pocket/jaw silhouette may be occluded"
+            ],
+            "origin": "manual saved segmentation/gradient annotations; not detector output",
+            "physical_reference_id": null,
+            "physical_reference_present": false,
+            "source_annotation_id": "top-middle-pocket-ball"
+          },
+          {
+            "ball_id": "top-red-striped-second-right-ball",
+            "bbox_center_source_px": [
+              928.0,
+              93.5
+            ],
+            "bbox_side_source_px": 35.95038032531738,
+            "bbox_xyxy_source_px": [
+              910.0248098373413,
+              75.52480983734131,
+              945.9751901626587,
+              111.47519016265869
+            ],
+            "detection_index_in_frozen_audit": 3,
+            "localization_review_flags": [],
+            "origin": "manual saved segmentation/gradient annotations; not detector output",
+            "physical_reference_id": "top-red-striped-second-right-ball",
+            "physical_reference_present": true,
+            "source_annotation_id": "top-red-striped-second-right-ball"
+          },
+          {
+            "ball_id": "top-right-cue-pocket-ball",
+            "bbox_center_source_px": [
+              1198.0,
+              93.0
+            ],
+            "bbox_side_source_px": 40.74274444580078,
+            "bbox_xyxy_source_px": [
+              1177.6286277770996,
+              72.62862777709961,
+              1218.3713722229004,
+              113.37137222290039
+            ],
+            "detection_index_in_frozen_audit": 4,
+            "localization_review_flags": [
+              "methods disagree by more than 2 px; neither establishes true center",
+              "no physical XY ground truth; pocket/jaw silhouette may be occluded"
+            ],
+            "origin": "manual saved segmentation/gradient annotations; not detector output",
+            "physical_reference_id": null,
+            "physical_reference_present": false,
+            "source_annotation_id": "top-right-cue-pocket-ball"
+          },
+          {
+            "ball_id": "far-left-yellow-middle-row-ball",
+            "bbox_center_source_px": [
+              95.5,
+              362.0
+            ],
+            "bbox_side_source_px": 38.46675109863281,
+            "bbox_xyxy_source_px": [
+              76.2666244506836,
+              342.7666244506836,
+              114.7333755493164,
+              381.2333755493164
+            ],
+            "detection_index_in_frozen_audit": 5,
+            "localization_review_flags": [],
+            "origin": "manual saved segmentation/gradient annotations; not detector output",
+            "physical_reference_id": "far-left-yellow-middle-row-ball",
+            "physical_reference_present": true,
+            "source_annotation_id": "far-left-yellow-middle-row-ball"
+          },
+          {
+            "ball_id": "interior-purple-second-left-middle-row-ball",
+            "bbox_center_source_px": [
+              357.5,
+              363.5
+            ],
+            "bbox_side_source_px": 33.749826431274414,
+            "bbox_xyxy_source_px": [
+              340.6250867843628,
+              346.6250867843628,
+              374.3749132156372,
+              380.3749132156372
+            ],
+            "detection_index_in_frozen_audit": 6,
+            "localization_review_flags": [
+              "methods disagree by more than 2 px; neither establishes true center"
+            ],
+            "origin": "manual saved segmentation/gradient annotations; not detector output",
+            "physical_reference_id": "interior-purple-second-left-middle-row-ball",
+            "physical_reference_present": true,
+            "source_annotation_id": "interior-purple-second-left-middle-row-ball"
+          },
+          {
+            "ball_id": "middle-row-center-ball",
+            "bbox_center_source_px": [
+              643.5,
+              361.5
+            ],
+            "bbox_side_source_px": 30.02764320373535,
+            "bbox_xyxy_source_px": [
+              628.4861783981323,
+              346.4861783981323,
+              658.5138216018677,
+              376.5138216018677
+            ],
+            "detection_index_in_frozen_audit": 7,
+            "localization_review_flags": [
+              "methods disagree by more than 2 px; neither establishes true center"
+            ],
+            "origin": "manual saved segmentation/gradient annotations; not detector output",
+            "physical_reference_id": "middle-row-center-ball",
+            "physical_reference_present": true,
+            "source_annotation_id": "middle-row-center-ball"
+          },
+          {
+            "ball_id": "interior-green-second-right-middle-row-ball",
+            "bbox_center_source_px": [
+              925.0,
+              361.5
+            ],
+            "bbox_side_source_px": 37.71163558959961,
+            "bbox_xyxy_source_px": [
+              906.1441822052002,
+              342.6441822052002,
+              943.8558177947998,
+              380.3558177947998
+            ],
+            "detection_index_in_frozen_audit": 8,
+            "localization_review_flags": [
+              "gradient center sensitive to omitted arc"
+            ],
+            "origin": "manual saved segmentation/gradient annotations; not detector output",
+            "physical_reference_id": "interior-green-second-right-middle-row-ball",
+            "physical_reference_present": true,
+            "source_annotation_id": "interior-green-second-right-middle-row-ball"
+          },
+          {
+            "ball_id": "far-right-purple-middle-row-ball",
+            "bbox_center_source_px": [
+              1198.5,
+              363.0
+            ],
+            "bbox_side_source_px": 41.47233200073242,
+            "bbox_xyxy_source_px": [
+              1177.7638339996338,
+              342.2638339996338,
+              1219.2361660003662,
+              383.7361660003662
+            ],
+            "detection_index_in_frozen_audit": 9,
+            "localization_review_flags": [],
+            "origin": "manual saved segmentation/gradient annotations; not detector output",
+            "physical_reference_id": "far-right-purple-middle-row-ball",
+            "physical_reference_present": true,
+            "source_annotation_id": "far-right-purple-middle-row-ball"
+          },
+          {
+            "ball_id": "bottom-left-pocket-ball",
+            "bbox_center_source_px": [
+              103.5,
+              621.0
+            ],
+            "bbox_side_source_px": 39.284549713134766,
+            "bbox_xyxy_source_px": [
+              83.85772514343262,
+              601.3577251434326,
+              123.14227485656738,
+              640.6422748565674
+            ],
+            "detection_index_in_frozen_audit": 10,
+            "localization_review_flags": [
+              "methods disagree by more than 2 px; neither establishes true center",
+              "no physical XY ground truth; pocket/jaw silhouette may be occluded"
+            ],
+            "origin": "manual saved segmentation/gradient annotations; not detector output",
+            "physical_reference_id": null,
+            "physical_reference_present": false,
+            "source_annotation_id": "bottom-left-pocket-ball"
+          },
+          {
+            "ball_id": "bottom-black-second-left-ball",
+            "bbox_center_source_px": [
+              362.0,
+              627.0
+            ],
+            "bbox_side_source_px": 37.000038146972656,
+            "bbox_xyxy_source_px": [
+              343.4999809265137,
+              608.4999809265137,
+              380.5000190734863,
+              645.5000190734863
+            ],
+            "detection_index_in_frozen_audit": 11,
+            "localization_review_flags": [
+              "segmentation threshold sensitivity exceeds 1 px"
+            ],
+            "origin": "manual saved segmentation/gradient annotations; not detector output",
+            "physical_reference_id": "bottom-black-second-left-ball",
+            "physical_reference_present": true,
+            "source_annotation_id": "bottom-black-second-left-ball"
+          },
+          {
+            "ball_id": "bottom-middle-pocket-ball",
+            "bbox_center_source_px": [
+              641.0,
+              633.5
+            ],
+            "bbox_side_source_px": 36.9797248840332,
+            "bbox_xyxy_source_px": [
+              622.5101375579834,
+              615.0101375579834,
+              659.4898624420166,
+              651.9898624420166
+            ],
+            "detection_index_in_frozen_audit": 12,
+            "localization_review_flags": [
+              "no physical XY ground truth; pocket/jaw silhouette may be occluded"
+            ],
+            "origin": "manual saved segmentation/gradient annotations; not detector output",
+            "physical_reference_id": null,
+            "physical_reference_present": false,
+            "source_annotation_id": "bottom-middle-pocket-ball"
+          },
+          {
+            "ball_id": "bottom-yellow-second-right-ball",
+            "bbox_center_source_px": [
+              925.0,
+              630.5
+            ],
+            "bbox_side_source_px": 35.87431716918945,
+            "bbox_xyxy_source_px": [
+              907.0628414154053,
+              612.5628414154053,
+              942.9371585845947,
+              648.4371585845947
+            ],
+            "detection_index_in_frozen_audit": 13,
+            "localization_review_flags": [],
+            "origin": "manual saved segmentation/gradient annotations; not detector output",
+            "physical_reference_id": "bottom-yellow-second-right-ball",
+            "physical_reference_present": true,
+            "source_annotation_id": "bottom-yellow-second-right-ball"
+          },
+          {
+            "ball_id": "bottom-right-pocket-ball",
+            "bbox_center_source_px": [
+              1196.0,
+              632.0
+            ],
+            "bbox_side_source_px": 41.209747314453125,
+            "bbox_xyxy_source_px": [
+              1175.3951263427734,
+              611.3951263427734,
+              1216.6048736572266,
+              652.6048736572266
+            ],
+            "detection_index_in_frozen_audit": 14,
+            "localization_review_flags": [
+              "methods disagree by more than 2 px; neither establishes true center",
+              "no physical XY ground truth; pocket/jaw silhouette may be occluded"
+            ],
+            "origin": "manual saved segmentation/gradient annotations; not detector output",
+            "physical_reference_id": null,
+            "physical_reference_present": false,
+            "source_annotation_id": "bottom-right-pocket-ball"
+          }
+        ],
+        "status": "saved_manual_annotations"
+      },
+      "dimensions_px": [
+        1280,
+        720
+      ],
+      "id": "measured-grid-720",
+      "intended_use": "diagnosis_and_tuning",
+      "notes": "Only this exact image and arrangement match the nine recorded physical XY references; six pocket-adjacent cases have no recorded XY.",
+      "optics_model_id": "frozen_zero_radial_720",
+      "path": "thoughts/calibration/table-grid-20261026-114241.jpg",
+      "physical_reference_status": "nine_user_confirmed_positions_unknown_uncertainty",
+      "sha256": "06ef40f52e0f93db17601585c4ed1d014895aaadcaf6b04c6abbd6e986d57e7b"
+    },
+    "dimensions_px": [
+      1280,
+      720
+    ],
+    "path": "thoughts/calibration/table-grid-20261026-114241.jpg",
+    "sha256": "06ef40f52e0f93db17601585c4ed1d014895aaadcaf6b04c6abbd6e986d57e7b"
+  },
+  "intrinsics": {
+    "cx": 644.1755624688407,
+    "cy": 349.67152391690104,
+    "fx": 696.1731580029823,
+    "fy": 695.3611772093032,
+    "source_height_px": 720,
+    "source_width_px": 1280
+  },
+  "limitations": [
+    "This tests repeated runs on one frozen still, not independent placements.",
+    "Proposals are manual annotation-derived boxes, not detector output.",
+    "Identity invariance does not establish that a chosen image boundary is the true ball center.",
+    "Acceptance changes compare different estimator source revisions; they are not a direct accuracy comparison."
+  ],
+  "measured_proposal_count": 9,
+  "measured_proposals_with_acceptance_set_changed_from_baseline": 7,
+  "not_detector_output": true,
+  "not_physical_accuracy_validation": true,
+  "original_identity_baseline": {
+    "path": "thoughts/calibration/offline-refiner-identity-check.json",
+    "sha256": "d285d5945d27ac09a3a355829dadf4a7f342e73a04b7457c659e6a18a94f53c1"
+  },
+  "refiner_source": {
+    "path": "perception/src/ball_localization.rs",
+    "sha256": "c1c6a0dbbefe45ef3fcf34e9bc2f8f8fee531625981212b5c0a842240f25e700"
+  },
+  "results": [
+    {
+      "acceptance_set_changed_from_baseline": false,
+      "accepted_indices": [],
+      "ball_id": "top-left-pocket-ball",
+      "baseline_accepted_indices": [],
+      "bbox_xyxy_source_px": [
+        88.6222152709961,
+        78.6222152709961,
+        129.3777847290039,
+        119.3777847290039
+      ],
+      "outcome_fingerprints": [
+        {
+          "center_image_px": null,
+          "detection_index": 0,
+          "reason": "insufficient_boundary",
+          "semantic_output_sha256": "1657f318b91d7f7dc44fcb31ba521eaca22b18c05c941b73e43be127746b0dfa",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 1,
+          "reason": "insufficient_boundary",
+          "semantic_output_sha256": "1657f318b91d7f7dc44fcb31ba521eaca22b18c05c941b73e43be127746b0dfa",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 2,
+          "reason": "insufficient_boundary",
+          "semantic_output_sha256": "1657f318b91d7f7dc44fcb31ba521eaca22b18c05c941b73e43be127746b0dfa",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 3,
+          "reason": "insufficient_boundary",
+          "semantic_output_sha256": "1657f318b91d7f7dc44fcb31ba521eaca22b18c05c941b73e43be127746b0dfa",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 4,
+          "reason": "insufficient_boundary",
+          "semantic_output_sha256": "1657f318b91d7f7dc44fcb31ba521eaca22b18c05c941b73e43be127746b0dfa",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 5,
+          "reason": "insufficient_boundary",
+          "semantic_output_sha256": "1657f318b91d7f7dc44fcb31ba521eaca22b18c05c941b73e43be127746b0dfa",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 6,
+          "reason": "insufficient_boundary",
+          "semantic_output_sha256": "1657f318b91d7f7dc44fcb31ba521eaca22b18c05c941b73e43be127746b0dfa",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 7,
+          "reason": "insufficient_boundary",
+          "semantic_output_sha256": "1657f318b91d7f7dc44fcb31ba521eaca22b18c05c941b73e43be127746b0dfa",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 8,
+          "reason": "insufficient_boundary",
+          "semantic_output_sha256": "1657f318b91d7f7dc44fcb31ba521eaca22b18c05c941b73e43be127746b0dfa",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 9,
+          "reason": "insufficient_boundary",
+          "semantic_output_sha256": "1657f318b91d7f7dc44fcb31ba521eaca22b18c05c941b73e43be127746b0dfa",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 10,
+          "reason": "insufficient_boundary",
+          "semantic_output_sha256": "1657f318b91d7f7dc44fcb31ba521eaca22b18c05c941b73e43be127746b0dfa",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 11,
+          "reason": "insufficient_boundary",
+          "semantic_output_sha256": "1657f318b91d7f7dc44fcb31ba521eaca22b18c05c941b73e43be127746b0dfa",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 12,
+          "reason": "insufficient_boundary",
+          "semantic_output_sha256": "1657f318b91d7f7dc44fcb31ba521eaca22b18c05c941b73e43be127746b0dfa",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 13,
+          "reason": "insufficient_boundary",
+          "semantic_output_sha256": "1657f318b91d7f7dc44fcb31ba521eaca22b18c05c941b73e43be127746b0dfa",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 14,
+          "reason": "insufficient_boundary",
+          "semantic_output_sha256": "1657f318b91d7f7dc44fcb31ba521eaca22b18c05c941b73e43be127746b0dfa",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 15,
+          "reason": "insufficient_boundary",
+          "semantic_output_sha256": "1657f318b91d7f7dc44fcb31ba521eaca22b18c05c941b73e43be127746b0dfa",
+          "status": "rejected"
+        }
+      ],
+      "physical_reference_id": null,
+      "physical_reference_present": false,
+      "proposal_origin": "manual saved segmentation/gradient annotations; not detector output",
+      "representative_outcome": {
+        "center_image_px": null,
+        "detection_index": 0,
+        "outline": null,
+        "quality": {
+          "angular_coverage": null,
+          "background_sample_fraction": 0.8489583333333334,
+          "background_supported_fraction": 0.671875,
+          "boundary_candidates": 98,
+          "center_shift_px": null,
+          "center_spread_px": null,
+          "fit_id": null,
+          "foreground_fraction": null,
+          "inliers": null,
+          "iterations": 1,
+          "largest_gap_fraction": null,
+          "residual_rms_px": null,
+          "stage": "boundary_sampling",
+          "supported_ray_fraction": 0.375
+        },
+        "reason": "insufficient_boundary",
+        "status": "rejected"
+      },
+      "same_semantic_result_for_indices_0_through_15": true
+    },
+    {
+      "acceptance_set_changed_from_baseline": true,
+      "accepted_indices": [],
+      "ball_id": "top-orange-solid-second-left-ball",
+      "baseline_accepted_indices": [
+        3,
+        7,
+        14
+      ],
+      "bbox_xyxy_source_px": [
+        334.0092315673828,
+        78.50923156738281,
+        369.9907684326172,
+        114.49076843261719
+      ],
+      "outcome_fingerprints": [
+        {
+          "center_image_px": null,
+          "detection_index": 0,
+          "reason": "ambiguous_boundary",
+          "semantic_output_sha256": "51937ce04c341a9afd18aa6e12e93ecb613571fed4481432064096b3af5e8a88",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 1,
+          "reason": "ambiguous_boundary",
+          "semantic_output_sha256": "51937ce04c341a9afd18aa6e12e93ecb613571fed4481432064096b3af5e8a88",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 2,
+          "reason": "ambiguous_boundary",
+          "semantic_output_sha256": "51937ce04c341a9afd18aa6e12e93ecb613571fed4481432064096b3af5e8a88",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 3,
+          "reason": "ambiguous_boundary",
+          "semantic_output_sha256": "51937ce04c341a9afd18aa6e12e93ecb613571fed4481432064096b3af5e8a88",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 4,
+          "reason": "ambiguous_boundary",
+          "semantic_output_sha256": "51937ce04c341a9afd18aa6e12e93ecb613571fed4481432064096b3af5e8a88",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 5,
+          "reason": "ambiguous_boundary",
+          "semantic_output_sha256": "51937ce04c341a9afd18aa6e12e93ecb613571fed4481432064096b3af5e8a88",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 6,
+          "reason": "ambiguous_boundary",
+          "semantic_output_sha256": "51937ce04c341a9afd18aa6e12e93ecb613571fed4481432064096b3af5e8a88",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 7,
+          "reason": "ambiguous_boundary",
+          "semantic_output_sha256": "51937ce04c341a9afd18aa6e12e93ecb613571fed4481432064096b3af5e8a88",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 8,
+          "reason": "ambiguous_boundary",
+          "semantic_output_sha256": "51937ce04c341a9afd18aa6e12e93ecb613571fed4481432064096b3af5e8a88",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 9,
+          "reason": "ambiguous_boundary",
+          "semantic_output_sha256": "51937ce04c341a9afd18aa6e12e93ecb613571fed4481432064096b3af5e8a88",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 10,
+          "reason": "ambiguous_boundary",
+          "semantic_output_sha256": "51937ce04c341a9afd18aa6e12e93ecb613571fed4481432064096b3af5e8a88",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 11,
+          "reason": "ambiguous_boundary",
+          "semantic_output_sha256": "51937ce04c341a9afd18aa6e12e93ecb613571fed4481432064096b3af5e8a88",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 12,
+          "reason": "ambiguous_boundary",
+          "semantic_output_sha256": "51937ce04c341a9afd18aa6e12e93ecb613571fed4481432064096b3af5e8a88",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 13,
+          "reason": "ambiguous_boundary",
+          "semantic_output_sha256": "51937ce04c341a9afd18aa6e12e93ecb613571fed4481432064096b3af5e8a88",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 14,
+          "reason": "ambiguous_boundary",
+          "semantic_output_sha256": "51937ce04c341a9afd18aa6e12e93ecb613571fed4481432064096b3af5e8a88",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 15,
+          "reason": "ambiguous_boundary",
+          "semantic_output_sha256": "51937ce04c341a9afd18aa6e12e93ecb613571fed4481432064096b3af5e8a88",
+          "status": "rejected"
+        }
+      ],
+      "physical_reference_id": "top-orange-solid-second-left-ball",
+      "physical_reference_present": true,
+      "proposal_origin": "manual saved segmentation/gradient annotations; not detector output",
+      "representative_outcome": {
+        "center_image_px": null,
+        "detection_index": 0,
+        "outline": null,
+        "quality": {
+          "angular_coverage": null,
+          "background_sample_fraction": 0.921875,
+          "background_supported_fraction": 0.921875,
+          "boundary_candidates": 288,
+          "center_shift_px": null,
+          "center_spread_px": null,
+          "fit_id": 64,
+          "foreground_fraction": null,
+          "inliers": null,
+          "iterations": 1,
+          "largest_gap_fraction": null,
+          "residual_rms_px": null,
+          "stage": "ambiguity_assessment",
+          "supported_ray_fraction": 1.0
+        },
+        "reason": "ambiguous_boundary",
+        "status": "rejected"
+      },
+      "same_semantic_result_for_indices_0_through_15": true
+    },
+    {
+      "acceptance_set_changed_from_baseline": false,
+      "accepted_indices": [],
+      "ball_id": "top-middle-pocket-ball",
+      "baseline_accepted_indices": [],
+      "bbox_xyxy_source_px": [
+        625.3704690933228,
+        76.87046909332275,
+        658.6295309066772,
+        110.12953090667725
+      ],
+      "outcome_fingerprints": [
+        {
+          "center_image_px": null,
+          "detection_index": 0,
+          "reason": "insufficient_boundary",
+          "semantic_output_sha256": "36b5629acd59cbca1d79fbbc4d5c8b95a810734c3e7f91c11dbb1848e4e08032",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 1,
+          "reason": "insufficient_boundary",
+          "semantic_output_sha256": "36b5629acd59cbca1d79fbbc4d5c8b95a810734c3e7f91c11dbb1848e4e08032",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 2,
+          "reason": "insufficient_boundary",
+          "semantic_output_sha256": "36b5629acd59cbca1d79fbbc4d5c8b95a810734c3e7f91c11dbb1848e4e08032",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 3,
+          "reason": "insufficient_boundary",
+          "semantic_output_sha256": "36b5629acd59cbca1d79fbbc4d5c8b95a810734c3e7f91c11dbb1848e4e08032",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 4,
+          "reason": "insufficient_boundary",
+          "semantic_output_sha256": "36b5629acd59cbca1d79fbbc4d5c8b95a810734c3e7f91c11dbb1848e4e08032",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 5,
+          "reason": "insufficient_boundary",
+          "semantic_output_sha256": "36b5629acd59cbca1d79fbbc4d5c8b95a810734c3e7f91c11dbb1848e4e08032",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 6,
+          "reason": "insufficient_boundary",
+          "semantic_output_sha256": "36b5629acd59cbca1d79fbbc4d5c8b95a810734c3e7f91c11dbb1848e4e08032",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 7,
+          "reason": "insufficient_boundary",
+          "semantic_output_sha256": "36b5629acd59cbca1d79fbbc4d5c8b95a810734c3e7f91c11dbb1848e4e08032",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 8,
+          "reason": "insufficient_boundary",
+          "semantic_output_sha256": "36b5629acd59cbca1d79fbbc4d5c8b95a810734c3e7f91c11dbb1848e4e08032",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 9,
+          "reason": "insufficient_boundary",
+          "semantic_output_sha256": "36b5629acd59cbca1d79fbbc4d5c8b95a810734c3e7f91c11dbb1848e4e08032",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 10,
+          "reason": "insufficient_boundary",
+          "semantic_output_sha256": "36b5629acd59cbca1d79fbbc4d5c8b95a810734c3e7f91c11dbb1848e4e08032",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 11,
+          "reason": "insufficient_boundary",
+          "semantic_output_sha256": "36b5629acd59cbca1d79fbbc4d5c8b95a810734c3e7f91c11dbb1848e4e08032",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 12,
+          "reason": "insufficient_boundary",
+          "semantic_output_sha256": "36b5629acd59cbca1d79fbbc4d5c8b95a810734c3e7f91c11dbb1848e4e08032",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 13,
+          "reason": "insufficient_boundary",
+          "semantic_output_sha256": "36b5629acd59cbca1d79fbbc4d5c8b95a810734c3e7f91c11dbb1848e4e08032",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 14,
+          "reason": "insufficient_boundary",
+          "semantic_output_sha256": "36b5629acd59cbca1d79fbbc4d5c8b95a810734c3e7f91c11dbb1848e4e08032",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 15,
+          "reason": "insufficient_boundary",
+          "semantic_output_sha256": "36b5629acd59cbca1d79fbbc4d5c8b95a810734c3e7f91c11dbb1848e4e08032",
+          "status": "rejected"
+        }
+      ],
+      "physical_reference_id": null,
+      "physical_reference_present": false,
+      "proposal_origin": "manual saved segmentation/gradient annotations; not detector output",
+      "representative_outcome": {
+        "center_image_px": null,
+        "detection_index": 0,
+        "outline": null,
+        "quality": {
+          "angular_coverage": null,
+          "background_sample_fraction": 0.8697916666666666,
+          "background_supported_fraction": 0.5885416666666666,
+          "boundary_candidates": null,
+          "center_shift_px": null,
+          "center_spread_px": null,
+          "fit_id": null,
+          "foreground_fraction": null,
+          "inliers": null,
+          "iterations": 2,
+          "largest_gap_fraction": null,
+          "residual_rms_px": null,
+          "stage": "background_sampling",
+          "supported_ray_fraction": null
+        },
+        "reason": "insufficient_boundary",
+        "status": "rejected"
+      },
+      "same_semantic_result_for_indices_0_through_15": true
+    },
+    {
+      "acceptance_set_changed_from_baseline": false,
+      "accepted_indices": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15
+      ],
+      "ball_id": "top-red-striped-second-right-ball",
+      "baseline_accepted_indices": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15
+      ],
+      "bbox_xyxy_source_px": [
+        910.0248098373413,
+        75.52480983734131,
+        945.9751901626587,
+        111.47519016265869
+      ],
+      "outcome_fingerprints": [
+        {
+          "center_image_px": [
+            927.5008278063383,
+            93.6764738016362
+          ],
+          "detection_index": 0,
+          "reason": null,
+          "semantic_output_sha256": "4f8db3c8b8cf8afe1cec525d94cd9733130c970c14acb1d748eaff7e2304b65d",
+          "status": "accepted"
+        },
+        {
+          "center_image_px": [
+            927.5008278063383,
+            93.6764738016362
+          ],
+          "detection_index": 1,
+          "reason": null,
+          "semantic_output_sha256": "4f8db3c8b8cf8afe1cec525d94cd9733130c970c14acb1d748eaff7e2304b65d",
+          "status": "accepted"
+        },
+        {
+          "center_image_px": [
+            927.5008278063383,
+            93.6764738016362
+          ],
+          "detection_index": 2,
+          "reason": null,
+          "semantic_output_sha256": "4f8db3c8b8cf8afe1cec525d94cd9733130c970c14acb1d748eaff7e2304b65d",
+          "status": "accepted"
+        },
+        {
+          "center_image_px": [
+            927.5008278063383,
+            93.6764738016362
+          ],
+          "detection_index": 3,
+          "reason": null,
+          "semantic_output_sha256": "4f8db3c8b8cf8afe1cec525d94cd9733130c970c14acb1d748eaff7e2304b65d",
+          "status": "accepted"
+        },
+        {
+          "center_image_px": [
+            927.5008278063383,
+            93.6764738016362
+          ],
+          "detection_index": 4,
+          "reason": null,
+          "semantic_output_sha256": "4f8db3c8b8cf8afe1cec525d94cd9733130c970c14acb1d748eaff7e2304b65d",
+          "status": "accepted"
+        },
+        {
+          "center_image_px": [
+            927.5008278063383,
+            93.6764738016362
+          ],
+          "detection_index": 5,
+          "reason": null,
+          "semantic_output_sha256": "4f8db3c8b8cf8afe1cec525d94cd9733130c970c14acb1d748eaff7e2304b65d",
+          "status": "accepted"
+        },
+        {
+          "center_image_px": [
+            927.5008278063383,
+            93.6764738016362
+          ],
+          "detection_index": 6,
+          "reason": null,
+          "semantic_output_sha256": "4f8db3c8b8cf8afe1cec525d94cd9733130c970c14acb1d748eaff7e2304b65d",
+          "status": "accepted"
+        },
+        {
+          "center_image_px": [
+            927.5008278063383,
+            93.6764738016362
+          ],
+          "detection_index": 7,
+          "reason": null,
+          "semantic_output_sha256": "4f8db3c8b8cf8afe1cec525d94cd9733130c970c14acb1d748eaff7e2304b65d",
+          "status": "accepted"
+        },
+        {
+          "center_image_px": [
+            927.5008278063383,
+            93.6764738016362
+          ],
+          "detection_index": 8,
+          "reason": null,
+          "semantic_output_sha256": "4f8db3c8b8cf8afe1cec525d94cd9733130c970c14acb1d748eaff7e2304b65d",
+          "status": "accepted"
+        },
+        {
+          "center_image_px": [
+            927.5008278063383,
+            93.6764738016362
+          ],
+          "detection_index": 9,
+          "reason": null,
+          "semantic_output_sha256": "4f8db3c8b8cf8afe1cec525d94cd9733130c970c14acb1d748eaff7e2304b65d",
+          "status": "accepted"
+        },
+        {
+          "center_image_px": [
+            927.5008278063383,
+            93.6764738016362
+          ],
+          "detection_index": 10,
+          "reason": null,
+          "semantic_output_sha256": "4f8db3c8b8cf8afe1cec525d94cd9733130c970c14acb1d748eaff7e2304b65d",
+          "status": "accepted"
+        },
+        {
+          "center_image_px": [
+            927.5008278063383,
+            93.6764738016362
+          ],
+          "detection_index": 11,
+          "reason": null,
+          "semantic_output_sha256": "4f8db3c8b8cf8afe1cec525d94cd9733130c970c14acb1d748eaff7e2304b65d",
+          "status": "accepted"
+        },
+        {
+          "center_image_px": [
+            927.5008278063383,
+            93.6764738016362
+          ],
+          "detection_index": 12,
+          "reason": null,
+          "semantic_output_sha256": "4f8db3c8b8cf8afe1cec525d94cd9733130c970c14acb1d748eaff7e2304b65d",
+          "status": "accepted"
+        },
+        {
+          "center_image_px": [
+            927.5008278063383,
+            93.6764738016362
+          ],
+          "detection_index": 13,
+          "reason": null,
+          "semantic_output_sha256": "4f8db3c8b8cf8afe1cec525d94cd9733130c970c14acb1d748eaff7e2304b65d",
+          "status": "accepted"
+        },
+        {
+          "center_image_px": [
+            927.5008278063383,
+            93.6764738016362
+          ],
+          "detection_index": 14,
+          "reason": null,
+          "semantic_output_sha256": "4f8db3c8b8cf8afe1cec525d94cd9733130c970c14acb1d748eaff7e2304b65d",
+          "status": "accepted"
+        },
+        {
+          "center_image_px": [
+            927.5008278063383,
+            93.6764738016362
+          ],
+          "detection_index": 15,
+          "reason": null,
+          "semantic_output_sha256": "4f8db3c8b8cf8afe1cec525d94cd9733130c970c14acb1d748eaff7e2304b65d",
+          "status": "accepted"
+        }
+      ],
+      "physical_reference_id": "top-red-striped-second-right-ball",
+      "physical_reference_present": true,
+      "proposal_origin": "manual saved segmentation/gradient annotations; not detector output",
+      "representative_outcome": {
+        "center_image_px": [
+          927.5008278063383,
+          93.6764738016362
+        ],
+        "detection_index": 0,
+        "outline": {
+          "half_extent_image_px": [
+            15.180690082903652,
+            14.975166529548943
+          ],
+          "local_radius_px": 12.255214426682263,
+          "points_image_px": [
+            [
+              942.6704476158104,
+              92.69250855845848
+            ],
+            [
+              942.3982055116223,
+              94.65423156862786
+            ],
+            [
+              941.8702487824561,
+              96.59534147741931
+            ],
+            [
+              941.0965307612291,
+              98.48216665115265
+            ],
+            [
+              940.091266585403,
+              100.28220305317498
+            ],
+            [
+              938.8726225251844,
+              101.96468421708312
+            ],
+            [
+              937.4623390081267,
+              103.50110397029218
+            ],
+            [
+              935.8852983422629,
+              104.86568344378338
+            ],
+            [
+              934.1690485924529,
+              106.0357760278275
+            ],
+            [
+              932.3432950536715,
+              106.99220601714234
+            ],
+            [
+              930.4393703554808,
+              107.71953863177947
+            ],
+            [
+              928.4896935057952,
+              108.20628082319013
+            ],
+            [
+              926.5272272303805,
+              108.44501372401322
+            ],
+            [
+              924.5849418802545,
+              108.43245874594473
+            ],
+            [
+              922.6952930505457,
+              108.16948016727272
+            ],
+            [
+              920.889718959833,
+              107.66102759620648
+            ],
+            [
+              919.1981626433596,
+              106.9160219814172
+            ],
+            [
+              917.6486231655227,
+              105.94718891402562
+            ],
+            [
+              916.2667393883546,
+              104.77084288139491
+            ],
+            [
+              915.0754093576883,
+              103.40662595312102
+            ],
+            [
+              914.0944480852315,
+              101.87720416510331
+            ],
+            [
+              913.3402863955129,
+              100.20792467756348
+            ],
+            [
+              912.8257135408455,
+              98.42643667083533
+            ],
+            [
+              912.5596664229258,
+              96.56227895389932
+            ],
+            [
+              912.5470684452671,
+              94.64643742966012
+            ],
+            [
+              912.7887211987849,
+              92.71087590991863
+            ],
+            [
+              913.2812522924794,
+              90.78804430961003
+            ],
+            [
+              914.0171226211096,
+              88.91036896626031
+            ],
+            [
+              914.9846961543585,
+              87.1097307023353
+            ],
+            [
+              916.1683748870884,
+              85.41693723418246
+            ],
+            [
+              917.5488008694074,
+              83.86119757464218
+            ],
+            [
+              919.1031262158276,
+              82.46960710614081
+            ],
+            [
+              920.8053506718798,
+              81.26665293523064
+            ],
+            [
+              922.6267247139804,
+              80.27374988969825
+            ],
+            [
+              924.5362143185446,
+              79.50881799636244
+            ],
+            [
+              926.5010215283966,
+              78.98591239839601
+            ],
+            [
+              928.4871528603633,
+              78.71491636574643
+            ],
+            [
+              930.4600255480732,
+              78.70130727208726
+            ],
+            [
+              932.3850997210245,
+              78.9460041352333
+            ],
+            [
+              934.2285230112641,
+              79.44530355604405
+            ],
+            [
+              935.957772872624,
+              80.19090868959205
+            ],
+            [
+              937.5422811979658,
+              81.1700533226562
+            ],
+            [
+              938.9540257044112,
+              82.36572032551726
+            ],
+            [
+              940.1680730676073,
+              83.75695083010095
+            ],
+            [
+              941.1630599260511,
+              85.31923761202802
+            ],
+            [
+              941.9215996055206,
+              87.02499347565731
+            ],
+            [
+              942.4306046515051,
+              88.84408310422793
+            ],
+            [
+              942.681517889242,
+              90.74440496629205
+            ]
+          ]
+        },
+        "quality": {
+          "angular_coverage": 1.0,
+          "background_sample_fraction": 0.9114583333333334,
+          "background_supported_fraction": 0.9114583333333334,
+          "boundary_candidates": 288,
+          "center_shift_px": 0.5294486581236896,
+          "center_spread_px": 0.08664994381403682,
+          "fit_id": 75,
+          "foreground_fraction": 1.0,
+          "inliers": 96,
+          "iterations": 3,
+          "largest_gap_fraction": 0.010566034226779406,
+          "residual_rms_px": 0.13428326766949622,
+          "stage": "complete",
+          "supported_ray_fraction": 1.0
+        },
+        "reason": null,
+        "status": "accepted"
+      },
+      "same_semantic_result_for_indices_0_through_15": true
+    },
+    {
+      "acceptance_set_changed_from_baseline": false,
+      "accepted_indices": [],
+      "ball_id": "top-right-cue-pocket-ball",
+      "baseline_accepted_indices": [],
+      "bbox_xyxy_source_px": [
+        1177.6286277770996,
+        72.62862777709961,
+        1218.3713722229004,
+        113.37137222290039
+      ],
+      "outcome_fingerprints": [
+        {
+          "center_image_px": null,
+          "detection_index": 0,
+          "reason": "excessive_center_shift",
+          "semantic_output_sha256": "98c759d8e0a5eeb102705dff254ee4a7f0e38f8d964f45d4be568394005464f1",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 1,
+          "reason": "excessive_center_shift",
+          "semantic_output_sha256": "98c759d8e0a5eeb102705dff254ee4a7f0e38f8d964f45d4be568394005464f1",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 2,
+          "reason": "excessive_center_shift",
+          "semantic_output_sha256": "98c759d8e0a5eeb102705dff254ee4a7f0e38f8d964f45d4be568394005464f1",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 3,
+          "reason": "excessive_center_shift",
+          "semantic_output_sha256": "98c759d8e0a5eeb102705dff254ee4a7f0e38f8d964f45d4be568394005464f1",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 4,
+          "reason": "excessive_center_shift",
+          "semantic_output_sha256": "98c759d8e0a5eeb102705dff254ee4a7f0e38f8d964f45d4be568394005464f1",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 5,
+          "reason": "excessive_center_shift",
+          "semantic_output_sha256": "98c759d8e0a5eeb102705dff254ee4a7f0e38f8d964f45d4be568394005464f1",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 6,
+          "reason": "excessive_center_shift",
+          "semantic_output_sha256": "98c759d8e0a5eeb102705dff254ee4a7f0e38f8d964f45d4be568394005464f1",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 7,
+          "reason": "excessive_center_shift",
+          "semantic_output_sha256": "98c759d8e0a5eeb102705dff254ee4a7f0e38f8d964f45d4be568394005464f1",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 8,
+          "reason": "excessive_center_shift",
+          "semantic_output_sha256": "98c759d8e0a5eeb102705dff254ee4a7f0e38f8d964f45d4be568394005464f1",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 9,
+          "reason": "excessive_center_shift",
+          "semantic_output_sha256": "98c759d8e0a5eeb102705dff254ee4a7f0e38f8d964f45d4be568394005464f1",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 10,
+          "reason": "excessive_center_shift",
+          "semantic_output_sha256": "98c759d8e0a5eeb102705dff254ee4a7f0e38f8d964f45d4be568394005464f1",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 11,
+          "reason": "excessive_center_shift",
+          "semantic_output_sha256": "98c759d8e0a5eeb102705dff254ee4a7f0e38f8d964f45d4be568394005464f1",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 12,
+          "reason": "excessive_center_shift",
+          "semantic_output_sha256": "98c759d8e0a5eeb102705dff254ee4a7f0e38f8d964f45d4be568394005464f1",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 13,
+          "reason": "excessive_center_shift",
+          "semantic_output_sha256": "98c759d8e0a5eeb102705dff254ee4a7f0e38f8d964f45d4be568394005464f1",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 14,
+          "reason": "excessive_center_shift",
+          "semantic_output_sha256": "98c759d8e0a5eeb102705dff254ee4a7f0e38f8d964f45d4be568394005464f1",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 15,
+          "reason": "excessive_center_shift",
+          "semantic_output_sha256": "98c759d8e0a5eeb102705dff254ee4a7f0e38f8d964f45d4be568394005464f1",
+          "status": "rejected"
+        }
+      ],
+      "physical_reference_id": null,
+      "physical_reference_present": false,
+      "proposal_origin": "manual saved segmentation/gradient annotations; not detector output",
+      "representative_outcome": {
+        "center_image_px": null,
+        "detection_index": 0,
+        "outline": null,
+        "quality": {
+          "angular_coverage": 1.0,
+          "background_sample_fraction": 0.8958333333333334,
+          "background_supported_fraction": 0.7291666666666666,
+          "boundary_candidates": 255,
+          "center_shift_px": 4.671988573011675,
+          "center_spread_px": null,
+          "fit_id": 17,
+          "foreground_fraction": null,
+          "inliers": 93,
+          "iterations": 2,
+          "largest_gap_fraction": 0.03912472226133845,
+          "residual_rms_px": 0.11944105723470745,
+          "stage": "center_projection",
+          "supported_ray_fraction": 1.0
+        },
+        "reason": "excessive_center_shift",
+        "status": "rejected"
+      },
+      "same_semantic_result_for_indices_0_through_15": true
+    },
+    {
+      "acceptance_set_changed_from_baseline": false,
+      "accepted_indices": [],
+      "ball_id": "far-left-yellow-middle-row-ball",
+      "baseline_accepted_indices": [],
+      "bbox_xyxy_source_px": [
+        76.2666244506836,
+        342.7666244506836,
+        114.7333755493164,
+        381.2333755493164
+      ],
+      "outcome_fingerprints": [
+        {
+          "center_image_px": null,
+          "detection_index": 0,
+          "reason": "ambiguous_boundary",
+          "semantic_output_sha256": "df776d8aaba60fac0536500494cbaedbbddcb96b55d4b58243f5927afbfc43dd",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 1,
+          "reason": "ambiguous_boundary",
+          "semantic_output_sha256": "df776d8aaba60fac0536500494cbaedbbddcb96b55d4b58243f5927afbfc43dd",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 2,
+          "reason": "ambiguous_boundary",
+          "semantic_output_sha256": "df776d8aaba60fac0536500494cbaedbbddcb96b55d4b58243f5927afbfc43dd",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 3,
+          "reason": "ambiguous_boundary",
+          "semantic_output_sha256": "df776d8aaba60fac0536500494cbaedbbddcb96b55d4b58243f5927afbfc43dd",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 4,
+          "reason": "ambiguous_boundary",
+          "semantic_output_sha256": "df776d8aaba60fac0536500494cbaedbbddcb96b55d4b58243f5927afbfc43dd",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 5,
+          "reason": "ambiguous_boundary",
+          "semantic_output_sha256": "df776d8aaba60fac0536500494cbaedbbddcb96b55d4b58243f5927afbfc43dd",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 6,
+          "reason": "ambiguous_boundary",
+          "semantic_output_sha256": "df776d8aaba60fac0536500494cbaedbbddcb96b55d4b58243f5927afbfc43dd",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 7,
+          "reason": "ambiguous_boundary",
+          "semantic_output_sha256": "df776d8aaba60fac0536500494cbaedbbddcb96b55d4b58243f5927afbfc43dd",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 8,
+          "reason": "ambiguous_boundary",
+          "semantic_output_sha256": "df776d8aaba60fac0536500494cbaedbbddcb96b55d4b58243f5927afbfc43dd",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 9,
+          "reason": "ambiguous_boundary",
+          "semantic_output_sha256": "df776d8aaba60fac0536500494cbaedbbddcb96b55d4b58243f5927afbfc43dd",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 10,
+          "reason": "ambiguous_boundary",
+          "semantic_output_sha256": "df776d8aaba60fac0536500494cbaedbbddcb96b55d4b58243f5927afbfc43dd",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 11,
+          "reason": "ambiguous_boundary",
+          "semantic_output_sha256": "df776d8aaba60fac0536500494cbaedbbddcb96b55d4b58243f5927afbfc43dd",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 12,
+          "reason": "ambiguous_boundary",
+          "semantic_output_sha256": "df776d8aaba60fac0536500494cbaedbbddcb96b55d4b58243f5927afbfc43dd",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 13,
+          "reason": "ambiguous_boundary",
+          "semantic_output_sha256": "df776d8aaba60fac0536500494cbaedbbddcb96b55d4b58243f5927afbfc43dd",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 14,
+          "reason": "ambiguous_boundary",
+          "semantic_output_sha256": "df776d8aaba60fac0536500494cbaedbbddcb96b55d4b58243f5927afbfc43dd",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 15,
+          "reason": "ambiguous_boundary",
+          "semantic_output_sha256": "df776d8aaba60fac0536500494cbaedbbddcb96b55d4b58243f5927afbfc43dd",
+          "status": "rejected"
+        }
+      ],
+      "physical_reference_id": "far-left-yellow-middle-row-ball",
+      "physical_reference_present": true,
+      "proposal_origin": "manual saved segmentation/gradient annotations; not detector output",
+      "representative_outcome": {
+        "center_image_px": null,
+        "detection_index": 0,
+        "outline": null,
+        "quality": {
+          "angular_coverage": null,
+          "background_sample_fraction": 0.8489583333333334,
+          "background_supported_fraction": 0.8333333333333334,
+          "boundary_candidates": 288,
+          "center_shift_px": null,
+          "center_spread_px": null,
+          "fit_id": 6,
+          "foreground_fraction": null,
+          "inliers": null,
+          "iterations": 3,
+          "largest_gap_fraction": null,
+          "residual_rms_px": null,
+          "stage": "ambiguity_assessment",
+          "supported_ray_fraction": 1.0
+        },
+        "reason": "ambiguous_boundary",
+        "status": "rejected"
+      },
+      "same_semantic_result_for_indices_0_through_15": true
+    },
+    {
+      "acceptance_set_changed_from_baseline": true,
+      "accepted_indices": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15
+      ],
+      "ball_id": "interior-purple-second-left-middle-row-ball",
+      "baseline_accepted_indices": [
+        0,
+        1,
+        2,
+        4,
+        5,
+        6,
+        8,
+        9,
+        10,
+        14,
+        15
+      ],
+      "bbox_xyxy_source_px": [
+        340.6250867843628,
+        346.6250867843628,
+        374.3749132156372,
+        380.3749132156372
+      ],
+      "outcome_fingerprints": [
+        {
+          "center_image_px": [
+            358.29140661519244,
+            363.6513871120506
+          ],
+          "detection_index": 0,
+          "reason": null,
+          "semantic_output_sha256": "89d5e9c52b59ef1955276a2e172ea885a753a6f2f1b99399d245b453d0fa5e36",
+          "status": "accepted"
+        },
+        {
+          "center_image_px": [
+            358.29140661519244,
+            363.6513871120506
+          ],
+          "detection_index": 1,
+          "reason": null,
+          "semantic_output_sha256": "89d5e9c52b59ef1955276a2e172ea885a753a6f2f1b99399d245b453d0fa5e36",
+          "status": "accepted"
+        },
+        {
+          "center_image_px": [
+            358.29140661519244,
+            363.6513871120506
+          ],
+          "detection_index": 2,
+          "reason": null,
+          "semantic_output_sha256": "89d5e9c52b59ef1955276a2e172ea885a753a6f2f1b99399d245b453d0fa5e36",
+          "status": "accepted"
+        },
+        {
+          "center_image_px": [
+            358.29140661519244,
+            363.6513871120506
+          ],
+          "detection_index": 3,
+          "reason": null,
+          "semantic_output_sha256": "89d5e9c52b59ef1955276a2e172ea885a753a6f2f1b99399d245b453d0fa5e36",
+          "status": "accepted"
+        },
+        {
+          "center_image_px": [
+            358.29140661519244,
+            363.6513871120506
+          ],
+          "detection_index": 4,
+          "reason": null,
+          "semantic_output_sha256": "89d5e9c52b59ef1955276a2e172ea885a753a6f2f1b99399d245b453d0fa5e36",
+          "status": "accepted"
+        },
+        {
+          "center_image_px": [
+            358.29140661519244,
+            363.6513871120506
+          ],
+          "detection_index": 5,
+          "reason": null,
+          "semantic_output_sha256": "89d5e9c52b59ef1955276a2e172ea885a753a6f2f1b99399d245b453d0fa5e36",
+          "status": "accepted"
+        },
+        {
+          "center_image_px": [
+            358.29140661519244,
+            363.6513871120506
+          ],
+          "detection_index": 6,
+          "reason": null,
+          "semantic_output_sha256": "89d5e9c52b59ef1955276a2e172ea885a753a6f2f1b99399d245b453d0fa5e36",
+          "status": "accepted"
+        },
+        {
+          "center_image_px": [
+            358.29140661519244,
+            363.6513871120506
+          ],
+          "detection_index": 7,
+          "reason": null,
+          "semantic_output_sha256": "89d5e9c52b59ef1955276a2e172ea885a753a6f2f1b99399d245b453d0fa5e36",
+          "status": "accepted"
+        },
+        {
+          "center_image_px": [
+            358.29140661519244,
+            363.6513871120506
+          ],
+          "detection_index": 8,
+          "reason": null,
+          "semantic_output_sha256": "89d5e9c52b59ef1955276a2e172ea885a753a6f2f1b99399d245b453d0fa5e36",
+          "status": "accepted"
+        },
+        {
+          "center_image_px": [
+            358.29140661519244,
+            363.6513871120506
+          ],
+          "detection_index": 9,
+          "reason": null,
+          "semantic_output_sha256": "89d5e9c52b59ef1955276a2e172ea885a753a6f2f1b99399d245b453d0fa5e36",
+          "status": "accepted"
+        },
+        {
+          "center_image_px": [
+            358.29140661519244,
+            363.6513871120506
+          ],
+          "detection_index": 10,
+          "reason": null,
+          "semantic_output_sha256": "89d5e9c52b59ef1955276a2e172ea885a753a6f2f1b99399d245b453d0fa5e36",
+          "status": "accepted"
+        },
+        {
+          "center_image_px": [
+            358.29140661519244,
+            363.6513871120506
+          ],
+          "detection_index": 11,
+          "reason": null,
+          "semantic_output_sha256": "89d5e9c52b59ef1955276a2e172ea885a753a6f2f1b99399d245b453d0fa5e36",
+          "status": "accepted"
+        },
+        {
+          "center_image_px": [
+            358.29140661519244,
+            363.6513871120506
+          ],
+          "detection_index": 12,
+          "reason": null,
+          "semantic_output_sha256": "89d5e9c52b59ef1955276a2e172ea885a753a6f2f1b99399d245b453d0fa5e36",
+          "status": "accepted"
+        },
+        {
+          "center_image_px": [
+            358.29140661519244,
+            363.6513871120506
+          ],
+          "detection_index": 13,
+          "reason": null,
+          "semantic_output_sha256": "89d5e9c52b59ef1955276a2e172ea885a753a6f2f1b99399d245b453d0fa5e36",
+          "status": "accepted"
+        },
+        {
+          "center_image_px": [
+            358.29140661519244,
+            363.6513871120506
+          ],
+          "detection_index": 14,
+          "reason": null,
+          "semantic_output_sha256": "89d5e9c52b59ef1955276a2e172ea885a753a6f2f1b99399d245b453d0fa5e36",
+          "status": "accepted"
+        },
+        {
+          "center_image_px": [
+            358.29140661519244,
+            363.6513871120506
+          ],
+          "detection_index": 15,
+          "reason": null,
+          "semantic_output_sha256": "89d5e9c52b59ef1955276a2e172ea885a753a6f2f1b99399d245b453d0fa5e36",
+          "status": "accepted"
+        }
+      ],
+      "physical_reference_id": "interior-purple-second-left-middle-row-ball",
+      "physical_reference_present": true,
+      "proposal_origin": "manual saved segmentation/gradient annotations; not detector output",
+      "representative_outcome": {
+        "center_image_px": [
+          358.29140661519244,
+          363.6513871120506
+        ],
+        "detection_index": 0,
+        "outline": {
+          "half_extent_image_px": [
+            15.106370307610007,
+            13.876414192183177
+          ],
+          "local_radius_px": 12.826676864845556,
+          "points_image_px": [
+            [
+              373.1711033869736,
+              363.59791156084526
+            ],
+            [
+              373.03818907997004,
+              365.3955329410269
+            ],
+            [
+              372.65471099689626,
+              367.16415942390535
+            ],
+            [
+              372.02691128922805,
+              368.87415443007365
+            ],
+            [
+              371.16504992185577,
+              370.49678920104424
+            ],
+            [
+              370.083261138911,
+              372.00469867054045
+            ],
+            [
+              368.79935243103694,
+              373.3723226157123
+            ],
+            [
+              367.33454680204414,
+              374.5763263696042
+            ],
+            [
+              365.71316967987553,
+              375.5959950642489
+            ],
+            [
+              363.9622825294624,
+              376.41359508060316
+            ],
+            [
+              362.11126611056545,
+              377.0146961562725
+            ],
+            [
+              360.1913573746493,
+              377.38844749689343
+            ],
+            [
+              358.2351451879783,
+              377.5278013042338
+            ],
+            [
+              356.2760313640521,
+              377.4296774215469
+            ],
+            [
+              354.3476648323902,
+              377.09506334431626
+            ],
+            [
+              352.48335809430097,
+              376.52904467978163
+            ],
+            [
+              350.71549634126575,
+              375.74076227303726
+            ],
+            [
+              349.07495065403606,
+              374.7432936434169
+            ],
+            [
+              347.59050747669266,
+              373.5534580637396
+            ],
+            [
+              346.2883269924412,
+              372.1915465167803
+            ],
+            [
+              345.1914430526172,
+              370.68097980801053
+            ],
+            [
+              344.31931688239916,
+              369.04790021431666
+            ],
+            [
+              343.6874558858,
+              367.32070410628205
+            ],
+            [
+              343.3071075065125,
+              365.529524892516
+            ],
+            [
+              343.18503630758244,
+              363.7056772962728
+            ],
+            [
+              343.3233902776577,
+              361.88107529484466
+            ],
+            [
+              343.71965994565466,
+              360.0876369556926
+            ],
+            [
+              344.3667312990543,
+              358.3566898380085
+            ],
+            [
+              345.2530308750401,
+              356.7183905699974
+            ],
+            [
+              346.3627588521649,
+              355.2011716658181
+            ],
+            [
+              347.67620363062935,
+              353.8312276460949
+            ],
+            [
+              349.1701293541094,
+              352.63205113255054
+            ],
+            [
+              350.8182261762135,
+              351.62402788194936
+            ],
+            [
+              352.591611864278,
+              350.8240978027942
+            ],
+            [
+              354.45937258748654,
+              350.2454869625196
+            ],
+            [
+              356.3891304514811,
+              349.8975135448108
+            ],
+            [
+              358.3476254874377,
+              349.78546874985653
+            ],
+            [
+              360.30130032757205,
+              349.9105718248092
+            ],
+            [
+              362.216876632267,
+              350.26999682956665
+            ],
+            [
+              364.06191339739377,
+              350.85696742596093
+            ],
+            [
+              365.80533848118034,
+              351.66091494731927
+            ],
+            [
+              367.417945967719,
+              352.6676942609473
+            ],
+            [
+              368.87285325588067,
+              353.85985146149636
+            ],
+            [
+              370.14591296636496,
+              355.2169371970888
+            ],
+            [
+              371.2160758482973,
+              356.7158593905619
+            ],
+            [
+              372.06570180809496,
+              358.33126922671266
+            ],
+            [
+              372.68081696101774,
+              360.03597448177914
+            ],
+            [
+              373.05131521873784,
+              361.8013745233084
+            ]
+          ]
+        },
+        "quality": {
+          "angular_coverage": 1.0,
+          "background_sample_fraction": 0.9010416666666666,
+          "background_supported_fraction": 0.9010416666666666,
+          "boundary_candidates": 288,
+          "center_shift_px": 0.8057558490419914,
+          "center_spread_px": 0.08697746594855071,
+          "fit_id": 29,
+          "foreground_fraction": 1.0,
+          "inliers": 91,
+          "iterations": 3,
+          "largest_gap_fraction": 0.041324275503196256,
+          "residual_rms_px": 0.18091908991445443,
+          "stage": "complete",
+          "supported_ray_fraction": 1.0
+        },
+        "reason": null,
+        "status": "accepted"
+      },
+      "same_semantic_result_for_indices_0_through_15": true
+    },
+    {
+      "acceptance_set_changed_from_baseline": true,
+      "accepted_indices": [],
+      "ball_id": "middle-row-center-ball",
+      "baseline_accepted_indices": [
+        2,
+        4,
+        7,
+        9,
+        10,
+        11,
+        12
+      ],
+      "bbox_xyxy_source_px": [
+        628.4861783981323,
+        346.4861783981323,
+        658.5138216018677,
+        376.5138216018677
+      ],
+      "outcome_fingerprints": [
+        {
+          "center_image_px": null,
+          "detection_index": 0,
+          "reason": "ambiguous_boundary",
+          "semantic_output_sha256": "cb4ec5114cd45482297489a80f5e183dbaa01b6e64f3128c86a14c8ee66ced2b",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 1,
+          "reason": "ambiguous_boundary",
+          "semantic_output_sha256": "cb4ec5114cd45482297489a80f5e183dbaa01b6e64f3128c86a14c8ee66ced2b",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 2,
+          "reason": "ambiguous_boundary",
+          "semantic_output_sha256": "cb4ec5114cd45482297489a80f5e183dbaa01b6e64f3128c86a14c8ee66ced2b",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 3,
+          "reason": "ambiguous_boundary",
+          "semantic_output_sha256": "cb4ec5114cd45482297489a80f5e183dbaa01b6e64f3128c86a14c8ee66ced2b",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 4,
+          "reason": "ambiguous_boundary",
+          "semantic_output_sha256": "cb4ec5114cd45482297489a80f5e183dbaa01b6e64f3128c86a14c8ee66ced2b",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 5,
+          "reason": "ambiguous_boundary",
+          "semantic_output_sha256": "cb4ec5114cd45482297489a80f5e183dbaa01b6e64f3128c86a14c8ee66ced2b",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 6,
+          "reason": "ambiguous_boundary",
+          "semantic_output_sha256": "cb4ec5114cd45482297489a80f5e183dbaa01b6e64f3128c86a14c8ee66ced2b",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 7,
+          "reason": "ambiguous_boundary",
+          "semantic_output_sha256": "cb4ec5114cd45482297489a80f5e183dbaa01b6e64f3128c86a14c8ee66ced2b",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 8,
+          "reason": "ambiguous_boundary",
+          "semantic_output_sha256": "cb4ec5114cd45482297489a80f5e183dbaa01b6e64f3128c86a14c8ee66ced2b",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 9,
+          "reason": "ambiguous_boundary",
+          "semantic_output_sha256": "cb4ec5114cd45482297489a80f5e183dbaa01b6e64f3128c86a14c8ee66ced2b",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 10,
+          "reason": "ambiguous_boundary",
+          "semantic_output_sha256": "cb4ec5114cd45482297489a80f5e183dbaa01b6e64f3128c86a14c8ee66ced2b",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 11,
+          "reason": "ambiguous_boundary",
+          "semantic_output_sha256": "cb4ec5114cd45482297489a80f5e183dbaa01b6e64f3128c86a14c8ee66ced2b",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 12,
+          "reason": "ambiguous_boundary",
+          "semantic_output_sha256": "cb4ec5114cd45482297489a80f5e183dbaa01b6e64f3128c86a14c8ee66ced2b",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 13,
+          "reason": "ambiguous_boundary",
+          "semantic_output_sha256": "cb4ec5114cd45482297489a80f5e183dbaa01b6e64f3128c86a14c8ee66ced2b",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 14,
+          "reason": "ambiguous_boundary",
+          "semantic_output_sha256": "cb4ec5114cd45482297489a80f5e183dbaa01b6e64f3128c86a14c8ee66ced2b",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 15,
+          "reason": "ambiguous_boundary",
+          "semantic_output_sha256": "cb4ec5114cd45482297489a80f5e183dbaa01b6e64f3128c86a14c8ee66ced2b",
+          "status": "rejected"
+        }
+      ],
+      "physical_reference_id": "middle-row-center-ball",
+      "physical_reference_present": true,
+      "proposal_origin": "manual saved segmentation/gradient annotations; not detector output",
+      "representative_outcome": {
+        "center_image_px": null,
+        "detection_index": 0,
+        "outline": null,
+        "quality": {
+          "angular_coverage": null,
+          "background_sample_fraction": 0.9479166666666666,
+          "background_supported_fraction": 0.9479166666666666,
+          "boundary_candidates": 288,
+          "center_shift_px": null,
+          "center_spread_px": null,
+          "fit_id": 29,
+          "foreground_fraction": null,
+          "inliers": null,
+          "iterations": 2,
+          "largest_gap_fraction": null,
+          "residual_rms_px": null,
+          "stage": "ambiguity_assessment",
+          "supported_ray_fraction": 1.0
+        },
+        "reason": "ambiguous_boundary",
+        "status": "rejected"
+      },
+      "same_semantic_result_for_indices_0_through_15": true
+    },
+    {
+      "acceptance_set_changed_from_baseline": true,
+      "accepted_indices": [],
+      "ball_id": "interior-green-second-right-middle-row-ball",
+      "baseline_accepted_indices": [
+        2,
+        14
+      ],
+      "bbox_xyxy_source_px": [
+        906.1441822052002,
+        342.6441822052002,
+        943.8558177947998,
+        380.3558177947998
+      ],
+      "outcome_fingerprints": [
+        {
+          "center_image_px": null,
+          "detection_index": 0,
+          "reason": "ambiguous_boundary",
+          "semantic_output_sha256": "b014f2d0c0fc8641ad927268ba6babd2165ed4b9a2e5dbfdef41a247f0e093a9",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 1,
+          "reason": "ambiguous_boundary",
+          "semantic_output_sha256": "b014f2d0c0fc8641ad927268ba6babd2165ed4b9a2e5dbfdef41a247f0e093a9",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 2,
+          "reason": "ambiguous_boundary",
+          "semantic_output_sha256": "b014f2d0c0fc8641ad927268ba6babd2165ed4b9a2e5dbfdef41a247f0e093a9",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 3,
+          "reason": "ambiguous_boundary",
+          "semantic_output_sha256": "b014f2d0c0fc8641ad927268ba6babd2165ed4b9a2e5dbfdef41a247f0e093a9",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 4,
+          "reason": "ambiguous_boundary",
+          "semantic_output_sha256": "b014f2d0c0fc8641ad927268ba6babd2165ed4b9a2e5dbfdef41a247f0e093a9",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 5,
+          "reason": "ambiguous_boundary",
+          "semantic_output_sha256": "b014f2d0c0fc8641ad927268ba6babd2165ed4b9a2e5dbfdef41a247f0e093a9",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 6,
+          "reason": "ambiguous_boundary",
+          "semantic_output_sha256": "b014f2d0c0fc8641ad927268ba6babd2165ed4b9a2e5dbfdef41a247f0e093a9",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 7,
+          "reason": "ambiguous_boundary",
+          "semantic_output_sha256": "b014f2d0c0fc8641ad927268ba6babd2165ed4b9a2e5dbfdef41a247f0e093a9",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 8,
+          "reason": "ambiguous_boundary",
+          "semantic_output_sha256": "b014f2d0c0fc8641ad927268ba6babd2165ed4b9a2e5dbfdef41a247f0e093a9",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 9,
+          "reason": "ambiguous_boundary",
+          "semantic_output_sha256": "b014f2d0c0fc8641ad927268ba6babd2165ed4b9a2e5dbfdef41a247f0e093a9",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 10,
+          "reason": "ambiguous_boundary",
+          "semantic_output_sha256": "b014f2d0c0fc8641ad927268ba6babd2165ed4b9a2e5dbfdef41a247f0e093a9",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 11,
+          "reason": "ambiguous_boundary",
+          "semantic_output_sha256": "b014f2d0c0fc8641ad927268ba6babd2165ed4b9a2e5dbfdef41a247f0e093a9",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 12,
+          "reason": "ambiguous_boundary",
+          "semantic_output_sha256": "b014f2d0c0fc8641ad927268ba6babd2165ed4b9a2e5dbfdef41a247f0e093a9",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 13,
+          "reason": "ambiguous_boundary",
+          "semantic_output_sha256": "b014f2d0c0fc8641ad927268ba6babd2165ed4b9a2e5dbfdef41a247f0e093a9",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 14,
+          "reason": "ambiguous_boundary",
+          "semantic_output_sha256": "b014f2d0c0fc8641ad927268ba6babd2165ed4b9a2e5dbfdef41a247f0e093a9",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 15,
+          "reason": "ambiguous_boundary",
+          "semantic_output_sha256": "b014f2d0c0fc8641ad927268ba6babd2165ed4b9a2e5dbfdef41a247f0e093a9",
+          "status": "rejected"
+        }
+      ],
+      "physical_reference_id": "interior-green-second-right-middle-row-ball",
+      "physical_reference_present": true,
+      "proposal_origin": "manual saved segmentation/gradient annotations; not detector output",
+      "representative_outcome": {
+        "center_image_px": null,
+        "detection_index": 0,
+        "outline": null,
+        "quality": {
+          "angular_coverage": null,
+          "background_sample_fraction": 0.90625,
+          "background_supported_fraction": 0.90625,
+          "boundary_candidates": 286,
+          "center_shift_px": null,
+          "center_spread_px": null,
+          "fit_id": 72,
+          "foreground_fraction": null,
+          "inliers": null,
+          "iterations": 1,
+          "largest_gap_fraction": null,
+          "residual_rms_px": null,
+          "stage": "ambiguity_assessment",
+          "supported_ray_fraction": 1.0
+        },
+        "reason": "ambiguous_boundary",
+        "status": "rejected"
+      },
+      "same_semantic_result_for_indices_0_through_15": true
+    },
+    {
+      "acceptance_set_changed_from_baseline": true,
+      "accepted_indices": [],
+      "ball_id": "far-right-purple-middle-row-ball",
+      "baseline_accepted_indices": [
+        2,
+        3,
+        4,
+        5,
+        9
+      ],
+      "bbox_xyxy_source_px": [
+        1177.7638339996338,
+        342.2638339996338,
+        1219.2361660003662,
+        383.7361660003662
+      ],
+      "outcome_fingerprints": [
+        {
+          "center_image_px": null,
+          "detection_index": 0,
+          "reason": "ambiguous_boundary",
+          "semantic_output_sha256": "247a524843dbafbc24462e16f625291cd4ac7e238d55846f467b23be51fac30b",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 1,
+          "reason": "ambiguous_boundary",
+          "semantic_output_sha256": "247a524843dbafbc24462e16f625291cd4ac7e238d55846f467b23be51fac30b",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 2,
+          "reason": "ambiguous_boundary",
+          "semantic_output_sha256": "247a524843dbafbc24462e16f625291cd4ac7e238d55846f467b23be51fac30b",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 3,
+          "reason": "ambiguous_boundary",
+          "semantic_output_sha256": "247a524843dbafbc24462e16f625291cd4ac7e238d55846f467b23be51fac30b",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 4,
+          "reason": "ambiguous_boundary",
+          "semantic_output_sha256": "247a524843dbafbc24462e16f625291cd4ac7e238d55846f467b23be51fac30b",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 5,
+          "reason": "ambiguous_boundary",
+          "semantic_output_sha256": "247a524843dbafbc24462e16f625291cd4ac7e238d55846f467b23be51fac30b",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 6,
+          "reason": "ambiguous_boundary",
+          "semantic_output_sha256": "247a524843dbafbc24462e16f625291cd4ac7e238d55846f467b23be51fac30b",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 7,
+          "reason": "ambiguous_boundary",
+          "semantic_output_sha256": "247a524843dbafbc24462e16f625291cd4ac7e238d55846f467b23be51fac30b",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 8,
+          "reason": "ambiguous_boundary",
+          "semantic_output_sha256": "247a524843dbafbc24462e16f625291cd4ac7e238d55846f467b23be51fac30b",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 9,
+          "reason": "ambiguous_boundary",
+          "semantic_output_sha256": "247a524843dbafbc24462e16f625291cd4ac7e238d55846f467b23be51fac30b",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 10,
+          "reason": "ambiguous_boundary",
+          "semantic_output_sha256": "247a524843dbafbc24462e16f625291cd4ac7e238d55846f467b23be51fac30b",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 11,
+          "reason": "ambiguous_boundary",
+          "semantic_output_sha256": "247a524843dbafbc24462e16f625291cd4ac7e238d55846f467b23be51fac30b",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 12,
+          "reason": "ambiguous_boundary",
+          "semantic_output_sha256": "247a524843dbafbc24462e16f625291cd4ac7e238d55846f467b23be51fac30b",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 13,
+          "reason": "ambiguous_boundary",
+          "semantic_output_sha256": "247a524843dbafbc24462e16f625291cd4ac7e238d55846f467b23be51fac30b",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 14,
+          "reason": "ambiguous_boundary",
+          "semantic_output_sha256": "247a524843dbafbc24462e16f625291cd4ac7e238d55846f467b23be51fac30b",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 15,
+          "reason": "ambiguous_boundary",
+          "semantic_output_sha256": "247a524843dbafbc24462e16f625291cd4ac7e238d55846f467b23be51fac30b",
+          "status": "rejected"
+        }
+      ],
+      "physical_reference_id": "far-right-purple-middle-row-ball",
+      "physical_reference_present": true,
+      "proposal_origin": "manual saved segmentation/gradient annotations; not detector output",
+      "representative_outcome": {
+        "center_image_px": null,
+        "detection_index": 0,
+        "outline": null,
+        "quality": {
+          "angular_coverage": null,
+          "background_sample_fraction": 0.8333333333333334,
+          "background_supported_fraction": 0.8333333333333334,
+          "boundary_candidates": 288,
+          "center_shift_px": null,
+          "center_spread_px": null,
+          "fit_id": 34,
+          "foreground_fraction": null,
+          "inliers": null,
+          "iterations": 2,
+          "largest_gap_fraction": null,
+          "residual_rms_px": null,
+          "stage": "ambiguity_assessment",
+          "supported_ray_fraction": 1.0
+        },
+        "reason": "ambiguous_boundary",
+        "status": "rejected"
+      },
+      "same_semantic_result_for_indices_0_through_15": true
+    },
+    {
+      "acceptance_set_changed_from_baseline": false,
+      "accepted_indices": [],
+      "ball_id": "bottom-left-pocket-ball",
+      "baseline_accepted_indices": [],
+      "bbox_xyxy_source_px": [
+        83.85772514343262,
+        601.3577251434326,
+        123.14227485656738,
+        640.6422748565674
+      ],
+      "outcome_fingerprints": [
+        {
+          "center_image_px": null,
+          "detection_index": 0,
+          "reason": "excessive_center_shift",
+          "semantic_output_sha256": "9d03f3b042b536b2bb847094e96f0068bf10071f433164b4ec52a3efa49878f4",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 1,
+          "reason": "excessive_center_shift",
+          "semantic_output_sha256": "9d03f3b042b536b2bb847094e96f0068bf10071f433164b4ec52a3efa49878f4",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 2,
+          "reason": "excessive_center_shift",
+          "semantic_output_sha256": "9d03f3b042b536b2bb847094e96f0068bf10071f433164b4ec52a3efa49878f4",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 3,
+          "reason": "excessive_center_shift",
+          "semantic_output_sha256": "9d03f3b042b536b2bb847094e96f0068bf10071f433164b4ec52a3efa49878f4",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 4,
+          "reason": "excessive_center_shift",
+          "semantic_output_sha256": "9d03f3b042b536b2bb847094e96f0068bf10071f433164b4ec52a3efa49878f4",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 5,
+          "reason": "excessive_center_shift",
+          "semantic_output_sha256": "9d03f3b042b536b2bb847094e96f0068bf10071f433164b4ec52a3efa49878f4",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 6,
+          "reason": "excessive_center_shift",
+          "semantic_output_sha256": "9d03f3b042b536b2bb847094e96f0068bf10071f433164b4ec52a3efa49878f4",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 7,
+          "reason": "excessive_center_shift",
+          "semantic_output_sha256": "9d03f3b042b536b2bb847094e96f0068bf10071f433164b4ec52a3efa49878f4",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 8,
+          "reason": "excessive_center_shift",
+          "semantic_output_sha256": "9d03f3b042b536b2bb847094e96f0068bf10071f433164b4ec52a3efa49878f4",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 9,
+          "reason": "excessive_center_shift",
+          "semantic_output_sha256": "9d03f3b042b536b2bb847094e96f0068bf10071f433164b4ec52a3efa49878f4",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 10,
+          "reason": "excessive_center_shift",
+          "semantic_output_sha256": "9d03f3b042b536b2bb847094e96f0068bf10071f433164b4ec52a3efa49878f4",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 11,
+          "reason": "excessive_center_shift",
+          "semantic_output_sha256": "9d03f3b042b536b2bb847094e96f0068bf10071f433164b4ec52a3efa49878f4",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 12,
+          "reason": "excessive_center_shift",
+          "semantic_output_sha256": "9d03f3b042b536b2bb847094e96f0068bf10071f433164b4ec52a3efa49878f4",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 13,
+          "reason": "excessive_center_shift",
+          "semantic_output_sha256": "9d03f3b042b536b2bb847094e96f0068bf10071f433164b4ec52a3efa49878f4",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 14,
+          "reason": "excessive_center_shift",
+          "semantic_output_sha256": "9d03f3b042b536b2bb847094e96f0068bf10071f433164b4ec52a3efa49878f4",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 15,
+          "reason": "excessive_center_shift",
+          "semantic_output_sha256": "9d03f3b042b536b2bb847094e96f0068bf10071f433164b4ec52a3efa49878f4",
+          "status": "rejected"
+        }
+      ],
+      "physical_reference_id": null,
+      "physical_reference_present": false,
+      "proposal_origin": "manual saved segmentation/gradient annotations; not detector output",
+      "representative_outcome": {
+        "center_image_px": null,
+        "detection_index": 0,
+        "outline": null,
+        "quality": {
+          "angular_coverage": 0.75,
+          "background_sample_fraction": 0.90625,
+          "background_supported_fraction": 0.6875,
+          "boundary_candidates": 221,
+          "center_shift_px": 4.737443157819736,
+          "center_spread_px": null,
+          "fit_id": 41,
+          "foreground_fraction": null,
+          "inliers": 65,
+          "iterations": 2,
+          "largest_gap_fraction": 0.31941514604287047,
+          "residual_rms_px": 0.11516624637834666,
+          "stage": "center_projection",
+          "supported_ray_fraction": 0.7916666666666666
+        },
+        "reason": "excessive_center_shift",
+        "status": "rejected"
+      },
+      "same_semantic_result_for_indices_0_through_15": true
+    },
+    {
+      "acceptance_set_changed_from_baseline": true,
+      "accepted_indices": [],
+      "ball_id": "bottom-black-second-left-ball",
+      "baseline_accepted_indices": [
+        7,
+        11,
+        12
+      ],
+      "bbox_xyxy_source_px": [
+        343.4999809265137,
+        608.4999809265137,
+        380.5000190734863,
+        645.5000190734863
+      ],
+      "outcome_fingerprints": [
+        {
+          "center_image_px": null,
+          "detection_index": 0,
+          "reason": "ambiguous_boundary",
+          "semantic_output_sha256": "2ce2a2f5fcaff7be367e771cc03a042d5b6ad75f7991b72f02790ff5bcb619d4",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 1,
+          "reason": "ambiguous_boundary",
+          "semantic_output_sha256": "2ce2a2f5fcaff7be367e771cc03a042d5b6ad75f7991b72f02790ff5bcb619d4",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 2,
+          "reason": "ambiguous_boundary",
+          "semantic_output_sha256": "2ce2a2f5fcaff7be367e771cc03a042d5b6ad75f7991b72f02790ff5bcb619d4",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 3,
+          "reason": "ambiguous_boundary",
+          "semantic_output_sha256": "2ce2a2f5fcaff7be367e771cc03a042d5b6ad75f7991b72f02790ff5bcb619d4",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 4,
+          "reason": "ambiguous_boundary",
+          "semantic_output_sha256": "2ce2a2f5fcaff7be367e771cc03a042d5b6ad75f7991b72f02790ff5bcb619d4",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 5,
+          "reason": "ambiguous_boundary",
+          "semantic_output_sha256": "2ce2a2f5fcaff7be367e771cc03a042d5b6ad75f7991b72f02790ff5bcb619d4",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 6,
+          "reason": "ambiguous_boundary",
+          "semantic_output_sha256": "2ce2a2f5fcaff7be367e771cc03a042d5b6ad75f7991b72f02790ff5bcb619d4",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 7,
+          "reason": "ambiguous_boundary",
+          "semantic_output_sha256": "2ce2a2f5fcaff7be367e771cc03a042d5b6ad75f7991b72f02790ff5bcb619d4",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 8,
+          "reason": "ambiguous_boundary",
+          "semantic_output_sha256": "2ce2a2f5fcaff7be367e771cc03a042d5b6ad75f7991b72f02790ff5bcb619d4",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 9,
+          "reason": "ambiguous_boundary",
+          "semantic_output_sha256": "2ce2a2f5fcaff7be367e771cc03a042d5b6ad75f7991b72f02790ff5bcb619d4",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 10,
+          "reason": "ambiguous_boundary",
+          "semantic_output_sha256": "2ce2a2f5fcaff7be367e771cc03a042d5b6ad75f7991b72f02790ff5bcb619d4",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 11,
+          "reason": "ambiguous_boundary",
+          "semantic_output_sha256": "2ce2a2f5fcaff7be367e771cc03a042d5b6ad75f7991b72f02790ff5bcb619d4",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 12,
+          "reason": "ambiguous_boundary",
+          "semantic_output_sha256": "2ce2a2f5fcaff7be367e771cc03a042d5b6ad75f7991b72f02790ff5bcb619d4",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 13,
+          "reason": "ambiguous_boundary",
+          "semantic_output_sha256": "2ce2a2f5fcaff7be367e771cc03a042d5b6ad75f7991b72f02790ff5bcb619d4",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 14,
+          "reason": "ambiguous_boundary",
+          "semantic_output_sha256": "2ce2a2f5fcaff7be367e771cc03a042d5b6ad75f7991b72f02790ff5bcb619d4",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 15,
+          "reason": "ambiguous_boundary",
+          "semantic_output_sha256": "2ce2a2f5fcaff7be367e771cc03a042d5b6ad75f7991b72f02790ff5bcb619d4",
+          "status": "rejected"
+        }
+      ],
+      "physical_reference_id": "bottom-black-second-left-ball",
+      "physical_reference_present": true,
+      "proposal_origin": "manual saved segmentation/gradient annotations; not detector output",
+      "representative_outcome": {
+        "center_image_px": null,
+        "detection_index": 0,
+        "outline": null,
+        "quality": {
+          "angular_coverage": null,
+          "background_sample_fraction": 0.9270833333333334,
+          "background_supported_fraction": 0.921875,
+          "boundary_candidates": 288,
+          "center_shift_px": null,
+          "center_spread_px": null,
+          "fit_id": 33,
+          "foreground_fraction": null,
+          "inliers": null,
+          "iterations": 1,
+          "largest_gap_fraction": null,
+          "residual_rms_px": null,
+          "stage": "ambiguity_assessment",
+          "supported_ray_fraction": 1.0
+        },
+        "reason": "ambiguous_boundary",
+        "status": "rejected"
+      },
+      "same_semantic_result_for_indices_0_through_15": true
+    },
+    {
+      "acceptance_set_changed_from_baseline": false,
+      "accepted_indices": [],
+      "ball_id": "bottom-middle-pocket-ball",
+      "baseline_accepted_indices": [],
+      "bbox_xyxy_source_px": [
+        622.5101375579834,
+        615.0101375579834,
+        659.4898624420166,
+        651.9898624420166
+      ],
+      "outcome_fingerprints": [
+        {
+          "center_image_px": null,
+          "detection_index": 0,
+          "reason": "excessive_center_shift",
+          "semantic_output_sha256": "6ac9e43a2576f31a029dff373a6c09a8ef0a318516e767816847d55c3d128917",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 1,
+          "reason": "excessive_center_shift",
+          "semantic_output_sha256": "6ac9e43a2576f31a029dff373a6c09a8ef0a318516e767816847d55c3d128917",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 2,
+          "reason": "excessive_center_shift",
+          "semantic_output_sha256": "6ac9e43a2576f31a029dff373a6c09a8ef0a318516e767816847d55c3d128917",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 3,
+          "reason": "excessive_center_shift",
+          "semantic_output_sha256": "6ac9e43a2576f31a029dff373a6c09a8ef0a318516e767816847d55c3d128917",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 4,
+          "reason": "excessive_center_shift",
+          "semantic_output_sha256": "6ac9e43a2576f31a029dff373a6c09a8ef0a318516e767816847d55c3d128917",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 5,
+          "reason": "excessive_center_shift",
+          "semantic_output_sha256": "6ac9e43a2576f31a029dff373a6c09a8ef0a318516e767816847d55c3d128917",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 6,
+          "reason": "excessive_center_shift",
+          "semantic_output_sha256": "6ac9e43a2576f31a029dff373a6c09a8ef0a318516e767816847d55c3d128917",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 7,
+          "reason": "excessive_center_shift",
+          "semantic_output_sha256": "6ac9e43a2576f31a029dff373a6c09a8ef0a318516e767816847d55c3d128917",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 8,
+          "reason": "excessive_center_shift",
+          "semantic_output_sha256": "6ac9e43a2576f31a029dff373a6c09a8ef0a318516e767816847d55c3d128917",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 9,
+          "reason": "excessive_center_shift",
+          "semantic_output_sha256": "6ac9e43a2576f31a029dff373a6c09a8ef0a318516e767816847d55c3d128917",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 10,
+          "reason": "excessive_center_shift",
+          "semantic_output_sha256": "6ac9e43a2576f31a029dff373a6c09a8ef0a318516e767816847d55c3d128917",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 11,
+          "reason": "excessive_center_shift",
+          "semantic_output_sha256": "6ac9e43a2576f31a029dff373a6c09a8ef0a318516e767816847d55c3d128917",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 12,
+          "reason": "excessive_center_shift",
+          "semantic_output_sha256": "6ac9e43a2576f31a029dff373a6c09a8ef0a318516e767816847d55c3d128917",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 13,
+          "reason": "excessive_center_shift",
+          "semantic_output_sha256": "6ac9e43a2576f31a029dff373a6c09a8ef0a318516e767816847d55c3d128917",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 14,
+          "reason": "excessive_center_shift",
+          "semantic_output_sha256": "6ac9e43a2576f31a029dff373a6c09a8ef0a318516e767816847d55c3d128917",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 15,
+          "reason": "excessive_center_shift",
+          "semantic_output_sha256": "6ac9e43a2576f31a029dff373a6c09a8ef0a318516e767816847d55c3d128917",
+          "status": "rejected"
+        }
+      ],
+      "physical_reference_id": null,
+      "physical_reference_present": false,
+      "proposal_origin": "manual saved segmentation/gradient annotations; not detector output",
+      "representative_outcome": {
+        "center_image_px": null,
+        "detection_index": 0,
+        "outline": null,
+        "quality": {
+          "angular_coverage": 0.75,
+          "background_sample_fraction": 0.90625,
+          "background_supported_fraction": 0.6302083333333334,
+          "boundary_candidates": 187,
+          "center_shift_px": 3.788698564549259,
+          "center_spread_px": null,
+          "fit_id": 17,
+          "foreground_fraction": null,
+          "inliers": 60,
+          "iterations": 1,
+          "largest_gap_fraction": 0.2985011825664865,
+          "residual_rms_px": 0.16127134744370503,
+          "stage": "center_projection",
+          "supported_ray_fraction": 0.65625
+        },
+        "reason": "excessive_center_shift",
+        "status": "rejected"
+      },
+      "same_semantic_result_for_indices_0_through_15": true
+    },
+    {
+      "acceptance_set_changed_from_baseline": true,
+      "accepted_indices": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15
+      ],
+      "ball_id": "bottom-yellow-second-right-ball",
+      "baseline_accepted_indices": [
+        0,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        9,
+        10,
+        11,
+        14,
+        15
+      ],
+      "bbox_xyxy_source_px": [
+        907.0628414154053,
+        612.5628414154053,
+        942.9371585845947,
+        648.4371585845947
+      ],
+      "outcome_fingerprints": [
+        {
+          "center_image_px": [
+            925.1835284608054,
+            630.290985119553
+          ],
+          "detection_index": 0,
+          "reason": null,
+          "semantic_output_sha256": "e800ea044b70ab1264c7fd4238cfe370b7005c1107d58b69a55f903d165cb10b",
+          "status": "accepted"
+        },
+        {
+          "center_image_px": [
+            925.1835284608054,
+            630.290985119553
+          ],
+          "detection_index": 1,
+          "reason": null,
+          "semantic_output_sha256": "e800ea044b70ab1264c7fd4238cfe370b7005c1107d58b69a55f903d165cb10b",
+          "status": "accepted"
+        },
+        {
+          "center_image_px": [
+            925.1835284608054,
+            630.290985119553
+          ],
+          "detection_index": 2,
+          "reason": null,
+          "semantic_output_sha256": "e800ea044b70ab1264c7fd4238cfe370b7005c1107d58b69a55f903d165cb10b",
+          "status": "accepted"
+        },
+        {
+          "center_image_px": [
+            925.1835284608054,
+            630.290985119553
+          ],
+          "detection_index": 3,
+          "reason": null,
+          "semantic_output_sha256": "e800ea044b70ab1264c7fd4238cfe370b7005c1107d58b69a55f903d165cb10b",
+          "status": "accepted"
+        },
+        {
+          "center_image_px": [
+            925.1835284608054,
+            630.290985119553
+          ],
+          "detection_index": 4,
+          "reason": null,
+          "semantic_output_sha256": "e800ea044b70ab1264c7fd4238cfe370b7005c1107d58b69a55f903d165cb10b",
+          "status": "accepted"
+        },
+        {
+          "center_image_px": [
+            925.1835284608054,
+            630.290985119553
+          ],
+          "detection_index": 5,
+          "reason": null,
+          "semantic_output_sha256": "e800ea044b70ab1264c7fd4238cfe370b7005c1107d58b69a55f903d165cb10b",
+          "status": "accepted"
+        },
+        {
+          "center_image_px": [
+            925.1835284608054,
+            630.290985119553
+          ],
+          "detection_index": 6,
+          "reason": null,
+          "semantic_output_sha256": "e800ea044b70ab1264c7fd4238cfe370b7005c1107d58b69a55f903d165cb10b",
+          "status": "accepted"
+        },
+        {
+          "center_image_px": [
+            925.1835284608054,
+            630.290985119553
+          ],
+          "detection_index": 7,
+          "reason": null,
+          "semantic_output_sha256": "e800ea044b70ab1264c7fd4238cfe370b7005c1107d58b69a55f903d165cb10b",
+          "status": "accepted"
+        },
+        {
+          "center_image_px": [
+            925.1835284608054,
+            630.290985119553
+          ],
+          "detection_index": 8,
+          "reason": null,
+          "semantic_output_sha256": "e800ea044b70ab1264c7fd4238cfe370b7005c1107d58b69a55f903d165cb10b",
+          "status": "accepted"
+        },
+        {
+          "center_image_px": [
+            925.1835284608054,
+            630.290985119553
+          ],
+          "detection_index": 9,
+          "reason": null,
+          "semantic_output_sha256": "e800ea044b70ab1264c7fd4238cfe370b7005c1107d58b69a55f903d165cb10b",
+          "status": "accepted"
+        },
+        {
+          "center_image_px": [
+            925.1835284608054,
+            630.290985119553
+          ],
+          "detection_index": 10,
+          "reason": null,
+          "semantic_output_sha256": "e800ea044b70ab1264c7fd4238cfe370b7005c1107d58b69a55f903d165cb10b",
+          "status": "accepted"
+        },
+        {
+          "center_image_px": [
+            925.1835284608054,
+            630.290985119553
+          ],
+          "detection_index": 11,
+          "reason": null,
+          "semantic_output_sha256": "e800ea044b70ab1264c7fd4238cfe370b7005c1107d58b69a55f903d165cb10b",
+          "status": "accepted"
+        },
+        {
+          "center_image_px": [
+            925.1835284608054,
+            630.290985119553
+          ],
+          "detection_index": 12,
+          "reason": null,
+          "semantic_output_sha256": "e800ea044b70ab1264c7fd4238cfe370b7005c1107d58b69a55f903d165cb10b",
+          "status": "accepted"
+        },
+        {
+          "center_image_px": [
+            925.1835284608054,
+            630.290985119553
+          ],
+          "detection_index": 13,
+          "reason": null,
+          "semantic_output_sha256": "e800ea044b70ab1264c7fd4238cfe370b7005c1107d58b69a55f903d165cb10b",
+          "status": "accepted"
+        },
+        {
+          "center_image_px": [
+            925.1835284608054,
+            630.290985119553
+          ],
+          "detection_index": 14,
+          "reason": null,
+          "semantic_output_sha256": "e800ea044b70ab1264c7fd4238cfe370b7005c1107d58b69a55f903d165cb10b",
+          "status": "accepted"
+        },
+        {
+          "center_image_px": [
+            925.1835284608054,
+            630.290985119553
+          ],
+          "detection_index": 15,
+          "reason": null,
+          "semantic_output_sha256": "e800ea044b70ab1264c7fd4238cfe370b7005c1107d58b69a55f903d165cb10b",
+          "status": "accepted"
+        }
+      ],
+      "physical_reference_id": "bottom-yellow-second-right-ball",
+      "physical_reference_present": true,
+      "proposal_origin": "manual saved segmentation/gradient annotations; not detector output",
+      "representative_outcome": {
+        "center_image_px": [
+          925.1835284608054,
+          630.290985119553
+        ],
+        "detection_index": 0,
+        "outline": {
+          "half_extent_image_px": [
+            15.3003506475319,
+            15.29961981004351
+          ],
+          "local_radius_px": 12.246281657264229,
+          "points_image_px": [
+            [
+              940.4605468523082,
+              631.3639500082397
+            ],
+            [
+              940.4838791083373,
+              633.3514557358396
+            ],
+            [
+              940.2431578105131,
+              635.2893437133157
+            ],
+            [
+              939.7420279640465,
+              637.1434781451007
+            ],
+            [
+              938.9888466834791,
+              638.8811000573318
+            ],
+            [
+              937.9965561051747,
+              640.4714597990676
+            ],
+            [
+              936.7824586772269,
+              641.8864143188649
+            ],
+            [
+              935.3678988175254,
+              643.1009738794239
+            ],
+            [
+              933.7778579370508,
+              644.0937841499069
+            ],
+            [
+              932.0404726018667,
+              644.8475314955542
+            ],
+            [
+              930.1864880014834,
+              645.3492616749759
+            ],
+            [
+              928.2486607756641,
+              645.5906049295966
+            ],
+            [
+              926.2611265335381,
+              645.5679034551366
+            ],
+            [
+              924.2587480271422,
+              645.2822403173923
+            ],
+            [
+              922.2764599099723,
+              644.7393718507772
+            ],
+            [
+              920.3486253569737,
+              643.9495683088171
+            ],
+            [
+              918.5084186210585,
+              642.9273698965425
+            ],
+            [
+              916.7872459580747,
+              641.6912672137585
+            ],
+            [
+              915.2142153921973,
+              640.2633165209854
+            ],
+            [
+              913.8156636505616,
+              638.668701090107
+            ],
+            [
+              912.6147464009714,
+              636.9352502387046
+            ],
+            [
+              911.6310957994842,
+              635.0929275205036
+            ],
+            [
+              910.8805473964737,
+              633.1732990275352
+            ],
+            [
+              910.3749367374177,
+              631.2089919412216
+            ],
+            [
+              910.1219645790034,
+              629.2331524456804
+            ],
+            [
+              910.1251285466749,
+              627.2789109830088
+            ],
+            [
+              910.3837182863886,
+              625.3788616765688
+            ],
+            [
+              910.892870689663,
+              623.5645616522554
+            ],
+            [
+              911.6436815581877,
+              621.8660550123725
+            ],
+            [
+              912.6233700705995,
+              620.3114254080452
+            ],
+            [
+              913.8154925594339,
+              618.9263805422306
+            ],
+            [
+              915.200202336445,
+              617.7338715268804
+            ],
+            [
+              916.7545525549208,
+              616.7537498085039
+            ],
+            [
+              918.4528393069402,
+              616.0024643448273
+            ],
+            [
+              920.2669822665857,
+              615.4928018266219
+            ],
+            [
+              922.166940160683,
+              615.2336729469059
+            ],
+            [
+              924.1211581417613,
+              615.2299479695617
+            ],
+            [
+              926.097043732033,
+              615.4823450796173
+            ],
+            [
+              928.0614673960087,
+              615.9873751435348
+            ],
+            [
+              929.981282993246,
+              616.7373465055599
+            ],
+            [
+              931.8238623897042,
+              617.7204332353544
+            ],
+            [
+              933.557637412051,
+              618.920809771027
+            ],
+            [
+              935.1526411768468,
+              620.3188541313468
+            ],
+            [
+              936.5810396935963,
+              621.8914207797768
+            ],
+            [
+              937.81764361649,
+              623.6121828107342
+            ],
+            [
+              938.8403892000954,
+              625.4520414194276
+            ],
+            [
+              939.6307769953432,
+              627.379598661312
+            ],
+            [
+              940.174256692651,
+              629.361687382424
+            ]
+          ]
+        },
+        "quality": {
+          "angular_coverage": 1.0,
+          "background_sample_fraction": 0.9166666666666666,
+          "background_supported_fraction": 0.9114583333333334,
+          "boundary_candidates": 288,
+          "center_shift_px": 0.2781544825701202,
+          "center_spread_px": 0.06231965244344879,
+          "fit_id": 2,
+          "foreground_fraction": 1.0,
+          "inliers": 93,
+          "iterations": 3,
+          "largest_gap_fraction": 0.030458216993994505,
+          "residual_rms_px": 0.16507814308924115,
+          "stage": "complete",
+          "supported_ray_fraction": 1.0
+        },
+        "reason": null,
+        "status": "accepted"
+      },
+      "same_semantic_result_for_indices_0_through_15": true
+    },
+    {
+      "acceptance_set_changed_from_baseline": false,
+      "accepted_indices": [],
+      "ball_id": "bottom-right-pocket-ball",
+      "baseline_accepted_indices": [],
+      "bbox_xyxy_source_px": [
+        1175.3951263427734,
+        611.3951263427734,
+        1216.6048736572266,
+        652.6048736572266
+      ],
+      "outcome_fingerprints": [
+        {
+          "center_image_px": null,
+          "detection_index": 0,
+          "reason": "inadequate_coverage",
+          "semantic_output_sha256": "285b2dbe4054bbb1240e82b920ace2579e976448004f672929bf3c63ab909fe7",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 1,
+          "reason": "inadequate_coverage",
+          "semantic_output_sha256": "285b2dbe4054bbb1240e82b920ace2579e976448004f672929bf3c63ab909fe7",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 2,
+          "reason": "inadequate_coverage",
+          "semantic_output_sha256": "285b2dbe4054bbb1240e82b920ace2579e976448004f672929bf3c63ab909fe7",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 3,
+          "reason": "inadequate_coverage",
+          "semantic_output_sha256": "285b2dbe4054bbb1240e82b920ace2579e976448004f672929bf3c63ab909fe7",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 4,
+          "reason": "inadequate_coverage",
+          "semantic_output_sha256": "285b2dbe4054bbb1240e82b920ace2579e976448004f672929bf3c63ab909fe7",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 5,
+          "reason": "inadequate_coverage",
+          "semantic_output_sha256": "285b2dbe4054bbb1240e82b920ace2579e976448004f672929bf3c63ab909fe7",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 6,
+          "reason": "inadequate_coverage",
+          "semantic_output_sha256": "285b2dbe4054bbb1240e82b920ace2579e976448004f672929bf3c63ab909fe7",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 7,
+          "reason": "inadequate_coverage",
+          "semantic_output_sha256": "285b2dbe4054bbb1240e82b920ace2579e976448004f672929bf3c63ab909fe7",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 8,
+          "reason": "inadequate_coverage",
+          "semantic_output_sha256": "285b2dbe4054bbb1240e82b920ace2579e976448004f672929bf3c63ab909fe7",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 9,
+          "reason": "inadequate_coverage",
+          "semantic_output_sha256": "285b2dbe4054bbb1240e82b920ace2579e976448004f672929bf3c63ab909fe7",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 10,
+          "reason": "inadequate_coverage",
+          "semantic_output_sha256": "285b2dbe4054bbb1240e82b920ace2579e976448004f672929bf3c63ab909fe7",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 11,
+          "reason": "inadequate_coverage",
+          "semantic_output_sha256": "285b2dbe4054bbb1240e82b920ace2579e976448004f672929bf3c63ab909fe7",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 12,
+          "reason": "inadequate_coverage",
+          "semantic_output_sha256": "285b2dbe4054bbb1240e82b920ace2579e976448004f672929bf3c63ab909fe7",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 13,
+          "reason": "inadequate_coverage",
+          "semantic_output_sha256": "285b2dbe4054bbb1240e82b920ace2579e976448004f672929bf3c63ab909fe7",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 14,
+          "reason": "inadequate_coverage",
+          "semantic_output_sha256": "285b2dbe4054bbb1240e82b920ace2579e976448004f672929bf3c63ab909fe7",
+          "status": "rejected"
+        },
+        {
+          "center_image_px": null,
+          "detection_index": 15,
+          "reason": "inadequate_coverage",
+          "semantic_output_sha256": "285b2dbe4054bbb1240e82b920ace2579e976448004f672929bf3c63ab909fe7",
+          "status": "rejected"
+        }
+      ],
+      "physical_reference_id": null,
+      "physical_reference_present": false,
+      "proposal_origin": "manual saved segmentation/gradient annotations; not detector output",
+      "representative_outcome": {
+        "center_image_px": null,
+        "detection_index": 0,
+        "outline": null,
+        "quality": {
+          "angular_coverage": 0.5,
+          "background_sample_fraction": 0.8541666666666666,
+          "background_supported_fraction": 0.6041666666666666,
+          "boundary_candidates": 222,
+          "center_shift_px": null,
+          "center_spread_px": null,
+          "fit_id": 13,
+          "foreground_fraction": null,
+          "inliers": 31,
+          "iterations": 1,
+          "largest_gap_fraction": 0.2000613177145926,
+          "residual_rms_px": null,
+          "stage": "coverage",
+          "supported_ray_fraction": 0.8125
+        },
+        "reason": "inadequate_coverage",
+        "status": "rejected"
+      },
+      "same_semantic_result_for_indices_0_through_15": true
+    }
+  ],
+  "runtime_parameters": {
+    "angular_samples": 96,
+    "angular_sectors": 16,
+    "annulus_inner_factor": 1.5,
+    "annulus_outer_factor": 1.8,
+    "background_probe_px": 3.0,
+    "batch_budget_ms": 5000,
+    "candidates_per_ray": 3,
+    "convergence_px": 0.01,
+    "gradient_step_px": 1.0,
+    "inlier_threshold_px": 1.5,
+    "irls_iterations": 10,
+    "irls_scale_floor_px": 0.25,
+    "irls_tuning": 2.5,
+    "max_iterations": 3,
+    "max_proposals": 16,
+    "max_roi_side_px": 512,
+    "maximum_alternative_error_ratio": 1.1,
+    "maximum_center_shift_fraction": 0.2,
+    "maximum_center_spread_px": 1.5,
+    "maximum_gap_fraction": 0.3333333333333333,
+    "maximum_outer_background_distance": 0.25,
+    "maximum_radius_px": 160.0,
+    "maximum_residual_px": 1.5,
+    "minimum_alternative_support_fraction": 0.95,
+    "minimum_background_supported_fraction": 0.6,
+    "minimum_competing_fit_votes": 3,
+    "minimum_coverage": 0.6666666666666666,
+    "minimum_foreground_background_contrast": 0.06,
+    "minimum_foreground_fraction": 0.4,
+    "minimum_gradient": 0.035,
+    "minimum_inliers": 28,
+    "minimum_radius_px": 4.0,
+    "minimum_supported_ray_fraction": 0.5,
+    "numerical_epsilon": 1e-9,
+    "outline_samples": 48,
+    "patch_size_px": 193,
+    "proposal_budget_ms": 400,
+    "radial_samples": 48,
+    "radius_max_fraction": 1.4,
+    "radius_min_fraction": 0.6,
+    "ransac_iterations": 128,
+    "reference_width_px": 3840,
+    "roi_padding_factor": 1.8,
+    "seed": 716
+  },
+  "schema_version": 1
+}
