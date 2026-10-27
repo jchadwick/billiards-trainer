@@ -1,10 +1,10 @@
 {
   "schema_version": 1,
-  "recorded_at_utc": "2026-10-27T17:58:18+00:00",
+  "recorded_at_utc": "2026-10-27T19:00:37+00:00",
   "scope": "Preserve established findings and independently verified capture code on local main. Unqualified localization implementation stays on experiment branch.",
   "base_main_sha": "e9fb9a0f8402c1d5dd69657b0273d6fbc46b5e20",
   "main_head_before_this_record_commit": "5787b56eb3064ae7c5718a17b7d3fe6f75341b92",
-  "latest_promoted_main_head": "da6bfce886a441e30610009d3d9bf81ece65b204",
+  "latest_promoted_main_head": "860bce38f4b5381b2776ee53b1237cab6cc55621",
   "main_commits": [
     {
       "sha": "3e6799187a0ac869d2504fc6b9540c960ad34e1c",
@@ -54,6 +54,16 @@
         "thoughts/calibration/review-and-next-step-20261027.md",
         "thoughts/calibration/table-feature-registration-audit-20261027/README.md",
         "thoughts/calibration/table-feature-registration-audit-20261027/summary.json"
+      ]
+    },
+    {
+      "sha": "860bce38f4b5381b2776ee53b1237cab6cc55621",
+      "subject": "docs(calibration): add letter-sized checkerboard tiles",
+      "files": [
+        "output/pdf/ball-localization-checkerboard-letter-tiles.pdf",
+        "thoughts/calibration/checkerboard-20x14in-capture.md",
+        "thoughts/calibration/generate_letter_checkerboard_tiles.py",
+        "thoughts/calibration/proven-findings-index.md"
       ]
     }
   ],
@@ -205,6 +215,11 @@
       "name": "checkerboard capture utility",
       "command": "/tmp/billiards-checkerboard-env/bin/python thoughts/calibration/capture_checkerboard.py --self-test",
       "result": "Passed synthetic full-board detection, native pitch, cropped-board rejection, and 20 x 14 inch scale metadata checks."
+    },
+    {
+      "name": "four-page Letter checkerboard PDF",
+      "command": "/tmp/billiards-checkerboard-env/bin/python thoughts/calibration/generate_letter_checkerboard_tiles.py --self-test; pdfinfo output/pdf/ball-localization-checkerboard-letter-tiles.pdf; render pages at 72 dpi and reconstruct the 2 x 2 tile layout",
+      "result": "Passed. PDF has four 792 x 612 point Letter landscape pages. The rendered pages reconstruct a pixel-exact 20 x 14 inch 10 x 7 square pattern at 72 points per inch; each square is 2 inches. Pages were rendered and visually inspected."
     }
   ],
   "additional_checks_passed": [
@@ -215,7 +230,9 @@
     "ADR validator: 4 records",
     "Python py_compile for checkerboard and both offline audits",
     "PDF info/render check: one 22 x 16 inch page; rendered checkerboard visually inspected",
-    "copied audit outputs and inputs byte-compared against experiment-branch sources"
+    "copied audit outputs and inputs byte-compared against experiment-branch sources",
+    "Python py_compile for the Letter tile generator",
+    "git diff --check for the Letter tile and guide changes"
   ],
   "clean_checkout_prerequisite": "First isolated full camera-feature suite attempt lacked frontend/web/dist. Locked dependencies and ignored generated browser assets were built, then the full suite passed. No frontend source/dependency changes were committed.",
   "target_hardware_evidence": "thoughts/calibration/gpu-saved-frame-qualification-20261027.json",
@@ -223,7 +240,7 @@
   "deployment_performed": false,
   "published_to_origin": false,
   "preexisting_main_ahead_of_origin_tracking_ref": 159,
-  "current_main_ahead_of_origin_tracking_ref": 165,
+  "current_main_ahead_of_origin_tracking_ref": 167,
   "publication_note": "User requested committing to main. Main is advanced locally; no push was requested or performed, and unrelated preexisting unpushed history was not published.",
   "excluded_claims": [
     "native-ball accuracy qualification",
