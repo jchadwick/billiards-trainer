@@ -109,13 +109,18 @@ hashes, all reserved-scene traces, and the six visually reviewed accepted
 variant traces. The results show proposal/seed sensitivity and no accepted
 results on either reserved scene; they do not qualify physical accuracy.
 
-Next: complete Task F by recording the report-only outcome against the nine
-physical references. If no observations are accepted, do not run the solver or
-emit a map. No new user measurements, jig, or camera capture are required.
-After that, diagnose the multiple-qualified-boundary families and seed
-sensitivity on saved pixels and traces without changing production gates or
-seed. Current saved-image work does not establish physical accuracy, a selected
-camera FPS, or live pipeline performance.
+Task F is complete as a report-only no-fit evaluation in
+`thoughts/calibration/report-only-nine-reference-evaluation-20261027.md`.
+Revision 2 with production seed 716 accepted 0/9 observations, all rejected
+for `ambiguous_boundary`, so the diagnostic solver was not run and no map was
+emitted. Alternate-seed centers, box midpoints, and older-estimator centers
+were excluded. The current twelve-correspondence production contract is
+unchanged; no new measurement, jig, or camera capture was added.
+
+Next: diagnose the multiple-qualified-boundary families and seed sensitivity
+on saved pixels and traces without changing production gates or seed. Current
+saved-image work does not establish physical accuracy, a selected camera FPS,
+or live pipeline performance.
 
 ## 2. Fixed requirements and working rules
 

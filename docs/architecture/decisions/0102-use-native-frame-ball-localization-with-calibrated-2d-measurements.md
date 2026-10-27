@@ -181,6 +181,28 @@ no diagnostic center should be substituted for the selected production
 measurement. Continue by investigating candidate family/seed sensitivity and
 by resolving the fitting workload before any complete-pipeline rate selection.
 
+## Follow-up — 2026-10-27: nine-reference report is no-fit
+
+The report-only Task F evaluation is recorded in
+`thoughts/calibration/report-only-nine-reference-evaluation-20261027.md`.
+With revision 2 and production seed 716, all nine measured proposals reject
+as `ambiguous_boundary`; no diagnostic homography was fit and no asset was
+emitted. No bounding-box midpoint, older-estimator center, or alternative-seed
+center was substituted. The reference coordinates remain in their saved
+upper-left, image-right/image-down convention; their uncertainty remains
+unknown. The existing production utility's twelve-correspondence eligibility
+contract is unchanged.
+
+The six variants that happened to pass during the sensitivity audit were
+visually reviewed, but their seed/proposal sensitivity and lack of independent
+center truth prevent their use as calibration correspondences. Next work stays
+on the saved images: explain the competing boundary families and make the
+selection stable before resuming target FPS qualification. Performance goals
+remain tradeoffs; fresh consistent measurements at a lower rate are preferred
+to a higher rate with repeated drops or unavailable positions. The separately
+verified Intel GPU decoder result remains independently adoptable regardless
+of whether the localization experiment branch is retained.
+
 
 ## Consequences
 
