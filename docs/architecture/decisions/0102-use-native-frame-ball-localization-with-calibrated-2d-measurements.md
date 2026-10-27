@@ -268,14 +268,24 @@ nearby outlines following the same apparent rim. No repeatable simple rank or
 color cue identifies the physical silhouette. Do not promote a candidate from
 these profiles or weaken fail-closed selection.
 
-The next investigation evaluates a fisheye-specific camera projection using
-the existing checkerboard captures, held-out corner views, extracted straight
-cushion features, and saved ball outlines. The checked Brown radial candidates
-did not improve their recorded holdout/straight-edge evidence; a fisheye model
-has not yet been tested. This is an offline model comparison, not an optics
-profile change. Activate no model unless held-out calibration improves and
-independent image geometry does not regress. Pixel circularity remains a
-diagnostic and does not establish physical XY accuracy.
+The fisheye-model audit is recorded in
+`thoughts/calibration/fisheye-optics-audit-20261027/`. The model had 0/8
+admissible leave-one-view-out folds, prospective view-009 parity RMS of
+1.3266 px versus 0.2279 px for the frozen Brown-zero model, and a transformed
+cushion diagnostic with much greater bow. Its flag/skew behavior was also
+unresolved. It is rejected as a correction candidate; this does not prove zero
+residual lens distortion.
+
+Existing ball-outline metrics give a plausible geometric explanation for
+some apparent elongation: the far-left yellow gradient ellipse aspect ratio
+is 1.314 against a 1.312 small-sphere off-axis approximation, and the far-right
+purple ellipse is about 1.25 against about 1.27. These annotations are not
+independent true-boundary labels. The next offline investigation uses the known
+57.15 mm ball diameter and one fixed center plane to test whether global camera
+geometry can resolve competing contours. It must produce X/Y only, estimate
+no per-ball height, and remain fail-closed unless held-out consistency improves
+without treating the user-reported measurements or training residuals as
+independent accuracy truth.
 
 
 ## Consequences

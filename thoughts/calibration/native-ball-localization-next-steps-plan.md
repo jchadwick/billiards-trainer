@@ -170,36 +170,67 @@ review shows the outlines track the same narrow apparent rim. The result does
 not identify the true silhouette and does not support choosing a fit by rank,
 color averages, seed, or one of these images as its own ground truth.
 
-### Next investigation — evaluate a fisheye-specific camera model
+### Follow-up — fisheye optics model is not admissible
 
-The current checked-in optics candidates are pinhole models with zero, one, or
-two Brown radial terms. Those tested radial candidates did not improve the
-checkerboard holdout metrics and increased bow in several extracted cushion
-features. The fisheye-specific model has not been tested. Use only the existing
-nine rigid-backed checkerboard captures and saved table scenes; do not capture
-new images or activate a profile during this investigation.
+The offline comparison is recorded in
+`thoughts/calibration/fisheye-optics-audit-20261027/`. It used the existing
+checkerboard corners, trained on views 001–008, reproduced the eight-view
+leave-one-view-out pose/parity protocol, and kept view 009 fully prospective.
+All eight fisheye folds failed plausibility checks; none supplied an admissible
+held-out score. The prospective view-009 fisheye parity RMS was 1.3266 px,
+compared with the frozen Brown-zero score of 0.2279 px. The diagnostic
+fisheye transform also increased bow on the same saved cushion samples; the
+fit and its transformed coordinates are inadmissible, and OpenCV's returned
+skew flag behavior remained unresolved. Do not activate this model or keep
+tuning its coefficients. This failure does not prove zero lens distortion.
 
-1. Implement a research-only calibration comparison for the existing checker
-   corners: fit the existing zero/Brown model and an appropriate fisheye
-   projection on the same training views. Preserve the exact held-out view
-   protocol and compare leave-one-view-out errors, not only training residuals.
-2. Apply each frozen candidate as point-coordinate transforms to the existing
-   independently extracted straight cushion samples. Report per-feature bow,
-   support, and uncertainty; retain extraction ambiguity and do not label a
-   rail transition as surveyed truth.
-3. Compare transformed ball-outline shapes and local-view fits on measured
-   720p and reserved 720p/4K scenes. Treat circularity and outline stability as
-   diagnostics, not physical-center accuracy. Do not use a better-looking
-   outline to override the nine-reference no-fit result.
-4. Reject a more complex model unless it improves held-out checkerboard
-   behavior and does not worsen independently sampled straight-edge geometry.
-   If evidence is mixed or the fisheye fit is unstable, keep optics inactive
-   and document what another saved target or independent measurement would
-   need to resolve.
+The saved ball-outline measurements provide another useful observation: the
+far-left yellow gradient ellipse has aspect ratio 1.314, close to the 1.312
+small-sphere perspective approximation; the far-right purple ellipse is about
+1.25 versus about 1.27. Their major axes also align approximately with the
+image-radial direction. This is consistent with off-axis perspective shaping
+a spherical silhouette and supports evaluating the fixed-diameter sphere
+geometry before adding another lens warp. It remains diagnostic because the
+outline annotations are not independent true-boundary labels.
 
-Only after a repeatable optical model is supported should crop refinement be
-re-evaluated under that model. No saved-image work to date establishes
-physical accuracy, a selected camera FPS, or live pipeline availability.
+### Next investigation — fixed-diameter sphere geometry with 2D output
+
+Use the physical invariant already supplied by the user: every ball is
+57.15 mm in diameter and every ball center lies on one fixed plane parallel to
+the cloth, 28.575 mm above it. This investigation must not estimate a separate
+height/depth for each ball and must not publish Z. Its only requested output is
+table X/Y. Existing references are the nine user-confirmed positions in
+`table-grid-20261026-114241-measurements.json`; their uncertainty is unknown,
+so they support geometric consistency checks, not a claim of 2 mm accuracy.
+
+1. From the schema-3 qualified candidate outlines for the nine measured
+   positions, fit source-image conics and use the existing checkerboard camera
+   matrix plus fixed physical radius to recover candidate camera rays/ranges.
+   Keep all candidates and their original quality/rejection data; do not choose
+   an outline by rank or color mean.
+2. Fit one rigid camera-to-table transform from candidate sphere centers and
+   the nine known table X/Y positions, with the sphere-center plane offset
+   fixed to the physical radius. Search candidate-family assignments with a
+   deterministic bounded solver. Report every selected/rejected association,
+   pose residual, and leave-one-ball-out prediction. Reject unstable or
+   degenerate solutions; do not turn the training residual into an accuracy
+   claim.
+3. Verify the conic-to-sphere and plane mapping first on synthetic scenes with
+   known intrinsics, camera pose, fixed radius, edge positions, pixel noise,
+   partial arcs, and competing nearby outlines. Check that recovered X/Y is
+   stable and that no ball-specific height is estimated.
+4. Compare its held-out consistency against the existing image-center
+   homography diagnostic and the contour-color failures. Do not activate the
+   method unless it selects stable boundaries across all nine and improves
+   leave-one-ball-out X/Y consistency without weakening quality gates.
+5. If the known references cannot constrain a stable pose, keep the current
+   fail-closed result and document the missing independent information. Do not
+   ask for a jig or new pocket-ball measurements.
+
+This is an offline geometry experiment. No fisheye profile, calibration asset,
+camera/FPS setting, or production refiner change is authorized by its fit
+alone. Physical accuracy, a selected camera FPS, and live availability remain
+unqualified.
 
 ## 2. Fixed requirements and working rules
 

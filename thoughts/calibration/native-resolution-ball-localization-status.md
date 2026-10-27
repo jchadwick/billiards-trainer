@@ -44,9 +44,10 @@ pixel audit has also been completed: across 27 measured/reserved proposals,
 91 qualified fits and 7,891 inlier-ray RGB profiles, neither transition rank
 nor simple inside/outside color statistics consistently distinguishes the
 physical silhouette. Preserve the ambiguous result. The next investigation is
-to test a fisheye-specific optics model against the saved checkerboard views,
-held-out reprojection, straight cushion features, and existing ball outlines;
-the previously rejected Brown radial candidates do not constitute that test.
+to use the known 57.15 mm sphere geometry with a fixed center plane to test
+whether global 2D table consistency can distinguish the candidate silhouettes.
+The fisheye-specific model audit failed to produce an admissible calibration;
+its evidence and limits are recorded below.
 
 ## Project requirements
 
@@ -117,6 +118,17 @@ to a verified camera profile and qualifying its effect.
   91 qualified fits. The report and source-pixel profiles are in
   `contour-color-audit-20261027/`; they do not establish which outline is the
   physical silhouette.
+- The existing checkerboard/ellipse evidence is consistent with off-axis
+  perspective shaping a sphere's apparent image ellipse: the measured far-left
+  yellow ball has a gradient-ellipse aspect ratio of 1.314 versus a 1.312
+  small-sphere perspective approximation; the far-right purple ball is about
+  1.25 versus about 1.27. This does not prove the lens has no residual
+  distortion. A new OpenCV fisheye-model audit found 0/8 admissible held-out
+  folds; the prospective ninth-view parity RMS was 1.3266 px versus 0.2279 px
+  for the frozen Brown-zero model. The test model also greatly increased
+  straight-edge bow and had unresolved flag/skew behavior. It is rejected as a
+  correction candidate, not evidence that the lens is perfectly pinhole.
+  Details are in `fisheye-optics-audit-20261027/`.
 - The separate ball-center calibration solver fits normalized homographies
   from at least 12 distributed correspondences, reports every residual, and
   validates the asset against runtime context.
@@ -174,10 +186,11 @@ requiring a fixture or claiming the desired accuracy.
 The ordered next estimator investigation is recorded in
 `native-ball-localization-next-steps-plan.md`. Identity, sensitivity,
 nine-reference, sample-provenance, candidate-cap, and contour-color audits are
-complete. The next saved-input investigation evaluates a fisheye-specific
-camera model using the existing checkerboard captures and the independent
-straight-edge/ball-outline evidence. Do not activate a model or resume target
-FPS benchmarking without cross-view and image-geometry evidence.
+complete. The fisheye-specific model evaluation is complete and rejected. The
+next saved-input investigation tests whether fixed physical sphere geometry
+and the user-confirmed 2D reference grid can consistently select among
+competing outline fits. Do not emit Z, vary physical diameter, or treat fitted
+consistency as independent physical accuracy.
 
 1. Verify and select the native source geometry in the live capture request
    without changing the Coral input tensor shape. The repository default has
