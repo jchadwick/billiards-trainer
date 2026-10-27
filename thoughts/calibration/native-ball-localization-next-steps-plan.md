@@ -7,20 +7,33 @@ review; this document defines tasks, deliverables, checks, and commits.
 
 ## 1. Verification strategy and completion definition
 
-The next milestone is a reproducible, stable native-pixel estimator on saved
-inputs, followed by an honest nine-reference mapping diagnostic. Preserve
-independently useful capture improvements on `main`. Do not call the current
-estimator qualified because it builds, its unit tests pass, or balls look round.
+The saved-image mark-grid audit is complete and reproducible. It finds a
+strong candidate rail lattice, but the checkerboard intrinsics and
+rail-cap-to-cloth transfer are not yet qualified. The immediate software task
+is to fix the known estimator acceptance dependence on detection index using
+saved images. If better camera intrinsics are needed afterward, the next
+user-side input is original JPEGs of the larger checkerboard; existing
+rail/felt marks supply the table references. The saved rectangle map is too
+sensitive to cushion-edge selection. Do not call localization qualified
+because it builds, tests pass, or balls look round.
 
-Verification proceeds in this order:
+The remaining verification proceeds in this order:
 
-1. Preserve the original failing experiment, exact inputs, and implementation.
-2. Correct diagnostic attribution and prove detection-identity invariance.
-3. Compare converged boundary solutions in common source-image coordinates.
-4. Verify controlled crop and fitting-start sensitivity on saved scenes.
-5. Evaluate the nine matching physical references with the finalized estimator.
-6. Qualify target decode with saved JPEGs, then measure the complete pipeline
-   separately when spatial estimation is stable.
+1. Correct estimator detection-index sensitivity on saved pixels, with
+   diagnostics tied to the actual fit and aiming iteration.
+2. Calibrate camera intrinsics from the larger checkerboard at fixed camera
+   settings, with sharp center/corner coverage and held-out tilted views.
+3. Refit the rail-cap-to-cloth bridge, holding each felt spot out in turn; if
+   the mapping is unstable, use a flat, spot-anchored cloth target.
+4. Evaluate accepted and rejected observations against the matching saved
+   ball references; do not activate physical X/Y without stable table geometry.
+5. Qualify target decode and complete-pipeline responsiveness after spatial
+   estimation is stable. Prefer continuous fresh positions at a lower rate
+   over frequent drops or unavailable results at a higher rate.
+
+The existing candidate grid can support offline estimator work before camera
+calibration is improved; physical X/Y remains unavailable for coaching until
+the optics and plane transfer are qualified.
 
 Required correctness properties are finite/bounded work, correct frame and
 asset identity, accurate diagnostics, deterministic geometry for identical
@@ -29,15 +42,17 @@ Numerical FPS, latency, and physical-accuracy benchmarks are desired targets.
 Report actual results and their limits; do not trade continuous reliable
 measurements for a higher nominal rate or force acceptance by weakening checks.
 
-Deliverables for the saved-input milestone:
+The existing mark-grid audit reproduced from saved image and calibration
+inputs; its numeric results and limitations are recorded in the audit report.
+Deliverables still needed for the table-calibration milestone:
 
-- Buildable corrective commits, each with meaningful regression coverage.
-- Frozen corpus manifest and versioned offline audit outputs/overlays.
-- A before/after table for all annotated balls, including every rejection.
-- Separate results for identity changes, proposal perturbations, and fitting
-  starts; include reserved-scene results separately from tuning scenes.
-- A nine-position diagnostic mapping report with per-point and held-out errors.
-- A clear list of remaining spatial, temporal, and physical-reference limits.
+- Reproducible rail-grid and registration audits, full numeric outputs, and
+  source-image hashes.
+- Intrinsic-model validation on a larger target with held-out views.
+- Rail/cloth transfer errors with each saved cloth spot held out, plus
+  sensitivity to intrinsics and the published sight offset.
+- A clear list of remaining ball-center, availability, and physical-reference
+  limits; no unqualified metric asset.
 
 ## 2. Fixed requirements and working rules
 
@@ -53,8 +68,10 @@ Deliverables for the saved-input milestone:
   Tracking and physical conversion consume the same resolved measurement.
 - Invalid/stale/mismatched/unsupported observations cannot enable precise
   guidance. Preserve a visible coarse detection when applicable.
-- Initial work uses saved pixels only. No jig, new manual ball measurements,
-  camera snapshots, or pocket-ball coordinates are needed.
+- Use the user's existing precisely measured rail and felt dots to anchor the
+  candidate grid. Do not ask for a jig, new round-ball measurements, or pocket
+  coordinates. If the larger checkerboard is used for intrinsics, capture
+  original images of that target; no live table-camera access is required.
 - Modify one top-level module at a time. Give each worker exclusive file
   ownership; tell workers others are active and prohibit reverting their edits.
 - Keep research material under `thoughts/`. Keep production settings typed,

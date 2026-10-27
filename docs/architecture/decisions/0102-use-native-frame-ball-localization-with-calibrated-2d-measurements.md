@@ -117,6 +117,46 @@ from sustained fresh precise availability, latency, memory, and motion response.
 The short source-only 5 FPS check is not a selected production rate. Preserve
 the independently verified Intel GPU decoding result throughout this work.
 
+## Follow-up — 2026-10-27: use existing table marks as a candidate grid
+
+The user clarified that the precisely measured table marks are the sights on
+the rails and dots on the cloth, and authorized using those existing marks to
+build the table grid. No ball measurements, pocket-ball coordinates, jig, or
+live camera read is needed for the current saved-image analysis. The
+[registration audit](../../../thoughts/calibration/table-feature-registration-audit-20261027/README.md)
+and [mark-grid audit](../../../thoughts/calibration/mark-grid-calibration-audit-20261027/README.md)
+retain the input hashes, coordinates, assumptions, and full numeric output.
+
+Ten long-rail marks fit a one-eighth table-length lattice with 0.57 px RMS and
+0.99 px leave-one-sight-out RMS. This agrees with the
+[WPA Rules of Play](https://wpapool.com/wp-content/uploads/2026/01/2026.01.02-WPA-Rules.pdf),
+which define rail sights at one-eighth length and one-quarter width intervals.
+The standard is a candidate reference only: WPA equipment specifications
+warn that competition measurements may not apply to home tables, and this
+table's measured 45 1/2-inch width differs from the nominal 46-inch 8-foot
+width. Use the user's 92 × 45 1/2-inch playing-area dimensions for metric
+coordinates rather than silently substituting nominal table dimensions.
+
+Two visible cloth dots appear near 23 and 69 inches along the long axis and
+22 3/4 inches across, consistent with centerline head/foot spots; the image
+does not independently confirm those identities. Side-rail sight annotations
+are about 4–6 px from the expected quarter positions and are excluded from
+the fit. A direct rail-plane projection misses the two cloth dots by 10.57–11
+px. A shared rail-to-cloth separation gives 1.34 px joint RMS, but
+single-marker cross-validation is 2.30–2.48 px and the two inferred
+separations differ by 12.13 mm. Therefore the candidate lattice is useful for
+continued calibration, but it is not yet a production metric map and must not
+be activated for ball X/Y.
+
+The [WPA Recommended Equipment Specifications](https://www.wpapool.com/wp-content/uploads/2024/01/RECOMMENDED-EQUIPMENT-SPECIFICATIONS.pdf)
+gives a sight offset from the cushion nose with source notation `+3.175 mm`;
+this is not a symmetric tolerance. The
+audit uses ±3.175 mm only as a sensitivity range, not as a claim about this
+table's conformity. Qualify camera intrinsics with the larger checkerboard
+and re-check the rail-to-cloth bridge before using the grid for coordinates.
+The provided 20 × 14-inch target guide needs only original target JPEGs if
+that optics step is needed; it does not require new table or ball measurements.
+
 ## Consequences
 
 ### Positive

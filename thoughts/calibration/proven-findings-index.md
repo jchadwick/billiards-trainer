@@ -40,6 +40,8 @@ production feature. A future corrected estimator must write a new result file.
 | Local normalization | `ball-local-view-normalization.{md,json,py,png}`, native crop montage | Clean off-axis contours often become more circular; edge-selection and physical-center accuracy remain unresolved. |
 | Nine physical references | `table-grid-20261026-114241.jpg`, matching measurements JSON, `table-grid-feasibility-*`, `ball-outline-consistency.*` | Diagnostic mapping from nine user-confirmed positions on this image only, with unknown reference uncertainty. Six pocket positions lack physical truth. |
 | Demonstrated identity defect | `offline-refiner-identity-check.{json,rs}` | Fixed pixels/boxes/config, indices 0–15: 7/9 measured cases change acceptance. All three repeated outputs match. This is software behavior, not a live availability rate. |
+| Table-mark grid | `mark-grid-calibration-audit-20261027/`, `table-feature-registration-audit-20261027/`, and their offline audit scripts | Ten long-rail sights match the expected one-eighth-length lattice at 0.57 px fit RMS and 0.99 px leave-one-out RMS. Rail-to-cloth transfer remains provisional: direct projection misses visible cloth dots by 10.57–11.00 px, and two-marker cross-validation is 2.30–2.48 px. No production metric map is established. |
+| Larger checkerboard capture | `checkerboard-20x14in-capture.md`, `output/pdf/ball-localization-checkerboard-20x14in.pdf`, updated `capture_checkerboard.py` | A printable 20 × 14-inch active pattern and saved-JPEG capture workflow are ready for stronger intrinsics checks. The target has not yet been photographed; no new calibration result is claimed. |
 | Corrected interpretations | `offline-refiner-nine-position-check.md`, `review-and-next-step-20261027.md` | Different proposal definitions confound 4/9 versus 5/9 comparisons. A low reported metric can belong to an earlier iteration. These corrections supersede stronger earlier interpretations. |
 
 ## Not established
@@ -47,6 +49,8 @@ production feature. A future corrected estimator must write a new result file.
 - Independent 2 mm p95 or 5 mm maximum ball-center accuracy.
 - Full-table native 4K precision, pocket/corner physical accuracy, or a valid
   production ball-center asset for the new estimator.
+- A qualified table X/Y map from the candidate rail lattice; the cloth-plane
+  bridge and optics still need validation.
 - Sustained precise availability, selected operating FPS, motion response,
   complete capture-to-publication latency, or long-run memory behavior.
 - That the user's manual measurements were incorrect.
@@ -56,7 +60,10 @@ production feature. A future corrected estimator must write a new result file.
 The production calibrator requires 12 correspondences and existing measured
 references number nine. Keep diagnostic mapping distinct from activation until
 the contract is explicitly resolved. No jig or new pocket measurements are
-needed for the next saved-image estimator task.
+needed for the next saved-image estimator task. The known index-sensitivity fix
+can proceed without waiting for larger-checkerboard captures; those captures
+are only needed for the subsequent optics qualification if the existing
+intrinsics prove insufficient.
 
 ## Operational and repository boundaries
 

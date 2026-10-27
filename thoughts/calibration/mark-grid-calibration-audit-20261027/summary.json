@@ -1,0 +1,1201 @@
+{
+  "audit_date": "2026-10-27",
+  "held_out_nine_ball_reference_diagnostics": {
+    "fixed_ball_center_height_mm": 28.575,
+    "intrinsics_loo_sensitivity": [
+      {
+        "ball_id": "middle-row-center-ball",
+        "fold_max_radial_deviation_from_full_fit_mm": 0.6205145264857767,
+        "fold_max_xy_mm": [
+          1177.3182147592104,
+          575.7510554244541
+        ],
+        "fold_min_xy_mm": [
+          1176.2063067503311,
+          575.3284238464821
+        ],
+        "fold_peak_to_peak_mm": [
+          1.1119080088792543,
+          0.4226315779719698
+        ]
+      },
+      {
+        "ball_id": "far-right-purple-middle-row-ball",
+        "fold_max_radial_deviation_from_full_fit_mm": 0.5594749339090334,
+        "fold_max_xy_mm": [
+          2315.21985938496,
+          579.3728325250399
+        ],
+        "fold_min_xy_mm": [
+          2314.206056153534,
+          578.9337087307825
+        ],
+        "fold_peak_to_peak_mm": [
+          1.0138032314257543,
+          0.439123794257398
+        ]
+      },
+      {
+        "ball_id": "far-left-yellow-middle-row-ball",
+        "fold_max_radial_deviation_from_full_fit_mm": 0.6913582682909123,
+        "fold_max_xy_mm": [
+          25.139295079947715,
+          576.2635619589068
+        ],
+        "fold_min_xy_mm": [
+          23.927803881152386,
+          575.8456028531616
+        ],
+        "fold_peak_to_peak_mm": [
+          1.2114911987953292,
+          0.41795910574523987
+        ]
+      },
+      {
+        "ball_id": "interior-purple-second-left-middle-row-ball",
+        "fold_max_radial_deviation_from_full_fit_mm": 0.657188540440354,
+        "fold_max_xy_mm": [
+          579.594858500999,
+          579.6556592390049
+        ],
+        "fold_min_xy_mm": [
+          578.4310731202622,
+          579.2333364470512
+        ],
+        "fold_peak_to_peak_mm": [
+          1.1637853807367264,
+          0.4223227919536612
+        ]
+      },
+      {
+        "ball_id": "interior-green-second-right-middle-row-ball",
+        "fold_max_radial_deviation_from_full_fit_mm": 0.5879806607352236,
+        "fold_max_xy_mm": [
+          1758.0329906580796,
+          576.0267025288598
+        ],
+        "fold_min_xy_mm": [
+          1756.9712425293646,
+          575.5979168825229
+        ],
+        "fold_peak_to_peak_mm": [
+          1.061748128714953,
+          0.4287856463369053
+        ]
+      },
+      {
+        "ball_id": "top-orange-solid-second-left-ball",
+        "fold_max_radial_deviation_from_full_fit_mm": 0.625782326556035,
+        "fold_max_xy_mm": [
+          572.2560099852991,
+          24.156429344578612
+        ],
+        "fold_min_xy_mm": [
+          571.1245525437813,
+          23.613841857765465
+        ],
+        "fold_peak_to_peak_mm": [
+          1.1314574415177958,
+          0.5425874868131473
+        ]
+      },
+      {
+        "ball_id": "top-red-striped-second-right-ball",
+        "fold_max_radial_deviation_from_full_fit_mm": 0.6086895874032082,
+        "fold_max_xy_mm": [
+          1761.247895362078,
+          25.744264171930695
+        ],
+        "fold_min_xy_mm": [
+          1760.2190768838377,
+          25.22537659898626
+        ],
+        "fold_peak_to_peak_mm": [
+          1.0288184782402823,
+          0.5188875729444362
+        ]
+      },
+      {
+        "ball_id": "bottom-black-second-left-ball",
+        "fold_max_radial_deviation_from_full_fit_mm": 0.8780607717275798,
+        "fold_max_xy_mm": [
+          584.959894414484,
+          1134.755439810508
+        ],
+        "fold_min_xy_mm": [
+          583.7636568492458,
+          1133.5305678759285
+        ],
+        "fold_peak_to_peak_mm": [
+          1.1962375652382207,
+          1.2248719345795962
+        ]
+      },
+      {
+        "ball_id": "bottom-yellow-second-right-ball",
+        "fold_max_radial_deviation_from_full_fit_mm": 0.8617118710834937,
+        "fold_max_xy_mm": [
+          1760.976454112657,
+          1135.4467591715597
+        ],
+        "fold_min_xy_mm": [
+          1759.8817881523928,
+          1134.2131351740545
+        ],
+        "fold_peak_to_peak_mm": [
+          1.0946659602641375,
+          1.2336239975052194
+        ]
+      }
+    ],
+    "radial_error_summary_mm": {
+      "count": 9,
+      "max": 17.61468913630006,
+      "median": 8.952114737537922,
+      "p95": 17.07040250412102,
+      "rms": 11.285665512323893
+    },
+    "results": [
+      {
+        "assumed_ball_center_plane_z_mm_relative_to_rail_cap": 24.255562764085543,
+        "ball_id": "middle-row-center-ball",
+        "coarse_bbox_midpoint_px": [
+          643.5,
+          361.5
+        ],
+        "inferred_xy_mm_using_fixed_ball_radius_plane": [
+          1176.8154265661753,
+          575.5562860529446
+        ],
+        "naive_same_plane_radial_error_mm": 3.3832431516377977,
+        "naive_same_rail_plane_xy_mm": [
+          1174.7490500767312,
+          573.5037868112479
+        ],
+        "quality_limit": "diagnostic only: manual bbox midpoint is not a validated ball-center observation and physical reference uncertainty is unknown",
+        "radial_error_mm": 5.314013144751402,
+        "reference_xy_mm": [
+          1171.575,
+          574.675
+        ],
+        "xy_error_mm": [
+          5.240426566175302,
+          0.881286052944688
+        ]
+      },
+      {
+        "assumed_ball_center_plane_z_mm_relative_to_rail_cap": 24.255562764085543,
+        "ball_id": "far-right-purple-middle-row-ball",
+        "coarse_bbox_midpoint_px": [
+          1198.5,
+          363.0
+        ],
+        "inferred_xy_mm_using_fixed_ball_radius_plane": [
+          2314.764258669038,
+          579.1776002420006
+        ],
+        "naive_same_plane_radial_error_mm": 16.07456409882263,
+        "naive_same_rail_plane_xy_mm": [
+          2292.158013276383,
+          575.16850642374
+        ],
+        "quality_limit": "diagnostic only: manual bbox midpoint is not a validated ball-center observation and physical reference uncertainty is unknown",
+        "radial_error_mm": 7.939478123898035,
+        "reference_xy_mm": [
+          2308.225,
+          574.675
+        ],
+        "xy_error_mm": [
+          6.53925866903819,
+          4.5026002420006535
+        ]
+      },
+      {
+        "assumed_ball_center_plane_z_mm_relative_to_rail_cap": 24.255562764085543,
+        "ball_id": "far-left-yellow-middle-row-ball",
+        "coarse_bbox_midpoint_px": [
+          95.5,
+          362.0
+        ],
+        "inferred_xy_mm_using_fixed_ball_radius_plane": [
+          24.588780556046913,
+          576.0608649180316
+        ],
+        "naive_same_plane_radial_error_mm": 14.790912179598196,
+        "naive_same_rail_plane_xy_mm": [
+          43.3130200790931,
+          575.9247388738592
+        ],
+        "quality_limit": "diagnostic only: manual bbox midpoint is not a validated ball-center observation and physical reference uncertainty is unknown",
+        "radial_error_mm": 4.22025674886973,
+        "reference_xy_mm": [
+          28.575,
+          574.675
+        ],
+        "xy_error_mm": [
+          -3.986219443953086,
+          1.3858649180316434
+        ]
+      },
+      {
+        "assumed_ball_center_plane_z_mm_relative_to_rail_cap": 24.255562764085543,
+        "ball_id": "interior-purple-second-left-middle-row-ball",
+        "coarse_bbox_midpoint_px": [
+          357.5,
+          363.5
+        ],
+        "inferred_xy_mm_using_fixed_ball_radius_plane": [
+          579.0673574368697,
+          579.4578296746483
+        ],
+        "naive_same_plane_radial_error_mm": 16.68866505224479,
+        "naive_same_rail_plane_xy_mm": [
+          587.7805848789824,
+          578.3429827186434
+        ],
+        "quality_limit": "diagnostic only: manual bbox midpoint is not a validated ball-center observation and physical reference uncertainty is unknown",
+        "radial_error_mm": 8.952114737537922,
+        "reference_xy_mm": [
+          571.5,
+          574.675
+        ],
+        "xy_error_mm": [
+          7.567357436869656,
+          4.782829674648383
+        ]
+      },
+      {
+        "assumed_ball_center_plane_z_mm_relative_to_rail_cap": 24.255562764085543,
+        "ball_id": "interior-green-second-right-middle-row-ball",
+        "coarse_bbox_midpoint_px": [
+          925.0,
+          361.5
+        ],
+        "inferred_xy_mm_using_fixed_ball_radius_plane": [
+          1757.5542639919004,
+          575.8325915377177
+        ],
+        "naive_same_plane_radial_error_mm": 2.243936362516736,
+        "naive_same_rail_plane_xy_mm": [
+          1745.0082312312336,
+          572.8059733217684
+        ],
+        "quality_limit": "diagnostic only: manual bbox midpoint is not a validated ball-center observation and physical reference uncertainty is unknown",
+        "radial_error_mm": 11.363379891861884,
+        "reference_xy_mm": [
+          1746.25,
+          574.675
+        ],
+        "xy_error_mm": [
+          11.30426399190037,
+          1.1575915377177353
+        ]
+      },
+      {
+        "assumed_ball_center_plane_z_mm_relative_to_rail_cap": 24.255562764085543,
+        "ball_id": "top-orange-solid-second-left-ball",
+        "coarse_bbox_midpoint_px": [
+          352.0,
+          96.5
+        ],
+        "inferred_xy_mm_using_fixed_ball_radius_plane": [
+          571.7211182890467,
+          23.897338567165548
+        ],
+        "naive_same_plane_radial_error_mm": 13.473750282860518,
+        "naive_same_rail_plane_xy_mm": [
+          581.4946866159319,
+          31.42127846898895
+        ],
+        "quality_limit": "diagnostic only: manual bbox midpoint is not a validated ball-center observation and physical reference uncertainty is unknown",
+        "radial_error_mm": 5.780496164986517,
+        "reference_xy_mm": [
+          568.325,
+          28.575
+        ],
+        "xy_error_mm": [
+          3.396118289046626,
+          -4.6776614328344515
+        ]
+      },
+      {
+        "assumed_ball_center_plane_z_mm_relative_to_rail_cap": 24.255562764085543,
+        "ball_id": "top-red-striped-second-right-ball",
+        "coarse_bbox_midpoint_px": [
+          928.0,
+          93.5
+        ],
+        "inferred_xy_mm_using_fixed_ball_radius_plane": [
+          1760.7622819735425,
+          25.50002409002144
+        ],
+        "naive_same_plane_radial_error_mm": 3.733631813398537,
+        "naive_same_rail_plane_xy_mm": [
+          1749.0774122583275,
+          31.01339013274762
+        ],
+        "quality_limit": "diagnostic only: manual bbox midpoint is not a validated ball-center observation and physical reference uncertainty is unknown",
+        "radial_error_mm": 14.834480271534781,
+        "reference_xy_mm": [
+          1746.25,
+          28.575
+        ],
+        "xy_error_mm": [
+          14.512281973542486,
+          -3.0749759099785585
+        ]
+      },
+      {
+        "assumed_ball_center_plane_z_mm_relative_to_rail_cap": 24.255562764085543,
+        "ball_id": "bottom-black-second-left-ball",
+        "coarse_bbox_midpoint_px": [
+          362.0,
+          627.0
+        ],
+        "inferred_xy_mm_using_fixed_ball_radius_plane": [
+          584.4396922565533,
+          1134.2379436132358
+        ],
+        "naive_same_plane_radial_error_mm": 23.948826951989567,
+        "naive_same_rail_plane_xy_mm": [
+          592.1295003331442,
+          1124.4997235829949
+        ],
+        "quality_limit": "diagnostic only: manual bbox midpoint is not a validated ball-center observation and physical reference uncertainty is unknown",
+        "radial_error_mm": 17.61468913630006,
+        "reference_xy_mm": [
+          568.325,
+          1127.125
+        ],
+        "xy_error_mm": [
+          16.114692256553212,
+          7.112943613235757
+        ]
+      },
+      {
+        "assumed_ball_center_plane_z_mm_relative_to_rail_cap": 24.255562764085543,
+        "ball_id": "bottom-yellow-second-right-ball",
+        "coarse_bbox_midpoint_px": [
+          925.0,
+          630.5
+        ],
+        "inferred_xy_mm_using_fixed_ball_radius_plane": [
+          1760.5049811579763,
+          1134.9344261013307
+        ],
+        "naive_same_plane_radial_error_mm": 3.9698363839294695,
+        "naive_same_rail_plane_xy_mm": [
+          1746.9720088976721,
+          1123.2213729600726
+        ],
+        "quality_limit": "diagnostic only: manual bbox midpoint is not a validated ball-center observation and physical reference uncertainty is unknown",
+        "radial_error_mm": 16.253972555852464,
+        "reference_xy_mm": [
+          1746.25,
+          1127.125
+        ],
+        "xy_error_mm": [
+          14.254981157976317,
+          7.8094261013307005
+        ]
+      }
+    ],
+    "source_uncertainty": "Physical reference uncertainty is unknown; coarse bbox midpoint is not a ground-truth center.",
+    "used_for_fit": false
+  },
+  "intrinsics": {
+    "camera_matrix": [
+      [
+        696.1731580029823,
+        0.0,
+        644.1755624688407
+      ],
+      [
+        0.0,
+        695.3611772093032,
+        349.67152391690104
+      ],
+      [
+        0.0,
+        0.0,
+        1.0
+      ]
+    ],
+    "checkerboard_validation": "8-view training-only full fit; leave-one-view-out focal range and principal point variation are reported in the referenced baseline; this is not a production-approved calibration.",
+    "radial_distortion": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "source": "checkerboard-eight-view-baseline.json models.zero.full_fit"
+  },
+  "limitations": [
+    "The WPA source is a recommended tournament standard and explicitly warns it may not apply to home tables.",
+    "The exact 45.5 in table width conflicts with the nominal 46 in 8-ft table; exact long-rail spacing can still match 11.5 in.",
+    "Rail sight centers use manual seeded bright-component annotations with image-level uncertainty; lower-rail dots are only partially visible.",
+    "The side rail dots are held-out and manually ambiguous; their agreement is a layout check, not an independent survey.",
+    "Two cloth spots determine only one shared plane-separation scalar after calibrated camera pose; if their identity or quarter-line location is wrong, the estimate is invalid.",
+    "Checkerboard intrinsics are exploratory and weakly constrained by the small 10 x 7 in target and available views; leave-one-view-out K sensitivity is not a confidence interval.",
+    "No table-specific measurement of rail-cap height or sight-center offsets was made; the published nominal offset and +3.175 mm notation do not establish this home table's exact geometry or millimeter-level qualification.",
+    "Ball midpoint comparisons are diagnostics only and do not qualify localization accuracy or correct sphere silhouette centers.",
+    "No live cadence, tracking, availability, or shot-coaching result can be inferred from still images."
+  ],
+  "no_ball_coordinates_used_for_fitting": true,
+  "no_camera_capture_performed": true,
+  "official_layout_basis": {
+    "assumed_sight_coordinates": {
+      "long_rails": "x = k*92 in/8 for k={1,2,3,5,6,7}; center sight is absent at the side pocket; y = -offset or width+offset",
+      "offset_mm": 93.6625,
+      "sensitivity_allowance_mm": 3.175,
+      "short_rails_held_out": "x = -offset or length+offset; y = width*{1/4,1/2,3/4}"
+    },
+    "current_wpa_rules_url": "https://wpapool.com/wp-content/uploads/2025/10/2025.09.15-WPA-Rules-NP.pdf",
+    "felt_mark_hypothesis": "The two saved cloth circles are treated as Head Spot/Foot Spot at x=L/4 and 3L/4, y=W/2 based on appearance and WPA string definitions; their identity is not yet user-confirmed.",
+    "home_table_caveat": "WPA equipment specs say these competition recommendations do not necessarily apply to commercial home-use tables. The user's 45.5 in measured width differs from the 46 in 8-ft specification by 0.5 in. The grid is a testable hypothesis, not confirmed table-specific truth.",
+    "layout_summary": "WPA rules describe sights at 1/8 length and 1/4 width; equipment specs state 18 sights, 11.5 in spacing on an 8-ft table and center of sights 3 11/16 in (+3.175 mm in the source notation) from cushion nose.",
+    "recommended_equipment_url": "https://www.wpapool.com/wp-content/uploads/2024/01/RECOMMENDED-EQUIPMENT-SPECIFICATIONS.pdf"
+  },
+  "production_behavior_changed": false,
+  "purpose": "diagnostics-only test of standards-based rail sight coordinates and rail-cap-to-cloth-plane transfer",
+  "rail_cap_to_cloth_transfer": {
+    "assumed_marker_xy_mm": [
+      [
+        584.2,
+        577.85
+      ],
+      [
+        1752.6000000000001,
+        577.85
+      ]
+    ],
+    "cloth_marker_observations_px": [
+      [
+        366.5,
+        361.5
+      ],
+      [
+        918.5,
+        361.5
+      ]
+    ],
+    "interpretation": "The 3D plane bridge is evaluated explicitly; do not apply the rail-plane homography directly to cloth/ball pixels.",
+    "intrinsics_leave_one_checkerboard_view_sensitivity": [
+      {
+        "cloth_marker_joint_fit_residuals_px": [
+          1.4082006932816316,
+          1.5216552478794825
+        ],
+        "h_mm_joint": 52.56781807137584,
+        "held_out_checkerboard_view": "view-001",
+        "one_marker_to_other_marker_residuals_px": [
+          2.528094372740808,
+          2.7235847488100218
+        ]
+      },
+      {
+        "cloth_marker_joint_fit_residuals_px": [
+          1.1294014002394652,
+          1.1992282824675147
+        ],
+        "h_mm_joint": 53.299497628755276,
+        "held_out_checkerboard_view": "view-002",
+        "one_marker_to_other_marker_residuals_px": [
+          2.003701053274964,
+          2.1628638177267887
+        ]
+      },
+      {
+        "cloth_marker_joint_fit_residuals_px": [
+          1.480224087070079,
+          1.5529177137140378
+        ],
+        "h_mm_joint": 52.699660977763614,
+        "held_out_checkerboard_view": "view-003",
+        "one_marker_to_other_marker_residuals_px": [
+          2.684398732213102,
+          2.834071168010057
+        ]
+      },
+      {
+        "cloth_marker_joint_fit_residuals_px": [
+          1.2790018217769155,
+          1.3725134942351245
+        ],
+        "h_mm_joint": 52.857152605655656,
+        "held_out_checkerboard_view": "view-004",
+        "one_marker_to_other_marker_residuals_px": [
+          2.2670565222305386,
+          2.4515669427981734
+        ]
+      },
+      {
+        "cloth_marker_joint_fit_residuals_px": [
+          1.5166373086412168,
+          1.6618746965353355
+        ],
+        "h_mm_joint": 52.05659930648001,
+        "held_out_checkerboard_view": "view-005",
+        "one_marker_to_other_marker_residuals_px": [
+          2.772362840083388,
+          2.9800340678186354
+        ]
+      },
+      {
+        "cloth_marker_joint_fit_residuals_px": [
+          0.9438336923546753,
+          1.0101191867164596
+        ],
+        "h_mm_joint": 53.38119120884204,
+        "held_out_checkerboard_view": "view-006",
+        "one_marker_to_other_marker_residuals_px": [
+          1.524675818626926,
+          1.6997708443144548
+        ]
+      },
+      {
+        "cloth_marker_joint_fit_residuals_px": [
+          1.240572386428457,
+          1.3471085297987189
+        ],
+        "h_mm_joint": 52.53390170291303,
+        "held_out_checkerboard_view": "view-007",
+        "one_marker_to_other_marker_residuals_px": [
+          2.202059937217256,
+          2.3929123900939575
+        ]
+      },
+      {
+        "cloth_marker_joint_fit_residuals_px": [
+          1.435480980332593,
+          1.4526625995469171
+        ],
+        "h_mm_joint": 53.16394082155257,
+        "held_out_checkerboard_view": "view-008",
+        "one_marker_to_other_marker_residuals_px": [
+          2.339489877992015,
+          2.5467429992353323
+        ]
+      }
+    ],
+    "joint_estimated_plane_separation_mm": 52.83056276408554,
+    "joint_fit_predictions_px": [
+      [
+        365.4743401455376,
+        362.2863329401779
+      ],
+      [
+        917.2554185802697,
+        362.11371128067896
+      ]
+    ],
+    "joint_fit_residual_stats_px": {
+      "count": 2,
+      "max": 1.3876687091558906,
+      "median": 1.3400343294047417,
+      "p95": 1.3829052711807757,
+      "rms": 1.3408806949604026
+    },
+    "joint_fit_residuals_px": [
+      1.2923999496535927,
+      1.3876687091558906
+    ],
+    "naive_single_rail_plane_inverse_xy_mm": [
+      [
+        606.6619924012457,
+        574.288802683119
+      ],
+      [
+        1731.9080540762695,
+        572.8097239033181
+      ]
+    ],
+    "naive_single_rail_plane_prediction_px": [
+      [
+        355.6379367998214,
+        363.2137583814345
+      ],
+      [
+        928.7728932091015,
+        363.9915496409806
+      ]
+    ],
+    "naive_single_rail_plane_residual_stats_px": {
+      "count": 2,
+      "max": 10.996425999142254,
+      "median": 10.783573784301797,
+      "p95": 10.975140777658208,
+      "rms": 10.785674277802174
+    },
+    "naive_single_rail_plane_residuals_px": [
+      10.996425999142254,
+      10.57072156946134
+    ],
+    "naive_single_rail_plane_xy_error_mm": [
+      22.74254227133321,
+      21.29697183266614
+    ],
+    "single_marker_cross_validation": [
+      {
+        "estimated_rail_to_cloth_plane_separation_mm": 58.39098454419293,
+        "fit_marker_index": 0,
+        "heldout_marker_index": 1,
+        "heldout_prediction_px": [
+          916.2648573409746,
+          362.02566355474073
+        ],
+        "heldout_residual_px": 2.2961238814528104
+      },
+      {
+        "estimated_rail_to_cloth_plane_separation_mm": 46.25749197296622,
+        "fit_marker_index": 1,
+        "heldout_marker_index": 0,
+        "heldout_prediction_px": [
+          364.18452952828613,
+          362.39072210252306
+        ],
+        "heldout_residual_px": 2.480884795652939
+      }
+    ],
+    "training_frame": "framing_before_720"
+  },
+  "rail_plane_and_pose_by_frame": {
+    "framing_before_720": {
+      "additional_unseeded_bottom_sight_check": {
+        "approximate_visual_center_px": [
+          784.0,
+          690.0
+        ],
+        "approximate_visual_residual_px": 0.4702497725789906,
+        "expected_fraction": "5/8 of table length",
+        "feature_id": "bottom_rail_surface_unseeded_5",
+        "predicted_pixel_from_top_and_other_bottom_marks": [
+          783.8658336334994,
+          690.4507041543081
+        ],
+        "quality": "held-out qualitative check only; the sight is under glare and the pixel center was visually estimated",
+        "world_xy_mm": [
+          1460.5,
+          1249.3625
+        ]
+      },
+      "fit_ids": [
+        "top_rail_surface_1",
+        "top_rail_surface_2",
+        "top_rail_surface_3",
+        "top_rail_surface_4",
+        "top_rail_surface_5",
+        "top_rail_surface_6",
+        "bottom_rail_surface_1",
+        "bottom_rail_surface_2",
+        "bottom_rail_surface_3",
+        "bottom_rail_surface_4"
+      ],
+      "fit_points": 10,
+      "held_out_side_sight_checks": {
+        "left": {
+          "assignment_basis": "nearest three-permutation to expected quarter marks predicted from long-rail-only fit",
+          "assignments": [
+            {
+              "expected_fraction": 0.25,
+              "feature_id": "left_rail_vertical_face_1",
+              "observed_px": [
+                31.913043478260867,
+                221.43478260869566
+              ],
+              "predicted_px_from_long_rail_grid": [
+                27.669220536379736,
+                223.19339995943696
+              ],
+              "transfer_residual_px": 4.593774934448246
+            },
+            {
+              "expected_fraction": 0.75,
+              "feature_id": "left_rail_vertical_face_2",
+              "observed_px": [
+                35.54545454545455,
+                504.1363636363636
+              ],
+              "predicted_px_from_long_rail_grid": [
+                32.18881656417096,
+                501.4838127641814
+              ],
+              "transfer_residual_px": 4.278205776597279
+            }
+          ],
+          "note": "These side-rail marks are held out; they do not train the homography or pose.",
+          "rail": "left",
+          "surplus_unassigned_detection": null
+        },
+        "right": {
+          "assignment_basis": "nearest three-permutation to expected quarter marks predicted from long-rail-only fit",
+          "assignments": [
+            {
+              "expected_fraction": 0.25,
+              "feature_id": "right_rail_vertical_face_1",
+              "observed_px": [
+                1265.157894736842,
+                217.1578947368421
+              ],
+              "predicted_px_from_long_rail_grid": [
+                1269.9369568385202,
+                220.84575824743274
+              ],
+              "transfer_residual_px": 6.036536411257896
+            },
+            {
+              "expected_fraction": 0.5,
+              "feature_id": "right_rail_vertical_face_2",
+              "observed_px": [
+                1263.0,
+                363.0
+              ],
+              "predicted_px_from_long_rail_grid": [
+                1268.2906138897108,
+                364.4523031034127
+              ],
+              "transfer_residual_px": 5.486326606590528
+            },
+            {
+              "expected_fraction": 0.75,
+              "feature_id": "right_rail_vertical_face_4",
+              "observed_px": [
+                1260.6315789473683,
+                507.7368421052632
+              ],
+              "predicted_px_from_long_rail_grid": [
+                1266.6547823981582,
+                507.14195876616475
+              ],
+              "transfer_residual_px": 6.052509066225676
+            }
+          ],
+          "note": "These side-rail marks are held out; they do not train the homography or pose.",
+          "rail": "right",
+          "surplus_unassigned_detection": {
+            "feature_id": "right_rail_vertical_face_3",
+            "observed_px": [
+              1267.0,
+              476.375
+            ]
+          }
+        }
+      },
+      "pose_from_checkerboard_intrinsics": {
+        "intrinsics_id": "checkerboard-eight-view-baseline.models.zero.full_fit",
+        "rotation_world_to_camera": [
+          [
+            0.9998719813159908,
+            0.0008503263113121513,
+            0.015978045074357777
+          ],
+          [
+            -0.000601233733332801,
+            0.9998783186797521,
+            -0.01558801950697382
+          ],
+          [
+            -0.015989355747866175,
+            0.015576417409538816,
+            0.9997508268180887
+          ]
+        ],
+        "translation_mm": [
+          -1179.2381989920893,
+          -549.6974821354439,
+          1430.7310116338185
+        ]
+      },
+      "rail_sight_fit": {
+        "fit_error_px": {
+          "count": 10,
+          "max": 0.9522458634140625,
+          "median": 0.5247521953751157,
+          "p95": 0.865530619551829,
+          "rms": 0.5875932917790121
+        },
+        "homography_world_mm_to_image_px": [
+          [
+            0.48002602210830353,
+            0.008203456101740779,
+            70.37519443698659
+          ],
+          [
+            -0.0034016689185048066,
+            0.48905304760167884,
+            82.50859449231521
+          ],
+          [
+            -1.1173851320409297e-05,
+            1.0852987605195263e-05,
+            1.0
+          ]
+        ],
+        "leave_one_sight_out_error_px": {
+          "count": 10,
+          "max": 1.582661163521652,
+          "median": 1.0266156175033645,
+          "p95": 1.4728096959731634,
+          "rms": 1.012678971206574
+        },
+        "per_sight_fit_error_px": [
+          {
+            "error_px": 0.697136582854518,
+            "feature_id": "top_rail_surface_1"
+          },
+          {
+            "error_px": 0.22160713606679963,
+            "feature_id": "top_rail_surface_2"
+          },
+          {
+            "error_px": 0.9522458634140625,
+            "feature_id": "top_rail_surface_3"
+          },
+          {
+            "error_px": 0.7595453214979885,
+            "feature_id": "top_rail_surface_4"
+          },
+          {
+            "error_px": 0.45234384478611156,
+            "feature_id": "top_rail_surface_5"
+          },
+          {
+            "error_px": 0.5101066959323438,
+            "feature_id": "top_rail_surface_6"
+          },
+          {
+            "error_px": 0.5393976948178876,
+            "feature_id": "bottom_rail_surface_1"
+          },
+          {
+            "error_px": 0.7554116794008819,
+            "feature_id": "bottom_rail_surface_2"
+          },
+          {
+            "error_px": 0.17155873045039643,
+            "feature_id": "bottom_rail_surface_3"
+          },
+          {
+            "error_px": 0.2793125060460326,
+            "feature_id": "bottom_rail_surface_4"
+          }
+        ],
+        "per_sight_leave_one_out_px": [
+          {
+            "error_px": 1.582661163521652,
+            "feature_id": "top_rail_surface_1"
+          },
+          {
+            "error_px": 0.32295187727222235,
+            "feature_id": "top_rail_surface_2"
+          },
+          {
+            "error_px": 1.1795675363320488,
+            "feature_id": "top_rail_surface_3"
+          },
+          {
+            "error_px": 0.9385223952562328,
+            "feature_id": "top_rail_surface_4"
+          },
+          {
+            "error_px": 0.6520938524947046,
+            "feature_id": "top_rail_surface_5"
+          },
+          {
+            "error_px": 1.1147088397504963,
+            "feature_id": "top_rail_surface_6"
+          },
+          {
+            "error_px": 1.338546791191678,
+            "feature_id": "bottom_rail_surface_1"
+          },
+          {
+            "error_px": 1.1588965980257693,
+            "feature_id": "bottom_rail_surface_2"
+          },
+          {
+            "error_px": 0.27362706212794907,
+            "feature_id": "bottom_rail_surface_3"
+          },
+          {
+            "error_px": 0.7045892834747325,
+            "feature_id": "bottom_rail_surface_4"
+          }
+        ]
+      }
+    },
+    "measured_720": {
+      "fit_ids": [
+        "top_rail_surface_1",
+        "top_rail_surface_2",
+        "top_rail_surface_3",
+        "top_rail_surface_4",
+        "top_rail_surface_5",
+        "top_rail_surface_6",
+        "bottom_rail_surface_1",
+        "bottom_rail_surface_2",
+        "bottom_rail_surface_3",
+        "bottom_rail_surface_4"
+      ],
+      "fit_points": 10,
+      "held_out_side_sight_checks": {
+        "left": {
+          "assignment_basis": "nearest three-permutation to expected quarter marks predicted from long-rail-only fit",
+          "assignments": [
+            {
+              "expected_fraction": 0.25,
+              "feature_id": "left_rail_vertical_face_1",
+              "observed_px": [
+                32.08695652173913,
+                221.43478260869566
+              ],
+              "predicted_px_from_long_rail_grid": [
+                27.798723156008016,
+                223.24383317534222
+              ],
+              "transfer_residual_px": 4.654203406776918
+            },
+            {
+              "expected_fraction": 0.75,
+              "feature_id": "left_rail_vertical_face_2",
+              "observed_px": [
+                35.77272727272727,
+                504.22727272727275
+              ],
+              "predicted_px_from_long_rail_grid": [
+                32.38712005554417,
+                501.5783059348056
+              ],
+              "transfer_residual_px": 4.298762763474625
+            }
+          ],
+          "note": "These side-rail marks are held out; they do not train the homography or pose.",
+          "rail": "left",
+          "surplus_unassigned_detection": null
+        },
+        "right": {
+          "assignment_basis": "nearest three-permutation to expected quarter marks predicted from long-rail-only fit",
+          "assignments": [
+            {
+              "expected_fraction": 0.25,
+              "feature_id": "right_rail_vertical_face_1",
+              "observed_px": [
+                1265.157894736842,
+                217.1578947368421
+              ],
+              "predicted_px_from_long_rail_grid": [
+                1269.7809711037398,
+                220.80804641770845
+              ],
+              "transfer_residual_px": 5.89036861219227
+            },
+            {
+              "expected_fraction": 0.5,
+              "feature_id": "right_rail_vertical_face_2",
+              "observed_px": [
+                1262.9,
+                362.95
+              ],
+              "predicted_px_from_long_rail_grid": [
+                1268.1568761778594,
+                364.4147704250382
+              ],
+              "transfer_residual_px": 5.457132905419449
+            },
+            {
+              "expected_fraction": 0.75,
+              "feature_id": "right_rail_vertical_face_4",
+              "observed_px": [
+                1260.65,
+                507.6
+              ],
+              "predicted_px_from_long_rail_grid": [
+                1266.5431864989403,
+                507.1014352629454
+              ],
+              "transfer_residual_px": 5.914238235675411
+            }
+          ],
+          "note": "These side-rail marks are held out; they do not train the homography or pose.",
+          "rail": "right",
+          "surplus_unassigned_detection": {
+            "feature_id": "right_rail_vertical_face_3",
+            "observed_px": [
+              1267.1904761904761,
+              476.2857142857143
+            ]
+          }
+        }
+      },
+      "pose_from_checkerboard_intrinsics": {
+        "intrinsics_id": "checkerboard-eight-view-baseline.models.zero.full_fit",
+        "rotation_world_to_camera": [
+          [
+            0.9998733352738329,
+            0.00099458154926559,
+            0.015884716425635718
+          ],
+          [
+            -0.0007460371207218575,
+            0.9998773306539667,
+            -0.015645033490301486
+          ],
+          [
+            -0.015898328119506956,
+            0.0156312012283129,
+            0.9997514234604342
+          ]
+        ],
+        "translation_mm": [
+          -1179.0265496225409,
+          -549.6439111330336,
+          1430.7042522989145
+        ]
+      },
+      "rail_sight_fit": {
+        "fit_error_px": {
+          "count": 10,
+          "max": 0.9437283330671499,
+          "median": 0.5264457175203145,
+          "p95": 0.8650631470778429,
+          "rms": 0.5724140463190612
+        },
+        "homography_world_mm_to_image_px": [
+          [
+            0.4800005441912597,
+            0.008326496449806877,
+            70.46744976757613
+          ],
+          [
+            -0.00342175487422749,
+            0.48915308093605797,
+            82.5296345451071
+          ],
+          [
+            -1.1107889796324767e-05,
+            1.0892654926744134e-05,
+            1.0
+          ]
+        ],
+        "leave_one_sight_out_error_px": {
+          "count": 10,
+          "max": 1.5635081533955617,
+          "median": 0.958190379971921,
+          "p95": 1.4228851413146788,
+          "rms": 0.9856600087460289
+        },
+        "per_sight_fit_error_px": [
+          {
+            "error_px": 0.7096851894415447,
+            "feature_id": "top_rail_surface_1"
+          },
+          {
+            "error_px": 0.17074666358582333,
+            "feature_id": "top_rail_surface_2"
+          },
+          {
+            "error_px": 0.9437283330671499,
+            "feature_id": "top_rail_surface_3"
+          },
+          {
+            "error_px": 0.7689168086464682,
+            "feature_id": "top_rail_surface_4"
+          },
+          {
+            "error_px": 0.4097864492684126,
+            "feature_id": "top_rail_surface_5"
+          },
+          {
+            "error_px": 0.5718176286407636,
+            "feature_id": "top_rail_surface_6"
+          },
+          {
+            "error_px": 0.4810738063998656,
+            "feature_id": "bottom_rail_surface_1"
+          },
+          {
+            "error_px": 0.6296958488878528,
+            "feature_id": "bottom_rail_surface_2"
+          },
+          {
+            "error_px": 0.21806623798052793,
+            "feature_id": "bottom_rail_surface_3"
+          },
+          {
+            "error_px": 0.30251049544846104,
+            "feature_id": "bottom_rail_surface_4"
+          }
+        ],
+        "per_sight_leave_one_out_px": [
+          {
+            "error_px": 1.5635081533955617,
+            "feature_id": "top_rail_surface_1"
+          },
+          {
+            "error_px": 0.24883636399132306,
+            "feature_id": "top_rail_surface_2"
+          },
+          {
+            "error_px": 1.1680274185972073,
+            "feature_id": "top_rail_surface_3"
+          },
+          {
+            "error_px": 0.9500796141312421,
+            "feature_id": "top_rail_surface_4"
+          },
+          {
+            "error_px": 0.5933569400150895,
+            "feature_id": "top_rail_surface_5"
+          },
+          {
+            "error_px": 1.2510125709936006,
+            "feature_id": "top_rail_surface_6"
+          },
+          {
+            "error_px": 1.1830543826653581,
+            "feature_id": "bottom_rail_surface_1"
+          },
+          {
+            "error_px": 0.9663011458126,
+            "feature_id": "bottom_rail_surface_2"
+          },
+          {
+            "error_px": 0.3354383557561661,
+            "feature_id": "bottom_rail_surface_3"
+          },
+          {
+            "error_px": 0.7608288536509545,
+            "feature_id": "bottom_rail_surface_4"
+          }
+        ]
+      }
+    }
+  },
+  "runtime": {
+    "numpy": "2.5.4",
+    "python": "3.14.5"
+  },
+  "saved_input_hashes": {
+    "thoughts/calibration/checkerboard-eight-view-baseline.json": "d0bb14b97f87fe13fe296638af726466ee11f4af7e1cd20a964b16f244ccf191",
+    "thoughts/calibration/native-localization-corpus-v1.json": "4389155bf13fac6dd49d45a6488a53f37f4864b586646c0ced543f151c41a1de",
+    "thoughts/calibration/table-feature-registration-audit-20261027/summary.json": "38fd8db0b36c43178db46f2629316b8afe4b05bb149fbf86ea56ebd3ecbf8a59",
+    "thoughts/calibration/table-grid-20261026-114241-measurements.json": "fc2eb93e5f0144e1b15b446078be11e494c80c8da8e427295c6e51d283e7d335"
+  },
+  "schema_version": 1,
+  "synthetic_self_test": {
+    "fixed_plane_ray_roundtrip_max_xy_error_mm": 2.2737367544323206e-13,
+    "homography_recovery_max_abs_matrix_error": 4.739264536368637e-15,
+    "status": "passed"
+  },
+  "user_coordinate_contract": {
+    "origin": "upper-left cushion-nose intersection in the saved image",
+    "outputs": "X/Y only; ball radius is a fixed known geometry term, not an estimated Z result",
+    "physical_ball_diameter_mm": 57.15,
+    "positive_x": "image-right along the 92-inch long axis",
+    "positive_y": "image-down along the 45.5-inch short axis",
+    "table_length_mm": 2336.8,
+    "table_width_mm": 1155.7,
+    "units": "millimeters"
+  }
+}

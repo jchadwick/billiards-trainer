@@ -4,8 +4,12 @@ Last updated: 2026-10-27
 
 Review and immediate next action: `review-and-next-step-20261027.md`.
 The controlled saved-image audit demonstrates acceptance dependence on
-detection index for seven of nine measured balls. Stabilize the estimator
-before further FPS tuning or calibration activation.
+detection index for seven of nine measured balls. A new saved-image audit
+finds that rail sights form a strong candidate table grid and the two visible
+cloth dots are consistent with the table's centerline spots. The grid is not
+yet a qualified metric calibration because the optics and rail-to-cloth plane
+transfer remain uncertain. Stabilize the estimator before FPS tuning or
+calibration activation.
 
 ## Project requirements
 
@@ -50,6 +54,34 @@ test found similar framing under a direct 3× coordinate scale, but did not
 establish identical intrinsics, table millimeter accuracy, or ball-center
 accuracy. Do not activate a scaled profile as ground truth without binding it
 to a verified camera profile and qualifying its effect.
+
+## Table-mark grid evidence
+
+The saved-image audits are in `mark-grid-calibration-audit-20261027/` and
+`table-feature-registration-audit-20261027/`. Ten visible long-rail sights fit
+the expected one-eighth table-length lattice at 0.57 px RMS, with 0.99 px
+leave-one-sight-out RMS. A glare-obscured lower sight visually agrees with the
+predicted 5/8 position, but is qualitative only. Side-rail annotations miss
+their expected quarter positions by roughly 4–6 px and remain excluded from
+the fit. Two cloth dots appear at approximately 23 and 69 inches along the
+long axis and 22 3/4 inches across; this is consistent with the head/foot
+centerline spots, but their identities are not confirmed by the image alone.
+
+This supports using the rail marks as a candidate grid tied to the user's
+92 × 45 1/2 inch playing-area dimensions. It does not yet produce a production
+metric map: a direct rail-plane projection misses the two cloth dots by
+10.57–11.00 px. A single shared rail-to-cloth plane separation fits them at
+1.34 px joint RMS, but fitting either dot alone predicts the other only within
+2.30–2.48 px, and the two implied separations differ by 12.13 mm. The
+checkerboard-derived intrinsics and the cushion-nose sight offset also need
+qualification. These are saved-image diagnostics; no new table or ball
+measurements and no live camera access were used.
+
+The next useful user-side input, if further optics calibration is needed, is a
+set of original JPEGs of the larger checkerboard described in
+`checkerboard-20x14in-capture.md`. No jig or ball repositioning measurements
+are needed. Do not activate table X/Y from the candidate grid until the
+checkerboard and rail-to-cloth transfer checks are stable.
 
 ## Current implementation on `codex/native-ball-localization`
 
@@ -97,8 +129,10 @@ measurements of the pocket-adjacent balls. The project already contains nine
 user-confirmed ball-center positions, including rail contacts, in
 `table-grid-20261026-114241-measurements.json`; those coordinates apply only to
 the matching `table-grid-20261026-114241.jpg` arrangement. Use them with the
-new refiner for a provisional ball-center map, and use the precisely measured
-table dots and rail geometry where their physical coordinates are known.
+new refiner for a provisional ball-center map. The user identifies the rail
+sights and felt dots as the precisely measured table marks; the current saved
+audit derives their candidate regular grid from the visible lattice and the
+known table dimensions, rather than requesting new physical measurements.
 
 Known table reference marks help establish table geometry. Verify the exact
 physical reference represented by each mark; do not assume all marks are
@@ -115,23 +149,38 @@ it cannot emit an asset from the existing nine. Nine-point diagnostic mapping
 and residual analysis remain possible; resolve this contract explicitly before
 activation rather than duplicating points or silently lowering its minimum.
 
-Existing references are enough to continue development without further user
-measurements. Independent held-out accuracy and availability are still
-unverified. If existing dots, rail contacts, and the saved nine-position scene
-cannot provide independent validation, report that limitation instead of
-requiring a fixture or claiming the desired accuracy.
+The user's existing rail and felt dots are the intended table references;
+their individual numeric readings are not recorded in the repository. The
+candidate regular grid and specified playing-area dimensions allow offline
+analysis to continue without asking the user to remeasure them. Do not request
+new tape measurements over round balls, a jig, or pocket-ball coordinates.
+Independent held-out accuracy and availability remain unverified. If the existing dots,
+rail contacts, and saved nine-position scene cannot provide independent
+validation, report that limit rather than claiming the desired accuracy.
 
 ## Remaining qualification
 
-The ordered immediate estimator task is recorded in
-`review-and-next-step-20261027.md`; complete that task before target-device
-benchmarking below.
+The existing mark-grid audit is reproduced; its candidate rail lattice is
+not yet a qualified metric map. If the existing checkerboard views are
+insufficient, the next user-side input is original JPEGs of the larger
+rigid-backed target in `checkerboard-20x14in-capture.md`. No live table-camera
+access, jig, new ball measurements, or pocket-ball coordinates are needed.
+Estimator stability remains required before production localization or FPS
+selection and can be fixed from saved images while the table calibration is
+being prepared.
 
-1. Verify and select the native source geometry in the live capture request
+1. Correct detection-index sensitivity in the estimator using the saved
+   corpus, following `review-and-next-step-20261027.md`.
+2. Calibrate intrinsics with fixed camera settings, sharp center/corner
+   coverage, and held-out tilted checkerboard views.
+3. Refit the rail-to-cloth transfer using the saved felt dots as held-out
+   references and the measured 92 × 45 1/2 inch playing area. Do not treat the
+   current provisional transfer as calibration.
+4. Verify and select the native source geometry in the live capture request
    without changing the Coral input tensor shape. The repository default has
    no optics or center-calibration asset configured, so precise X/Y correctly
    remains unavailable until qualified assets are supplied.
-2. Benchmark 3840 × 2160, 2560 × 1440, and 1920 × 1080 with camera rates
+5. Benchmark 3840 × 2160, 2560 × 1440, and 1920 × 1080 with camera rates
    5, 7.5, 10, 15, and 20 FPS on the target. Include actual source delivery,
    decoded/analyzed/published/dropped counts, detector/refiner age, motion
    invalidation, CPU/GPU use, and memory trend. Select the most responsive
@@ -139,15 +188,15 @@ benchmarking below.
    choose a nominal FPS that falls behind. Treat desired latency/accuracy
    metrics as goals; prefer continuous available positions at a lower rate to
    frequent drops or unavailable measurements at a higher rate.
-3. Qualify the exact optics profile and local-view fit on real source crops,
+6. Qualify the exact optics profile and local-view fit on real source crops,
    including highlights, stripe edges, shadows, cushion contact, touching
    balls, and partial contours.
-4. Add operator acquisition/export for accepted image centers paired with the
+7. Add operator acquisition/export for accepted image centers paired with the
    existing measured references; do not require a jig or new pocket-ball
    measurements.
-5. Run whatever independent held-out physical X/Y validation the known dots,
+8. Run whatever independent held-out physical X/Y validation the known dots,
    rail contacts, and saved positions support. Report actual available
    reference coverage and accepted-measurement rate alongside residuals.
-6. Only then deploy a selected single configuration. The old deployment and
+9. Only then deploy a selected single configuration. The old deployment and
    the separate GPU discovery can each be retained or rolled back
    independently.
