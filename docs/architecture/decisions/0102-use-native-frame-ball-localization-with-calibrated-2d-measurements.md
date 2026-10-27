@@ -293,12 +293,22 @@ unknown. Do not activate this method or treat these consistency scores as
 accuracy. This rejects the current candidate-selection experiment, not the
 ideal conic geometry.
 
-The next saved-image investigation registers visible static cloth spots, rail
-dots, and cushion geometry across existing scenes. The project does not
-record exact physical coordinates for the dots, so image registration alone
-cannot produce an independently verified metric table mapping. Keep static
-registration and ball-center localization separate; do not transfer ball
-positions between arrangements or infer dot spacing from standard conventions.
+The static-feature registration audit is recorded in
+`thoughts/calibration/table-feature-registration-audit-20261027/`. Held-out
+upper/lower rail sights transfer with 0.209 px RMS between measured and
+alternate 720p scenes, and 0.094 px RMS between the retained 720p and 4K
+framing pair after 3× normalization. Two cloth-marker transfers on the framing
+pair are 1.360 px and 0.004 px; that sample is too small to infer a
+cross-plane correction. All results are pixel registration only. The project
+does not record exact physical coordinates for the dots, so these results do
+not establish a metric mapping.
+
+The next saved-image investigation tests a report-only X/Y homography from the
+known playing-area rectangle and existing cushion-nose line samples, with all
+nine ball positions held out. Keep the boundary choice, line extrapolation,
+and table-coordinate sensitivity explicit. Do not transfer ball positions
+between arrangements, infer dot spacing from standard conventions, or activate
+a calibration from these diagnostics alone.
 
 
 ## Consequences

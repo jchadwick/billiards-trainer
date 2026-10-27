@@ -50,9 +50,11 @@ training RMS was 15.21 mm and its held-out oracle candidate score was 18.65 mm
 RMS, compared with 8.71 mm for the existing segmentation-center homography.
 The oracle uses each held-out answer to choose its candidate, so it is not an
 automatic result. Preserve the synthetic math check, but do not activate this
-selector. The next saved-image task inventories static table spots, rail dots,
-and cushion lines across the existing scenes; exact physical dot coordinates
-are not recorded, so registration alone cannot claim metric accuracy.
+selector. Static table-feature registration passes relative image-transfer
+checks, but exact physical dot coordinates are not recorded, so it cannot
+produce a metric table map. The next saved-image task tests a mapping from the
+known playing-area rectangle and existing cushion-nose line samples, with the
+nine ball positions held out for diagnostics.
 
 ## Project requirements
 
@@ -144,6 +146,15 @@ to a verified camera profile and qualifying its effect.
   exhaustive. This rejects the tested selector as an improvement, not the
   ideal sphere-conic geometry. The user-provided reference uncertainty remains
   unknown; no height/depth output or production change is made.
+- The static table-feature registration audit is in
+  `table-feature-registration-audit-20261027/`. Six upper/lower rail sights
+  produce 0.209 px held-out RMS between the measured and alternate 720p scenes
+  and 0.094 px between the before/after framing images after 3× normalization.
+  Held-out side-rail sights measure 0.463 px and 0.196 px RMS respectively.
+  Two cloth markers are visible only in the framing pair; their cross-plane
+  transfers are 1.360 px and 0.004 px, too few to infer a plane correction.
+  All reported positions are pixels. Exact physical dot XY is absent from the
+  inspected records, so this is relative registration evidence only.
 - The separate ball-center calibration solver fits normalized homographies
   from at least 12 distributed correspondences, reports every residual, and
   validates the asset against runtime context.
@@ -200,14 +211,24 @@ requiring a fixture or claiming the desired accuracy.
 
 The ordered next estimator investigation is recorded in
 `native-ball-localization-next-steps-plan.md`. Identity, sensitivity,
-nine-reference, sample-provenance, candidate-cap, contour-color, fisheye, and
-fixed-sphere audits are complete. The next saved-input investigation registers
-static table features across the measured, alternate, and framing scenes. No
-exact physical dot coordinates are recorded, so this can establish only
-relative registration until those coordinates are verified in existing
-records. Do not transfer ball coordinates between arrangements, emit Z, vary
-physical diameter, or treat image-registration consistency as physical
-accuracy.
+nine-reference, sample-provenance, candidate-cap, contour-color, fisheye,
+fixed-sphere, and static-feature registration audits are complete. The
+registration audit's held-out rail transfers are subpixel, but its two visible
+cloth-marker cross-plane results are uneven and exact physical dot XY is not
+recorded. This supports relative image registration only.
+
+The next saved-input investigation derives a 2D mapping from the known
+2336.8 × 1155.7 mm playing-area rectangle and existing cushion-nose line
+samples. Fit the four boundary lines independently of the nine ball positions,
+extrapolate the physical corners, and report sensitivity to which visible
+cloth/cushion transition is treated as the nose. Then apply that mapping to
+the nine user-measured ball centers as held-out diagnostics and compare with
+the segmentation-center homography. Do not use ball positions to tune the
+boundary lines, transfer them to another arrangement, or treat their unknown
+uncertainty as millimeter truth. If the nose lines or corner intersections
+are too ambiguous, stop with that finding rather than assuming rail-dot
+spacing. No camera/FPS or production changes follow from this saved-image
+geometry check.
 
 1. Verify and select the native source geometry in the live capture request
    without changing the Coral input tensor shape. The repository default has

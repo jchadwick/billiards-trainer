@@ -223,38 +223,55 @@ saved scene. It does not disprove the conic equation or fixed-diameter sphere
 geometry under accurate boundaries. Do not activate it, publish any depth or
 height, or treat a fitted pose as a table calibration asset.
 
-### Next investigation — static table-feature registration on saved images
+### Follow-up — static table-feature registration completed
 
-The user previously said the table dots are precisely measured, but the
-repository contains no exact physical X/Y coordinates for those dots. The
-measurements file contains the table dimensions and nine ball positions only.
-Do not invent dot coordinates from standard table conventions. Continue with
-the existing measured 720p, alternate 720p, and before/after framing images;
-this investigation needs no camera access, new ball positions, or a jig.
+The audit is reproducible from `offline-table-feature-registration-audit-20261027.py`;
+its pixel annotations, source hashes, and results are in
+`table-feature-registration-audit-20261027/`. Six upper/lower rail sights
+produced 0.209 px held-out RMS (0.317 px max) between the measured and
+alternate 720p scenes. For the 720p/4K framing pair, after reducing 4K exactly
+3×, the held-out upper/lower rail RMS was 0.094 px (0.146 px max). Side-rail
+sight RMS was 0.463 px and 0.196 px respectively. The two visible cloth marks
+in the framing pair transferred with 1.360 px and 0.004 px error; there are too
+few markers to infer a cross-plane correction. They are occluded in the
+measured/alternate scenes. Balls were not used for registration.
 
-1. Annotate visible static marks and geometry in each scene: cloth spots, rail
-   dots, and cushion/cloth boundaries. Record image coordinates and source
-   hashes; distinguish marks on the cloth plane from marks on raised rails.
-2. Estimate image-to-image homographies from only common static features.
-   Hold out at least one visible landmark per comparison and report its
-   transfer error. Never use moving balls as registration anchors.
-3. Compare the measured and alternate 720p frames, then the retained 720p and
-   4K framing pair. Do not transfer the measured scene's ball coordinates to
-   another arrangement. Use the existing checkerboard/framing evidence only
-   within its recorded limits.
-4. If an exact dot-coordinate record already exists, use those coordinates
-   for an independently defined table-plane mapping and score the nine ball
-   references without fitting on them. If no such record exists, report only
-   relative image-registration consistency and list absolute metric mapping as
-   unresolved; do not infer the marks' physical spacing from appearance.
-5. Keep all conclusions in the research record until an independent mapping
-   reference and stable ball boundary are both available. No optics profile,
-   localization implementation, calibration asset, camera/FPS setting, or
-   guidance behavior changes follow from image registration alone.
+This establishes relative image registration for these saved frames, not a
+table X/Y calibration. The user said the table dots were precisely measured,
+but four inspected records contain no exact physical dot coordinates. No dot
+spacing was inferred. Raised-rail sights and cloth markers are on different
+planes. Keep this audit pixel-only and do not transfer ball positions between
+arrangements.
 
-This next experiment separates static table registration from ball-boundary
-selection. Physical accuracy, a selected camera FPS, and live availability
-remain unqualified.
+### Next investigation — metric mapping from the playing-area rectangle
+
+The playing-area dimensions are recorded as 2336.8 × 1155.7 mm. Use the
+existing saved cushion-nose samples and the matching measured 720p scene to
+test whether the playing rectangle itself provides an independent image-to-
+table mapping, without fitting to the nine ball positions. This requires no
+new physical measurement, camera access, or jig.
+
+1. Review the existing cushion-edge samples and manually identify the four
+playing-area boundary lines, excluding pocket jaws, shadows, and movable balls.
+2. Fit each line over multiple visible rail sections, then compute its
+intersections with the adjacent boundary lines. Explicitly distinguish the
+cloth/nose transition from other nearby rail or shadow transitions.
+3. Use the known rectangle dimensions to build a report-only X/Y homography.
+Do not assume the four image corners are directly visible; preserve the
+extrapolation and line-fit uncertainty.
+4. Apply the frozen mapping to the nine measured-scene ball-center proposals
+only after the map is fixed. Report per-point discrepancies against the
+user-confirmed positions and compare with the segmentation-center homography.
+These references have unknown uncertainty and remain diagnostic, not
+independent accuracy truth.
+5. Perturb line selection, edge bands, and corner extrapolation within the
+observed pixel evidence. Report the resulting table-coordinate spread. If the
+physical nose cannot be identified consistently, stop without fitting a
+production asset or substituting rail-dot spacing.
+
+This next experiment tests metric table geometry separately from ball
+boundary selection. Physical accuracy, a selected camera FPS, and live
+availability remain unqualified.
 
 ## 2. Fixed requirements and working rules
 
