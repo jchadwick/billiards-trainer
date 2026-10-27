@@ -51,10 +51,12 @@ RMS, compared with 8.71 mm for the existing segmentation-center homography.
 The oracle uses each held-out answer to choose its candidate, so it is not an
 automatic result. Preserve the synthetic math check, but do not activate this
 selector. Static table-feature registration passes relative image-transfer
-checks, but exact physical dot coordinates are not recorded. The independent
-playing-area-rectangle map is too sensitive to the ambiguous cushion edge for
-metric localization. The remaining useful input is the exact X/Y coordinates
-already measured for the table marks; no new physical measurement is needed.
+checks, and the report-only rectangle map is too sensitive to the ambiguous
+cushion edge for metric localization. The new mark-grid audit shows that the
+rail sights and cloth spots provide a candidate physical coordinate grid;
+however, checkerboard intrinsics and the rail-to-cloth plane bridge are not
+yet qualified. No ball measurements or new table-mark measurements are
+needed.
 
 ## Project requirements
 
@@ -216,6 +218,26 @@ unverified. If existing dots, rail contacts, and the saved nine-position scene
 cannot provide independent validation, report that limitation instead of
 requiring a fixture or claiming the desired accuracy.
 
+The user clarified that the table's rail and felt dots are the physical grid.
+The offline mark-grid audit at
+`mark-grid-calibration-audit-20261027/` found that ten visible long-rail
+sights match the WPA 8-foot eighth-spacing layout with 0.57–0.59 px fit RMS
+and 0.99–1.01 px leave-one-sight-out RMS. The 92-inch table length matches the
+11.5-inch sight interval; the 45.5-inch measured width differs from the
+nominal 46-inch WPA value, and WPA warns that its competition specification
+may not apply to home tables. Treat the standard as a candidate lattice and
+the user's dimensions as authoritative.
+
+The two visible cloth dots match the head/foot spots at x=23 and 69 inches,
+y=22.75 inches. A rail-plane map alone misses them by roughly 11 px. The
+checkerboard-intrinsics plane-aware fit estimates a 52.831 mm rail-cap/cloth
+separation and gives 1.341 px joint error, but single-spot cross-checks remain
+2.296–2.481 px and yield rail-plane estimates 12.134 mm apart. Side-rail
+sight annotations are ambiguous; their 4–6 px residuals are excluded from
+the fit. The nine saved ball references remain diagnostics only. Coarse box
+midpoints give 11.286 mm RMS after mapping, not qualified ball-center
+accuracy.
+
 ## Remaining qualification
 
 The ordered next estimator investigation is recorded in
@@ -224,18 +246,21 @@ nine-reference, sample-provenance, candidate-cap, contour-color, fisheye,
 fixed-sphere, static-feature registration, and playing-area-rectangle audits
 are complete. Relative frame registration is strong, but the metric rectangle
 mapping is unstable because the visible edge is not known to be the physical
-nose. The repository does not contain the exact physical coordinates for the
-table marks that the user said were measured precisely.
+nose. The mark-grid audit replaces the earlier assumption that exact dot XY
+must first be supplied as a separate record. The long-rail lattice is a strong
+candidate based on official fractions and saved pixels, but it is not yet a
+table-specific qualified map.
 
-The next step is to use the user's existing table-mark coordinate record, if
-available: identify whether it describes the two cloth spots or raised rail
-sights, and add those already-measured X/Y values with their coordinate
-convention and provenance. Do not ask for new measurements or infer values
-from standard spacing. Once recorded, combine those references with the saved
-images and check the resulting 2D mapping against the nine ball positions,
-keeping their uncertainty explicit. Until then, absolute ball X/Y accuracy
-cannot be qualified from the repository's saved data. No camera/FPS or
-production changes are justified by the completed audits.
+The next step is to use the prepared larger rigid-backed checkerboard at the
+unchanged camera setting, then re-estimate intrinsics and rerun the
+rail-cap-to-cloth plane bridge against the saved two cloth spots. Keep those
+spots held out one at a time. The board's active grid is 20 x 14 inches, with
+2-inch squares and 9 x 6 inner corners; its print-ready file is
+`output/pdf/ball-localization-checkerboard-20x14in.pdf`. Capture sharp native
+resolution JPEGs across the image center and corners with tilts around both
+axes. No jig, ball measurements, or pocket coordinates are needed. Until the
+plane bridge and ball-center estimator are independently validated, keep
+precise X/Y unavailable and do not alter FPS or production localization.
 
 1. Verify and select the native source geometry in the live capture request
    without changing the Coral input tensor shape. The repository default has

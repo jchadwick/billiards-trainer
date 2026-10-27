@@ -30,6 +30,18 @@ def utc_now():
     return datetime.now(timezone.utc).isoformat()
 
 
+def active_pattern_size_inches(pattern, pitch_mm):
+    """Return the outside dimensions of the printed square grid.
+
+    A checkerboard with N-by-M inner corners has N+1 by M+1 squares. Keep
+    scale provenance tied to the active black-and-white pattern, not the
+    paper or rigid backing margins.
+    """
+    columns, rows = pattern
+    return ((columns + 1) * pitch_mm / 25.4,
+            (rows + 1) * pitch_mm / 25.4)
+
+
 def detect(image, pattern):
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     # The SB algorithm supplies subpixel coordinates directly, in source pixels.
@@ -141,8 +153,15 @@ def append_capture(args):
                         'camera_geometry': 'fixed camera; do not change crop/resolution/zoom/focus settings during session',
                         'calibration_status': 'captures only; not calibrated or activated',
                         'opencv_version': cv2.__version__, 'views': []}
+        active_width_in, active_height_in = active_pattern_size_inches(pattern, args.pitch_mm)
+        active_size_mm = [(pattern[0] + 1) * args.pitch_mm,
+                          (pattern[1] + 1) * args.pitch_mm]
+        manifest['pattern_active_size_mm'] = active_size_mm
         if args.scale_verified:
-            manifest['printed_scale_verification'] = 'user confirmed full printed pattern measures 10 x 7 inches'
+            manifest['printed_scale_verification'] = (
+                'user confirmed active checkerboard measures '
+                f'{active_width_in:g} x {active_height_in:g} inches'
+            )
         if args.rigid_backed:
             manifest['rigid_flat_backing_verification'] = 'user confirmed flat rigid backing'
         number = max([v['number'] for v in manifest['views']] + [0]) + 1
@@ -164,6 +183,7 @@ def append_capture(args):
                   'source_sha256': encoded_hash, 'decoded_pixel_sha256': pixel_hash,
                   'source_width_px': width, 'source_height_px': height,
                   'pattern_inner_corners': list(pattern), 'square_pitch_mm': args.pitch_mm,
+                  'pattern_active_size_mm': active_size_mm,
                   'corner_count': len(corners), 'corners_source_image_px': corners.tolist(),
                   'corner_method': method, 'corner_coordinates': 'original source resolution; no upsampling',
                   'physical_measurement_uncertainty': 'unknown', 'quality': diagnostics,
@@ -182,6 +202,7 @@ def append_capture(args):
 
 def self_test():
     pattern = (9, 6)
+    assert active_pattern_size_inches(pattern, 50.8) == (20.0, 14.0)
     image = np.full((440, 600, 3), 255, np.uint8)
     pitch = 40
     for row in range(7):
@@ -197,7 +218,26 @@ def self_test():
         pass
     else:
         raise AssertionError('Partial target incorrectly accepted')
-    print('Synthetic full-board detection, native pitch and cropped-board rejection passed')
+
+    # Exercise session metadata with a 2-inch-square print so the verified
+    # scale record cannot silently retain the former 10 x 7 inch dimensions.
+    with tempfile.TemporaryDirectory(prefix='checkerboard-scale-self-test-') as temp:
+        root = Path(temp)
+        source = root / 'synthetic-20x14.jpg'
+        if not cv2.imwrite(str(source), image):
+            raise AssertionError('Could not write synthetic checkerboard JPEG')
+        session = root / 'session'
+        append_capture(argparse.Namespace(
+            url=None, file=source, columns=9, rows=6, pitch_mm=50.8,
+            session=session, scale_verified=True, rigid_backed=True,
+            note='synthetic scale metadata test',
+        ))
+        manifest = json.loads((session / 'manifest.json').read_text())
+        assert np.allclose(manifest['pattern_active_size_mm'], [508.0, 355.6])
+        assert manifest['printed_scale_verification'] == (
+            'user confirmed active checkerboard measures 20 x 14 inches'
+        )
+    print('Synthetic detection, pitch, crop rejection, and 20 x 14 inch scale metadata passed')
 
 
 def main():
@@ -209,7 +249,8 @@ def main():
     parser.add_argument('--columns', type=int, default=9)
     parser.add_argument('--rows', type=int, default=6)
     parser.add_argument('--pitch-mm', type=float, default=25.4)
-    parser.add_argument('--scale-verified', action='store_true')
+    parser.add_argument('--scale-verified', action='store_true',
+                        help='record user confirmation of the active grid dimensions')
     parser.add_argument('--rigid-backed', action='store_true')
     parser.add_argument('--note', default='')
     parser.add_argument('--self-test', action='store_true')

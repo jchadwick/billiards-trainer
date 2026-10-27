@@ -307,8 +307,8 @@ The report-only X/Y homography audit used the known playing-area rectangle and
 existing cushion-nose line samples, with all nine ball positions held out.
 Boundary choice, line extrapolation, and table-coordinate sensitivity are
 recorded; it did not produce a usable metric map. Do not transfer ball
-positions between arrangements, infer dot spacing from standard conventions,
-or activate a calibration from these diagnostics alone.
+positions between arrangements or activate a calibration from these
+diagnostics alone.
 
 The rectangle-map audit is recorded in
 `thoughts/calibration/playing-area-homography-audit-20261027/`. Its nominal
@@ -317,11 +317,65 @@ line/corner variants the largest per-ball coordinate spread is 23.814 mm.
 Using the nearby lower seam instead of the inner transition yields 33.758 to
 41.840 mm RMS. The sampled visible edges do not establish the physical cushion
 nose, and corners are extrapolated around pockets. Reject this map as a
-production candidate. The remaining independent metric reference mentioned
-by the user is the precisely measured table marks; their exact physical XY
-values are absent from the project records. Add those existing coordinates
-with provenance before attempting another metric map. Do not ask for new
-measurements or infer their spacing.
+production candidate.
+
+### Follow-up — 2026-10-27: rail and felt marks define a provisional grid
+
+The user clarified that the table's rail and felt dots are the physical table
+marks, and asked us to derive the grid from them. The project has no separate
+survey file listing each mark's XY, but official pool-table definitions
+provide a checkable candidate layout. [WPA Rules of Play §2.1](https://wpapool.com/wp-content/uploads/2025/10/2025.09.15-WPA-Rules-NP.pdf)
+places rail sights at 1/8-length and 1/4-width fractions of the cushion-nose
+rectangle, and defines the head, center, and foot spots on the long centerline.
+The [WPA 8-foot equipment specification](https://www.wpapool.com/wp-content/uploads/2024/01/RECOMMENDED-EQUIPMENT-SPECIFICATIONS.pdf)
+gives 11.5-inch sight spacing and a sight
+center 3 11/16 inches from the cushion nose, with +3.175 mm in the published
+text; it also warns that
+the competition specification may not apply to home tables. The 92-inch
+measured length matches this sight interval. The user's 45.5-inch width is
+below the nominal 46 inches, so keep the user's dimensions and verify the
+standard pattern against this specific table. This resolves the earlier
+missing-coordinate blocker at the candidate-grid level; exact table-specific
+mark offsets and the resulting camera map remain unverified.
+
+The saved-image audit at
+`thoughts/calibration/mark-grid-calibration-audit-20261027/` finds six upper
+rail sights at 1/8, 2/8, 3/8, 5/8, 6/8, and 7/8; four clear lower sights at
+2/8, 3/8, 6/8, and 7/8; and a glare-obscured fifth lower sight visually
+consistent with 5/8. Ten long-rail points fit with 0.57–0.59 px RMS and
+0.99–1.01 px leave-one-sight-out RMS. Side-rail sight labels are ambiguous
+and have 4–6 px residuals against the assumed quarter-width layout; they are
+not used to force the fit.
+
+Two visible cloth marks are consistent with head and foot spots at x=23 and
+69 inches, y=22.75 inches in the user's 92 x 45.5 inch table coordinates. A
+single homography across rail and cloth planes is invalid: the rail-plane map
+misses the two cloth points by 10.57–11.00 px. Decomposing the rail-plane
+homography with the saved checkerboard intrinsics and estimating a common
+rail-cap-to-cloth separation improves the joint spot fit to 1.341 px RMS
+(52.831 mm estimated separation). Fitting from either spot and predicting
+the other leaves 2.296–2.481 px residual, with 12.134 mm spread between the
+two inferred separations. This demonstrates a plausible geometric bridge,
+not a qualified one; camera intrinsics, spot localization, home-table
+construction, and the rail-height estimate remain uncertain.
+
+The nine user-measured ball positions were used only as held-out diagnostics.
+Mapped detector-box midpoints show 11.286 mm RMS, 17.070 mm p95, and 17.615 mm
+maximum radial residual. This is not ball-center accuracy: box midpoints are
+not qualified centers and physical-reference uncertainty is unknown. Do not
+emit a production table map or calibrate from those residuals.
+
+The next step is a larger checkerboard at the same camera resolution, zoom,
+and focus, with sharp views across image center and corners and tilts about
+both axes. The print-ready 20 x 14 inch active pattern has 2-inch squares and
+9 x 6 internal corners; details are in
+`thoughts/calibration/checkerboard-20x14in-capture.md` and
+`output/pdf/ball-localization-checkerboard-20x14in.pdf`. Re-estimate camera
+intrinsics, then repeat the plane bridge while holding each saved cloth spot
+out in turn. Do not ask the user for new ball measurements or a positioning
+jig. The calibration uses a fixed 57.15 mm sphere-center plane only as a
+projection constant when needed; the application remains X/Y-only and does
+not estimate or publish ball height/depth.
 
 
 ## Consequences
@@ -393,6 +447,13 @@ then release one qualified implementation or discard the experiment.
   for candidate resolution and FPS combinations. Select the rate that keeps
   measurements available and responsive; numeric performance targets are
   goals to approach, not hard gates that override stability.
+- `thoughts/calibration/offline-mark-grid-calibration-audit-20261027.py`
+  reproduces the saved-image rail-grid fit, held-out sight/spot checks, and
+  synthetic geometry round trips. Its `summary.json` records source hashes and
+  per-point errors. A passing synthetic test or low fit residual is not a
+  qualified production calibration; require the larger-target intrinsic
+  capture and successful held-out rail/cloth transfer before activating a
+  table map.
 - Independently measured ball-center placements across the table establish
   error and acceptance rates, including difficult boundary conditions. The
   limited initial manual measurements are diagnostic evidence, not release

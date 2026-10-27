@@ -7,20 +7,27 @@ review; this document defines tasks, deliverables, checks, and commits.
 
 ## 1. Verification strategy and completion definition
 
-The next milestone is a reproducible, stable native-pixel estimator on saved
-inputs, followed by an honest nine-reference mapping diagnostic. Preserve
-independently useful capture improvements on `main`. Do not call the current
-estimator qualified because it builds, its unit tests pass, or balls look round.
+The current next milestone is to qualify the table coordinate frame from the
+rail/felt mark grid, then return to ball-center localization. The old rectangle
+map is rejected, and the refiner accepts 0/9 saved measured-ball observations;
+neither should be treated as a calibration. Preserve independently useful
+capture improvements on `main`. Do not call the estimator qualified because
+it builds, its unit tests pass, or balls look round.
 
-Verification proceeds in this order:
+The remaining verification proceeds in this order:
 
-1. Preserve the original failing experiment, exact inputs, and implementation.
-2. Correct diagnostic attribution and prove detection-identity invariance.
-3. Compare converged boundary solutions in common source-image coordinates.
-4. Verify controlled crop and fitting-start sensitivity on saved scenes.
-5. Evaluate the nine matching physical references with the finalized estimator.
-6. Qualify target decode with saved JPEGs, then measure the complete pipeline
-   separately when spatial estimation is stable.
+1. Reproduce the candidate table-mark grid from standard fractions and verify
+   it against saved rail sights and the two cloth spots, without fitting to ball
+   coordinates.
+2. Calibrate camera intrinsics from the larger checkerboard at fixed camera
+   settings, with image-center/corner coverage and held-out tilted views.
+3. Refit the rail-cap-to-cloth bridge and report each cloth spot held out in
+   turn; reject unstable mappings.
+4. Resume ball-center estimator work only after the image-to-table model is
+   stable, and report every accepted and rejected observation against the nine
+   matching physical references.
+5. Qualify target decode with saved JPEGs, then separately measure the complete
+   pipeline when spatial estimation and fresh availability are stable.
 
 Required correctness properties are finite/bounded work, correct frame and
 asset identity, accurate diagnostics, deterministic geometry for identical
@@ -29,15 +36,17 @@ Numerical FPS, latency, and physical-accuracy benchmarks are desired targets.
 Report actual results and their limits; do not trade continuous reliable
 measurements for a higher nominal rate or force acceptance by weakening checks.
 
-Deliverables for the saved-input milestone:
+Deliverables for this calibration milestone:
 
-- Buildable corrective commits, each with meaningful regression coverage.
-- Frozen corpus manifest and versioned offline audit outputs/overlays.
-- A before/after table for all annotated balls, including every rejection.
-- Separate results for identity changes, proposal perturbations, and fitting
-  starts; include reserved-scene results separately from tuning scenes.
-- A nine-position diagnostic mapping report with per-point and held-out errors.
-- A clear list of remaining spatial, temporal, and physical-reference limits.
+- Reproducible mark-grid source, full numeric report, source hashes, and
+  explicit coordinate origin/axis convention.
+- A larger calibration target with exact active dimensions and a separate
+  camera-geometry-bound capture session.
+- Intrinsic-model validation on sharp varied views, including held-out results.
+- Rail/cloth plane-transfer results with each cloth spot held out, plus
+  sensitivities and all rejection reasons.
+- A clear statement of remaining ball-center, physical-reference, temporal,
+  and availability limits; no unqualified metric asset.
 
 ## Execution ledger — 2026-10-27
 
@@ -268,25 +277,82 @@ Reject this rectangle-derived map as a production candidate. This result
 does not establish whether the user measurements or a particular edge line is
 wrong.
 
-### Next required datum — use the table-mark coordinates already measured
+### Follow-up — table marks provide a candidate physical grid
 
-The user stated that the table dots were precisely measured. The project now
-contains pixel annotations for 16 raised-rail sights in four saved images and
-two visible cloth spots in the framing pair, but none of their exact physical
-X/Y coordinates. The repository also contains no surveyed cushion-nose
-coordinates. No more saved-image-only method can turn those pixels into a
-verified metric table map without choosing unsupported physical coordinates.
+The user clarified that the precisely measured marks are the rail and felt
+dots, and directed us to use them to build the table grid. No separate list of
+dot coordinates is required. The reproducible audit is
+`thoughts/calibration/offline-mark-grid-calibration-audit-20261027.py`; its
+report, full numeric traces, and source hashes are in
+`thoughts/calibration/mark-grid-calibration-audit-20261027/`.
 
-The next step is to add the existing table-mark coordinate record, if
-available. Identify whether its values describe cloth spots or raised-rail
-sights; record the origin, axes, units, measurement source, and uncertainty.
-Do not request new measurements, infer spacing from standard conventions, or
-transfer the nine ball coordinates to the other arrangements. Once the
-existing values are available, solve an X/Y mapping from those independent
-marks plus verified table geometry and evaluate it against the saved balls.
-Until then, keep precise X/Y unavailable and do not deploy a calibration
-asset. The GPU decode result remains independently usable; camera/FPS and
-whole-pipeline qualification stay deferred.
+The WPA rules describe rail sights at 1/8-length and 1/4-width fractions of
+the cushion-nose rectangle, and place the head, center, and foot spots at
+quarter, half, and three-quarter positions along the long centerline. The WPA
+8-foot equipment specification gives 11.5-inch sight spacing and a
+3 11/16-inch distance from each sight center to the cushion nose, with
++3.175 mm shown in the published text;
+it cautions that the competition specification may not apply to home tables.
+The user's 92-inch length matches the 8-foot sight interval, while the
+measured 45.5-inch width is 0.5 inch below the nominal 46-inch specification.
+Treat these dimensions as a candidate layout, not guaranteed table-specific
+construction. The user-supplied playing-area dimensions remain authoritative.
+
+In the saved 720p images, the six upper long-rail sights align with fractions
+1/8, 2/8, 3/8, 5/8, 6/8, and 7/8. Four clearly annotated lower sights align
+with 2/8, 3/8, 6/8, and 7/8. A fifth lower sight is glare-obscured but visually
+corroborates 5/8 at 0.47 px from the map prediction. The ten measured
+long-rail landmarks fit with 0.57–0.59 px training RMS and 0.99–1.01 px
+leave-one-sight-out RMS. Short-side sight labels remain ambiguous and have
+4–6 px residuals against the assumed quarter-width positions; do not use
+those points to force the grid.
+
+The two visible felt dots are visually consistent with the head and foot
+spots at x=23 and 69 inches on the 92-inch long axis, y=22.75 inches on the
+45.5-inch width. Applying the rail-plane homography directly to these cloth
+points misses by 10.57–11.00 px. Decomposing it with the saved checkerboard
+intrinsics and fitting one rail-cap-to-cloth plane separation gives 52.831 mm
+and 1.341 px joint RMS. Estimating from one spot and predicting the other
+leaves 2.296–2.481 px residual, with the two independent height estimates
+differing by 12.134 mm. This demonstrates a plausible plane bridge, not a
+qualified table map. The checkerboard intrinsics, spot identities/localization,
+and WPA-to-home-table transfer remain uncertainty sources.
+
+Held-out ball diagnostic: using the nine known physical positions only after
+the map is fit, the saved detector-box midpoints have 11.286 mm radial RMS,
+17.070 mm p95, and 17.615 mm maximum error. A detector-box midpoint is not a
+validated ball center, and the manual reference uncertainty is unknown; these
+values do not establish accuracy. Keep precise X/Y unavailable until the
+camera/plane mapping and ball-center estimator are independently validated.
+
+## Immediate next calibration action
+
+The current rigid checkerboard is 10 x 7 inches; its squares project at about
+12 px in the 1280 x 720 calibration images. A print-ready 20 x 14-inch active
+pattern with 2-inch squares is provided at
+`output/pdf/ball-localization-checkerboard-20x14in.pdf`. The complete page is
+22 x 16 inches including a one-inch white margin. Its 9 x 6 internal-corner
+layout is compatible with the existing capture utility. Mount it flat on a
+rigid backing; print at 100% with page-fit disabled. The active grid must
+measure 20 x 14 inches (50.8 mm pitch).
+
+Collect 9–12 sharp native-resolution JPEGs at a fixed camera resolution,
+zoom, and focus. Cover the image center and the four corner regions with the
+entire board visible; include tilts about both board axes rather than only
+flat translations. Keep a few views untouched as validation. Save the
+original JPEGs (prefer 3840 x 2160); do not use screenshots, rescale, or crop.
+The capture utility can record them in a separate geometry-bound session with
+`--columns 9 --rows 6 --pitch-mm 50.8`. No jig, new ball measurement, or
+pocket-ball coordinate is needed.
+
+Use those corners to re-estimate camera intrinsics. Then refit the rail-cap
+pose/height bridge with the already saved rail sights and two cloth spots,
+report held-out transfer for each spot, and test intrinsics sensitivity. Do
+not use ball references to tune the mark grid. If that mapping remains
+unstable, the next target should lie flat on the cloth and be explicitly
+anchored to an existing felt spot; do not return to ambiguous cushion-edge
+extraction. Only after table-plane geometry is stable should the refiner work
+resume on the nine measured-ball frame.
 
 ## 2. Fixed requirements and working rules
 
@@ -302,8 +368,9 @@ whole-pipeline qualification stay deferred.
   Tracking and physical conversion consume the same resolved measurement.
 - Invalid/stale/mismatched/unsupported observations cannot enable precise
   guidance. Preserve a visible coarse detection when applicable.
-- Initial work uses saved pixels only. No jig, new manual ball measurements,
-  camera snapshots, or pocket-ball coordinates are needed.
+- The completed audits use saved pixels. The user authorizes additional
+  checkerboard calibration images if needed. No jig, new manual ball
+  measurements, or pocket-ball coordinates are needed.
 - Modify one top-level module at a time. Give each worker exclusive file
   ownership; tell workers others are active and prohibit reverting their edits.
 - Keep research material under `thoughts/`. Keep production settings typed,
