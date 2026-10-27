@@ -102,11 +102,20 @@ Task D's current result differs from the earlier Task C identity audit:
   accepted refiner centers. Do not build or emit a ball-center asset from
   these rejected observations or from bbox midpoints.
 
-Next: complete Task E's independent proposal-center, proposal-size, fitting
-seed, and reserved-scene audits on saved inputs; then write the Task F result
-as explicitly ineligible if no observations accept. No new user measurements,
-jig, camera snapshots, target-device pipeline qualification, physical
-accuracy, or live FPS result are implied by the saved-image work.
+Task E's proposal-center, proposal-size, fitting-seed, reserved-scene, and
+work-budget audits are complete. Its full evidence package is recorded under
+`thoughts/calibration/robustness-audit-20261027/`, with exact source/input
+hashes, all reserved-scene traces, and the six visually reviewed accepted
+variant traces. The results show proposal/seed sensitivity and no accepted
+results on either reserved scene; they do not qualify physical accuracy.
+
+Next: complete Task F by recording the report-only outcome against the nine
+physical references. If no observations are accepted, do not run the solver or
+emit a map. No new user measurements, jig, or camera capture are required.
+After that, diagnose the multiple-qualified-boundary families and seed
+sensitivity on saved pixels and traces without changing production gates or
+seed. Current saved-image work does not establish physical accuracy, a selected
+camera FPS, or live pipeline performance.
 
 ## 2. Fixed requirements and working rules
 

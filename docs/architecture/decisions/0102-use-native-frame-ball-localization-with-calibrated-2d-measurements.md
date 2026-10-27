@@ -140,11 +140,47 @@ map through the selected estimator: none of their observations resolves to a
 center. Do not generate an asset from rejected candidates, annotation-derived
 box centers, or coordinates from an older estimator. Keep Task F report-only
 unless a later, separately justified estimator revision accepts reproducible
-centers and its correspondence/uncertainty limits are documented. Continue
+centers and its correspondence/uncertainty limits are documented. The planned
 saved-image sensitivity work with proposal perturbations, fitting seeds, and
-reserved scenes; preserve every rejection and do not weaken gates merely to
-raise the accepted count. No jig, new user measurements, camera access, or
-physical-accuracy claim is needed for this diagnostic continuation.
+reserved scenes is recorded in
+`thoughts/calibration/robustness-audit-20261027/`. Preserve every rejection
+and do not weaken gates merely to raise the accepted count. No jig, new user
+measurements, camera access, or physical-accuracy claim is needed for this
+diagnostic continuation.
+
+## Follow-up — 2026-10-27: proposal, seed, and saved-scene sensitivity
+
+The controlled robustness audit at
+`thoughts/calibration/robustness-audit-20261027/` used refiner revision 2 and
+the planned 96 radial samples. Across 150 independent X/Y proposal-center
+perturbations and 150 width/height perturbations on the measured saved image,
+one upward-shifted box accepted and no size perturbation accepted. Across 240
+seed/proposal combinations, the selected production seed 716 accepted 0/15;
+four alternative seeds produced five accepted outputs for three proposals.
+The same purple-ball proposal accepted under three seeds yielded centers
+spanning 0.682 source px. These results make proposal and fitting-start
+sensitivity explicit; they do not identify which output is correct. Keep the
+production seed fixed and do not select another seed to increase availability.
+
+Reviewed coarse manual boxes on the previously inspected alternate 720p scene
+and saved native 4K scene all reject: 0/15 and 0/3 accepted respectively.
+Their optics models remain exploratory/derived diagnostics and neither scene
+has physical center references. This is contour behavior only, not accuracy
+generalization.
+
+The same 15-proposal batch on a Darwin arm64 development host timed out all
+observations at the initial 25 ms batch / 10 ms per-proposal budget; a
+1000/1000 ms run completed in about 293 ms. This result is not target-device
+performance, but it shows the initial bound cannot be treated as a release
+readiness claim. Optimize or qualify the selected schedule while preserving
+freshness semantics; do not reuse stale positions to hide missed work.
+
+For the unchanged production seed and original nine measured proposals, zero
+image centers are accepted. The nine-reference mapping remains ineligible;
+no diagnostic center should be substituted for the selected production
+measurement. Continue by investigating candidate family/seed sensitivity and
+by resolving the fitting workload before any complete-pipeline rate selection.
+
 
 ## Consequences
 
