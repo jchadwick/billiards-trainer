@@ -255,6 +255,28 @@ what independent evidence would be needed. No calibration activation or
 camera/FPS tuning is justified yet. The separately verified GPU decoder
 remains independently adoptable.
 
+## Follow-up — 2026-10-27: pixel profiles do not identify a unique contour
+
+The saved-image contour/color audit is recorded in
+`thoughts/calibration/contour-color-audit-20261027/`. It covers nine measured
+720p proposals, 15 reserved alternate-720p crops, and three reserved 4K crops
+at the unchanged revision-2 production settings. All 27 observations reject.
+The traces contain 91 individually qualified fits and 7,891 sampled inlier-ray
+RGB profiles; 83 fits use all three gradient-strength ranks. Inside/outside
+RGB summaries overlap across candidate families, and visual review shows
+nearby outlines following the same apparent rim. No repeatable simple rank or
+color cue identifies the physical silhouette. Do not promote a candidate from
+these profiles or weaken fail-closed selection.
+
+The next investigation evaluates a fisheye-specific camera projection using
+the existing checkerboard captures, held-out corner views, extracted straight
+cushion features, and saved ball outlines. The checked Brown radial candidates
+did not improve their recorded holdout/straight-edge evidence; a fisheye model
+has not yet been tested. This is an offline model comparison, not an optics
+profile change. Activate no model unless held-out calibration improves and
+independent image geometry does not regress. Pixel circularity remains a
+diagnostic and does not establish physical XY accuracy.
+
 
 ## Consequences
 

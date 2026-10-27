@@ -154,17 +154,52 @@ for these three rejections; it does not establish that every generated fit is
 a true ball boundary. Do not continue sweeping cap values, RANSAC counts, or
 seeds, and do not loosen quality gates to raise acceptance.
 
-Next step: inspect the saved candidate and source-pixel traces for a visual
-feature that distinguishes the outer ball/background contour from nearby
-internal, stripe, highlight, or shadow transitions. State one falsifiable
-selection hypothesis, then test it offline on the measured image and the
-reserved 720p/4K scenes, reporting accepted and rejected cases. Keep production
-behavior unchanged until one cue is repeatable across those scenes and can be
-checked against available references without using the same image evidence
-both to choose and validate the center. If no stable cue is supported, preserve
-fail-closed behavior and document what evidence is missing. No saved-image
-work to date establishes physical accuracy, a selected camera FPS, or live
-pipeline availability.
+### Follow-up — saved-image contour and RGB evidence
+
+The contour/color audit is complete in
+`thoughts/calibration/contour-color-audit-20261027/`. It covers all nine
+measured 720p proposals, all 15 reserved alternate-720p crops, and all three
+reserved 4K crops. The refiner used its fixed production seed 716, 128 RANSAC
+iterations, candidate cap 16, three aiming iterations, and unchanged quality
+gates; only diagnostic time budgets were extended. All 27 observations reject
+(25 ambiguous, one inadequate coverage, one insufficient boundary). The
+traces include 91 individually qualified competing fits and 7,891 sampled
+inlier-ray RGB profiles. Eighty-three fits use all three strength ranks, and
+simple inside/outside RGB ranges overlap across candidate families. Visual
+review shows the outlines track the same narrow apparent rim. The result does
+not identify the true silhouette and does not support choosing a fit by rank,
+color averages, seed, or one of these images as its own ground truth.
+
+### Next investigation — evaluate a fisheye-specific camera model
+
+The current checked-in optics candidates are pinhole models with zero, one, or
+two Brown radial terms. Those tested radial candidates did not improve the
+checkerboard holdout metrics and increased bow in several extracted cushion
+features. The fisheye-specific model has not been tested. Use only the existing
+nine rigid-backed checkerboard captures and saved table scenes; do not capture
+new images or activate a profile during this investigation.
+
+1. Implement a research-only calibration comparison for the existing checker
+   corners: fit the existing zero/Brown model and an appropriate fisheye
+   projection on the same training views. Preserve the exact held-out view
+   protocol and compare leave-one-view-out errors, not only training residuals.
+2. Apply each frozen candidate as point-coordinate transforms to the existing
+   independently extracted straight cushion samples. Report per-feature bow,
+   support, and uncertainty; retain extraction ambiguity and do not label a
+   rail transition as surveyed truth.
+3. Compare transformed ball-outline shapes and local-view fits on measured
+   720p and reserved 720p/4K scenes. Treat circularity and outline stability as
+   diagnostics, not physical-center accuracy. Do not use a better-looking
+   outline to override the nine-reference no-fit result.
+4. Reject a more complex model unless it improves held-out checkerboard
+   behavior and does not worsen independently sampled straight-edge geometry.
+   If evidence is mixed or the fisheye fit is unstable, keep optics inactive
+   and document what another saved target or independent measurement would
+   need to resolve.
+
+Only after a repeatable optical model is supported should crop refinement be
+re-evaluated under that model. No saved-image work to date establishes
+physical accuracy, a selected camera FPS, or live pipeline availability.
 
 ## 2. Fixed requirements and working rules
 

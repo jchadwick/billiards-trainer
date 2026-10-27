@@ -40,9 +40,13 @@ reject as ambiguous; at the production cap of 16 the candidate search is
 untruncated for all three crops and still finds multiple qualified boundary
 fits. Do not spend more effort raising the cap or changing the RANSAC count,
 seed, or acceptance gates to make these crops pass. The next useful saved-image
-work is to inspect what visual evidence, if any, distinguishes the competing
-boundaries, then test one evidence-based selector against the frozen and
-reserved scenes before considering a production change.
+pixel audit has also been completed: across 27 measured/reserved proposals,
+91 qualified fits and 7,891 inlier-ray RGB profiles, neither transition rank
+nor simple inside/outside color statistics consistently distinguishes the
+physical silhouette. Preserve the ambiguous result. The next investigation is
+to test a fisheye-specific optics model against the saved checkerboard views,
+held-out reprojection, straight cushion features, and existing ball outlines;
+the previously rejected Brown radial candidates do not constitute that test.
 
 ## Project requirements
 
@@ -108,6 +112,11 @@ to a verified camera profile and qualifying its effect.
   `report-only-nine-reference-evaluation-20261027.md`,
   `robustness-audit-20261027/`, the sampling audit folders, and
   `candidate-cap-audit-20261027/`.
+  A separate pixel-level audit of nine measured 720p proposals and 18 reserved
+  720p/4K proposals found no repeatable simple RGB or gradient-rank rule among
+  91 qualified fits. The report and source-pixel profiles are in
+  `contour-color-audit-20261027/`; they do not establish which outline is the
+  physical silhouette.
 - The separate ball-center calibration solver fits normalized homographies
   from at least 12 distributed correspondences, reports every residual, and
   validates the asset against runtime context.
@@ -164,10 +173,11 @@ requiring a fixture or claiming the desired accuracy.
 
 The ordered next estimator investigation is recorded in
 `native-ball-localization-next-steps-plan.md`. Identity, sensitivity,
-nine-reference, sample-provenance, and candidate-cap audits are complete.
-Inspect competing boundaries for a repeatable visual discriminator using the
-saved corpus before making a production estimator change or resuming target
-FPS benchmarking.
+nine-reference, sample-provenance, candidate-cap, and contour-color audits are
+complete. The next saved-input investigation evaluates a fisheye-specific
+camera model using the existing checkerboard captures and the independent
+straight-edge/ball-outline evidence. Do not activate a model or resume target
+FPS benchmarking without cross-view and image-geometry evidence.
 
 1. Verify and select the native source geometry in the live capture request
    without changing the Coral input tensor shape. The repository default has
