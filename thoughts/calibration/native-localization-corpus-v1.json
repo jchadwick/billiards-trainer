@@ -1,0 +1,858 @@
+{
+  "schema_version": 1,
+  "name": "native-localization-corpus-v1",
+  "created_date": "2026-10-27",
+  "purpose": "Frozen provenance for offline estimator development and reproducible experiments; not a qualified production optics or ball-center calibration.",
+  "path_convention": "repository-relative paths",
+  "table_model": {
+    "playing_area_mm": [
+      2336.8,
+      1155.7
+    ],
+    "physical_ball_diameter_mm": 57.15,
+    "coordinates": "2D X/Y only; physical diameter does not depend on image position"
+  },
+  "source_data": {
+    "ball_outline_annotations": {
+      "path": "thoughts/calibration/ball-outline-consistency.json",
+      "sha256": "50b410fa0b0911b1112bf6816a28558e271d5599701e6bbf5e03fa27e93650eb"
+    },
+    "measured_grid_physical_references": {
+      "path": "thoughts/calibration/table-grid-20261026-114241-measurements.json",
+      "sha256": "fc2eb93e5f0144e1b15b446078be11e494c80c8da8e427295c6e51d283e7d335"
+    },
+    "checkerboard_frozen_baseline": {
+      "path": "thoughts/calibration/checkerboard-eight-view-baseline.json",
+      "sha256": "d0bb14b97f87fe13fe296638af726466ee11f4af7e1cd20a964b16f244ccf191"
+    },
+    "checkerboard_session_manifest": {
+      "path": "thoughts/calibration/checkerboard-session/manifest.json",
+      "sha256": "20c3c61497547daa159f11dbd8151794d93ae7836945830850a63980d1a701a2"
+    },
+    "original_identity_audit": {
+      "path": "thoughts/calibration/offline-refiner-identity-check.json",
+      "sha256": "d285d5945d27ac09a3a355829dadf4a7f342e73a04b7457c659e6a18a94f53c1"
+    },
+    "framing_comparison": {
+      "path": "thoughts/calibration/stream-4k-framing.json",
+      "sha256": "1e42bc3e4042498ff083d862926ac4d4cc01908ad784b76471b5485d96ac78e7"
+    }
+  },
+  "optics_models": {
+    "frozen_zero_radial_720": {
+      "image_size_px": [
+        1280,
+        720
+      ],
+      "camera_matrix": [
+        [
+          696.1731580029823,
+          0.0,
+          644.1755624688407
+        ],
+        [
+          0.0,
+          695.3611772093032,
+          349.67152391690104
+        ],
+        [
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "distortion_k1_k2_p1_p2_k3": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "source_data_id": "checkerboard_frozen_baseline",
+      "source_json_pointer": "/models/zero/full_fit",
+      "status": "exploratory_only_not_activated",
+      "limitations": "Fixed eight-view zero-added-radial fit, not established zero lens distortion and not a qualified runtime optics profile; verify matching camera framing."
+    },
+    "scaled_frozen_zero_radial_4k_diagnostic": {
+      "image_size_px": [
+        3840,
+        2160
+      ],
+      "camera_matrix": [
+        [
+          2088.519474008947,
+          0.0,
+          1932.526687406522
+        ],
+        [
+          0.0,
+          2086.0835316279095,
+          1049.014571750703
+        ],
+        [
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "distortion_k1_k2_p1_p2_k3": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "parent_model_id": "frozen_zero_radial_720",
+      "derivation": "Multiply the first two matrix rows by 3.0 for a direct 3x pixel-coordinate scale; leave the last row unchanged.",
+      "status": "derived_diagnostic_only_not_qualified_for_runtime",
+      "limitations": "4K framing is approximately registered, not proven identical optics or a production calibration."
+    }
+  },
+  "physical_reference_sets": {
+    "measured_grid_nine": {
+      "image_id": "measured-grid-720",
+      "arrangement_id": "measured-grid-20261026-114241",
+      "source_data_id": "measured_grid_physical_references",
+      "coordinate_convention": {
+        "origin": "upper-left cushion nose intersection",
+        "positive_x": "image-right",
+        "positive_y": "image-down",
+        "units": "mm"
+      },
+      "uncertainty": "Unknown; decimal digits indicate unit conversion, not physical accuracy.",
+      "observations": [
+        {
+          "id": "middle-row-center-ball",
+          "center_from_upper_left_mm": [
+            1171.575,
+            574.675
+          ],
+          "measurement_uncertainty_mm": null,
+          "measurement_reference_confirmed": true,
+          "source": "user-reported physical measurement; precision is not independently established"
+        },
+        {
+          "id": "far-right-purple-middle-row-ball",
+          "center_from_upper_left_mm": [
+            2308.225,
+            574.675
+          ],
+          "measurement_uncertainty_mm": null,
+          "measurement_reference_confirmed": true,
+          "source": "user-reported physical measurement; precision is not independently established"
+        },
+        {
+          "id": "far-left-yellow-middle-row-ball",
+          "center_from_upper_left_mm": [
+            28.575,
+            574.675
+          ],
+          "measurement_uncertainty_mm": null,
+          "measurement_reference_confirmed": true,
+          "source": "user-reported physical measurement; precision is not independently established"
+        },
+        {
+          "id": "interior-purple-second-left-middle-row-ball",
+          "center_from_upper_left_mm": [
+            571.5,
+            574.675
+          ],
+          "measurement_uncertainty_mm": null,
+          "measurement_reference_confirmed": true,
+          "source": "user-reported physical measurement; precision is not independently established"
+        },
+        {
+          "id": "interior-green-second-right-middle-row-ball",
+          "center_from_upper_left_mm": [
+            1746.25,
+            574.675
+          ],
+          "measurement_uncertainty_mm": null,
+          "measurement_reference_confirmed": true,
+          "source": "user-reported physical measurement; precision is not independently established"
+        },
+        {
+          "id": "top-orange-solid-second-left-ball",
+          "center_from_upper_left_mm": [
+            568.325,
+            28.575
+          ],
+          "measurement_uncertainty_mm": null,
+          "measurement_reference_confirmed": true,
+          "source": "user-reported physical measurement; precision is not independently established"
+        },
+        {
+          "id": "top-red-striped-second-right-ball",
+          "center_from_upper_left_mm": [
+            1746.25,
+            28.575
+          ],
+          "measurement_uncertainty_mm": null,
+          "measurement_reference_confirmed": true,
+          "source": "user-reported physical measurement; precision is not independently established"
+        },
+        {
+          "id": "bottom-black-second-left-ball",
+          "center_from_upper_left_mm": [
+            568.325,
+            1127.125
+          ],
+          "measurement_uncertainty_mm": null,
+          "measurement_reference_confirmed": true,
+          "source": "user-reported physical measurement; precision is not independently established"
+        },
+        {
+          "id": "bottom-yellow-second-right-ball",
+          "center_from_upper_left_mm": [
+            1746.25,
+            1127.125
+          ],
+          "measurement_uncertainty_mm": null,
+          "measurement_reference_confirmed": true,
+          "source": "user-reported physical measurement; precision is not independently established"
+        }
+      ]
+    }
+  },
+  "frozen_identity_audit": {
+    "source_data_id": "original_identity_audit",
+    "implementation_checkpoint": "e595fe255291dd9e820295743fface33f8eae538",
+    "refiner_source_sha256": "a8a1dc215afa88bacfa31da88434707c5b8b39823adab14e0143ca682f063ef0",
+    "source_image_id": "measured-grid-720",
+    "candidate_indices": "0 through 15 per fixed proposal; detection index affected old RANSAC seed",
+    "repeat_count": 3,
+    "limit": "Repeated trials on one source image are not independent placements; diagnostic work budgets are not performance qualification."
+  },
+  "images": [
+    {
+      "path": "thoughts/calibration/table-grid-20261026-114241.jpg",
+      "sha256": "06ef40f52e0f93db17601585c4ed1d014895aaadcaf6b04c6abbd6e986d57e7b",
+      "id": "measured-grid-720",
+      "dimensions_px": [
+        1280,
+        720
+      ],
+      "arrangement_id": "measured-grid-20261026-114241",
+      "intended_use": "diagnosis_and_tuning",
+      "optics_model_id": "frozen_zero_radial_720",
+      "ball_proposals": {
+        "status": "saved_manual_annotations",
+        "definition": "square centered at segmentation_bbox_midpoint_px; side=max(gradient_ellipse.diameters_px)+4.0 source px",
+        "annotation_source": "ball_outline_annotations",
+        "detector_generated": false,
+        "proposals": [
+          {
+            "detection_index_in_frozen_audit": 0,
+            "ball_id": "top-left-pocket-ball",
+            "bbox_xyxy_source_px": [
+              88.6222152709961,
+              78.6222152709961,
+              129.3777847290039,
+              119.3777847290039
+            ],
+            "bbox_center_source_px": [
+              109.0,
+              99.0
+            ],
+            "bbox_side_source_px": 40.75556945800781,
+            "origin": "manual saved segmentation/gradient annotations; not detector output",
+            "source_annotation_id": "top-left-pocket-ball",
+            "localization_review_flags": [
+              "segmentation likely selected an internal highlight/fragment rather than full ball",
+              "segmentation threshold sensitivity exceeds 1 px",
+              "methods disagree by more than 2 px; neither establishes true center",
+              "gradient center sensitive to omitted arc",
+              "no physical XY ground truth; pocket/jaw silhouette may be occluded"
+            ],
+            "physical_reference_id": null,
+            "physical_reference_present": false
+          },
+          {
+            "detection_index_in_frozen_audit": 1,
+            "ball_id": "top-orange-solid-second-left-ball",
+            "bbox_xyxy_source_px": [
+              334.0092315673828,
+              78.50923156738281,
+              369.9907684326172,
+              114.49076843261719
+            ],
+            "bbox_center_source_px": [
+              352.0,
+              96.5
+            ],
+            "bbox_side_source_px": 35.981536865234375,
+            "origin": "manual saved segmentation/gradient annotations; not detector output",
+            "source_annotation_id": "top-orange-solid-second-left-ball",
+            "localization_review_flags": [],
+            "physical_reference_id": "top-orange-solid-second-left-ball",
+            "physical_reference_present": true
+          },
+          {
+            "detection_index_in_frozen_audit": 2,
+            "ball_id": "top-middle-pocket-ball",
+            "bbox_xyxy_source_px": [
+              625.3704690933228,
+              76.87046909332275,
+              658.6295309066772,
+              110.12953090667725
+            ],
+            "bbox_center_source_px": [
+              642.0,
+              93.5
+            ],
+            "bbox_side_source_px": 33.25906181335449,
+            "origin": "manual saved segmentation/gradient annotations; not detector output",
+            "source_annotation_id": "top-middle-pocket-ball",
+            "localization_review_flags": [
+              "methods disagree by more than 2 px; neither establishes true center",
+              "no physical XY ground truth; pocket/jaw silhouette may be occluded"
+            ],
+            "physical_reference_id": null,
+            "physical_reference_present": false
+          },
+          {
+            "detection_index_in_frozen_audit": 3,
+            "ball_id": "top-red-striped-second-right-ball",
+            "bbox_xyxy_source_px": [
+              910.0248098373413,
+              75.52480983734131,
+              945.9751901626587,
+              111.47519016265869
+            ],
+            "bbox_center_source_px": [
+              928.0,
+              93.5
+            ],
+            "bbox_side_source_px": 35.95038032531738,
+            "origin": "manual saved segmentation/gradient annotations; not detector output",
+            "source_annotation_id": "top-red-striped-second-right-ball",
+            "localization_review_flags": [],
+            "physical_reference_id": "top-red-striped-second-right-ball",
+            "physical_reference_present": true
+          },
+          {
+            "detection_index_in_frozen_audit": 4,
+            "ball_id": "top-right-cue-pocket-ball",
+            "bbox_xyxy_source_px": [
+              1177.6286277770996,
+              72.62862777709961,
+              1218.3713722229004,
+              113.37137222290039
+            ],
+            "bbox_center_source_px": [
+              1198.0,
+              93.0
+            ],
+            "bbox_side_source_px": 40.74274444580078,
+            "origin": "manual saved segmentation/gradient annotations; not detector output",
+            "source_annotation_id": "top-right-cue-pocket-ball",
+            "localization_review_flags": [
+              "methods disagree by more than 2 px; neither establishes true center",
+              "no physical XY ground truth; pocket/jaw silhouette may be occluded"
+            ],
+            "physical_reference_id": null,
+            "physical_reference_present": false
+          },
+          {
+            "detection_index_in_frozen_audit": 5,
+            "ball_id": "far-left-yellow-middle-row-ball",
+            "bbox_xyxy_source_px": [
+              76.2666244506836,
+              342.7666244506836,
+              114.7333755493164,
+              381.2333755493164
+            ],
+            "bbox_center_source_px": [
+              95.5,
+              362.0
+            ],
+            "bbox_side_source_px": 38.46675109863281,
+            "origin": "manual saved segmentation/gradient annotations; not detector output",
+            "source_annotation_id": "far-left-yellow-middle-row-ball",
+            "localization_review_flags": [],
+            "physical_reference_id": "far-left-yellow-middle-row-ball",
+            "physical_reference_present": true
+          },
+          {
+            "detection_index_in_frozen_audit": 6,
+            "ball_id": "interior-purple-second-left-middle-row-ball",
+            "bbox_xyxy_source_px": [
+              340.6250867843628,
+              346.6250867843628,
+              374.3749132156372,
+              380.3749132156372
+            ],
+            "bbox_center_source_px": [
+              357.5,
+              363.5
+            ],
+            "bbox_side_source_px": 33.749826431274414,
+            "origin": "manual saved segmentation/gradient annotations; not detector output",
+            "source_annotation_id": "interior-purple-second-left-middle-row-ball",
+            "localization_review_flags": [
+              "methods disagree by more than 2 px; neither establishes true center"
+            ],
+            "physical_reference_id": "interior-purple-second-left-middle-row-ball",
+            "physical_reference_present": true
+          },
+          {
+            "detection_index_in_frozen_audit": 7,
+            "ball_id": "middle-row-center-ball",
+            "bbox_xyxy_source_px": [
+              628.4861783981323,
+              346.4861783981323,
+              658.5138216018677,
+              376.5138216018677
+            ],
+            "bbox_center_source_px": [
+              643.5,
+              361.5
+            ],
+            "bbox_side_source_px": 30.02764320373535,
+            "origin": "manual saved segmentation/gradient annotations; not detector output",
+            "source_annotation_id": "middle-row-center-ball",
+            "localization_review_flags": [
+              "methods disagree by more than 2 px; neither establishes true center"
+            ],
+            "physical_reference_id": "middle-row-center-ball",
+            "physical_reference_present": true
+          },
+          {
+            "detection_index_in_frozen_audit": 8,
+            "ball_id": "interior-green-second-right-middle-row-ball",
+            "bbox_xyxy_source_px": [
+              906.1441822052002,
+              342.6441822052002,
+              943.8558177947998,
+              380.3558177947998
+            ],
+            "bbox_center_source_px": [
+              925.0,
+              361.5
+            ],
+            "bbox_side_source_px": 37.71163558959961,
+            "origin": "manual saved segmentation/gradient annotations; not detector output",
+            "source_annotation_id": "interior-green-second-right-middle-row-ball",
+            "localization_review_flags": [
+              "gradient center sensitive to omitted arc"
+            ],
+            "physical_reference_id": "interior-green-second-right-middle-row-ball",
+            "physical_reference_present": true
+          },
+          {
+            "detection_index_in_frozen_audit": 9,
+            "ball_id": "far-right-purple-middle-row-ball",
+            "bbox_xyxy_source_px": [
+              1177.7638339996338,
+              342.2638339996338,
+              1219.2361660003662,
+              383.7361660003662
+            ],
+            "bbox_center_source_px": [
+              1198.5,
+              363.0
+            ],
+            "bbox_side_source_px": 41.47233200073242,
+            "origin": "manual saved segmentation/gradient annotations; not detector output",
+            "source_annotation_id": "far-right-purple-middle-row-ball",
+            "localization_review_flags": [],
+            "physical_reference_id": "far-right-purple-middle-row-ball",
+            "physical_reference_present": true
+          },
+          {
+            "detection_index_in_frozen_audit": 10,
+            "ball_id": "bottom-left-pocket-ball",
+            "bbox_xyxy_source_px": [
+              83.85772514343262,
+              601.3577251434326,
+              123.14227485656738,
+              640.6422748565674
+            ],
+            "bbox_center_source_px": [
+              103.5,
+              621.0
+            ],
+            "bbox_side_source_px": 39.284549713134766,
+            "origin": "manual saved segmentation/gradient annotations; not detector output",
+            "source_annotation_id": "bottom-left-pocket-ball",
+            "localization_review_flags": [
+              "methods disagree by more than 2 px; neither establishes true center",
+              "no physical XY ground truth; pocket/jaw silhouette may be occluded"
+            ],
+            "physical_reference_id": null,
+            "physical_reference_present": false
+          },
+          {
+            "detection_index_in_frozen_audit": 11,
+            "ball_id": "bottom-black-second-left-ball",
+            "bbox_xyxy_source_px": [
+              343.4999809265137,
+              608.4999809265137,
+              380.5000190734863,
+              645.5000190734863
+            ],
+            "bbox_center_source_px": [
+              362.0,
+              627.0
+            ],
+            "bbox_side_source_px": 37.000038146972656,
+            "origin": "manual saved segmentation/gradient annotations; not detector output",
+            "source_annotation_id": "bottom-black-second-left-ball",
+            "localization_review_flags": [
+              "segmentation threshold sensitivity exceeds 1 px"
+            ],
+            "physical_reference_id": "bottom-black-second-left-ball",
+            "physical_reference_present": true
+          },
+          {
+            "detection_index_in_frozen_audit": 12,
+            "ball_id": "bottom-middle-pocket-ball",
+            "bbox_xyxy_source_px": [
+              622.5101375579834,
+              615.0101375579834,
+              659.4898624420166,
+              651.9898624420166
+            ],
+            "bbox_center_source_px": [
+              641.0,
+              633.5
+            ],
+            "bbox_side_source_px": 36.9797248840332,
+            "origin": "manual saved segmentation/gradient annotations; not detector output",
+            "source_annotation_id": "bottom-middle-pocket-ball",
+            "localization_review_flags": [
+              "no physical XY ground truth; pocket/jaw silhouette may be occluded"
+            ],
+            "physical_reference_id": null,
+            "physical_reference_present": false
+          },
+          {
+            "detection_index_in_frozen_audit": 13,
+            "ball_id": "bottom-yellow-second-right-ball",
+            "bbox_xyxy_source_px": [
+              907.0628414154053,
+              612.5628414154053,
+              942.9371585845947,
+              648.4371585845947
+            ],
+            "bbox_center_source_px": [
+              925.0,
+              630.5
+            ],
+            "bbox_side_source_px": 35.87431716918945,
+            "origin": "manual saved segmentation/gradient annotations; not detector output",
+            "source_annotation_id": "bottom-yellow-second-right-ball",
+            "localization_review_flags": [],
+            "physical_reference_id": "bottom-yellow-second-right-ball",
+            "physical_reference_present": true
+          },
+          {
+            "detection_index_in_frozen_audit": 14,
+            "ball_id": "bottom-right-pocket-ball",
+            "bbox_xyxy_source_px": [
+              1175.3951263427734,
+              611.3951263427734,
+              1216.6048736572266,
+              652.6048736572266
+            ],
+            "bbox_center_source_px": [
+              1196.0,
+              632.0
+            ],
+            "bbox_side_source_px": 41.209747314453125,
+            "origin": "manual saved segmentation/gradient annotations; not detector output",
+            "source_annotation_id": "bottom-right-pocket-ball",
+            "localization_review_flags": [
+              "methods disagree by more than 2 px; neither establishes true center",
+              "no physical XY ground truth; pocket/jaw silhouette may be occluded"
+            ],
+            "physical_reference_id": null,
+            "physical_reference_present": false
+          }
+        ]
+      },
+      "physical_reference_status": "nine_user_confirmed_positions_unknown_uncertainty",
+      "notes": "Only this exact image and arrangement match the nine recorded physical XY references; six pocket-adjacent cases have no recorded XY."
+    },
+    {
+      "path": "thoughts/calibration/table-grid-2026-10-26.jpg",
+      "sha256": "8371e508f79c5556cfd2fe6632b9095ba87d8f7052741b2f6b01563b448c385b",
+      "id": "alternate-grid-720",
+      "dimensions_px": [
+        1280,
+        720
+      ],
+      "arrangement_id": "alternate-grid-2026-10-26",
+      "intended_use": "reserved_from_further_tuning_previously_seen",
+      "optics_model_id": "frozen_zero_radial_720",
+      "ball_proposals": {
+        "status": "not_yet_reviewed",
+        "proposals": [],
+        "notes": "No saved reviewed proposal boxes are available; do not infer centers or claim prior acceptance is reproducible."
+      },
+      "physical_reference_status": "no_matching_user_measured_ball_xy; do not transfer references from the measured grid",
+      "notes": "Distinct arrangement, previously inspected; not an unseen blind holdout. No persisted reviewed proposal boxes."
+    },
+    {
+      "path": "thoughts/calibration/stream-4k-verification/before.jpg",
+      "sha256": "012a54834c90db5543f9c072185cbc1aec9711a3434383d97572fb4a7eb629e5",
+      "id": "framing-before-720",
+      "dimensions_px": [
+        1280,
+        720
+      ],
+      "arrangement_id": "framing-before-board-and-balls",
+      "intended_use": "framing_optics_only_previously_seen",
+      "optics_model_id": "frozen_zero_radial_720",
+      "ball_proposals": {
+        "status": "not_yet_reviewed",
+        "proposals": [],
+        "notes": "No saved reviewed proposal boxes are available; do not infer centers or claim prior acceptance is reproducible."
+      },
+      "physical_reference_status": "no_matching_user_measured_ball_xy; do not transfer references from the measured grid",
+      "notes": "A different frame from after.jpg; not identical pixels. Board may have moved."
+    },
+    {
+      "path": "thoughts/calibration/stream-4k-verification/after.jpg",
+      "sha256": "5d88a4d6037e7718723916b3af6c930f8020ddcb03e008122e9c8fadc5530206",
+      "id": "framing-after-4k",
+      "dimensions_px": [
+        3840,
+        2160
+      ],
+      "arrangement_id": "framing-after-board-and-balls",
+      "intended_use": "reserved_from_further_tuning_previously_seen",
+      "optics_model_id": "scaled_frozen_zero_radial_4k_diagnostic",
+      "ball_proposals": {
+        "status": "not_yet_reviewed",
+        "proposals": [],
+        "notes": "No saved reviewed proposal boxes are available; do not infer centers or claim prior acceptance is reproducible."
+      },
+      "physical_reference_status": "no_matching_user_measured_ball_xy; do not transfer references from the measured grid",
+      "notes": "Three balls were previously reported 3/3 but proposal boxes were not retained; that result is not independently reproducible from saved proposals. Different frame from before.jpg; board may have moved."
+    },
+    {
+      "path": "thoughts/calibration/checkerboard-session/view-001.jpg",
+      "sha256": "2e93b80a30c50f96408edb2dda6e6c8d7fae0765ca8e19826540ea39a9e18fa8",
+      "id": "checkerboard-view-001",
+      "dimensions_px": [
+        1280,
+        720
+      ],
+      "arrangement_id": "checkerboard-view-001-arrangement",
+      "intended_use": "checkerboard_optics_only_previously_seen",
+      "optics_model_id": "frozen_zero_radial_720",
+      "ball_proposals": {
+        "status": "not_yet_reviewed",
+        "proposals": [],
+        "notes": "No saved reviewed proposal boxes are available; do not infer centers or claim prior acceptance is reproducible."
+      },
+      "physical_reference_status": "no_matching_user_measured_ball_xy; do not transfer references from the measured grid",
+      "notes": "Ball positions were moved by view 006; physical coordinates from measured-grid do not apply to any checkerboard frame.",
+      "checkerboard_corner_data": {
+        "path": "thoughts/calibration/checkerboard-session/view-001-corners.json",
+        "sha256": "90a50b62e911ea400e5f94d8f8abfb67d90533f7e795ae2476dac6f1c1621da4"
+      },
+      "checkerboard_corner_count": 54
+    },
+    {
+      "path": "thoughts/calibration/checkerboard-session/view-002.jpg",
+      "sha256": "8a1faf704834f9e464f2bb81585e52d6951b9cf47cfd30feedff8ac35de42342",
+      "id": "checkerboard-view-002",
+      "dimensions_px": [
+        1280,
+        720
+      ],
+      "arrangement_id": "checkerboard-view-002-arrangement",
+      "intended_use": "checkerboard_optics_only_previously_seen",
+      "optics_model_id": "frozen_zero_radial_720",
+      "ball_proposals": {
+        "status": "not_yet_reviewed",
+        "proposals": [],
+        "notes": "No saved reviewed proposal boxes are available; do not infer centers or claim prior acceptance is reproducible."
+      },
+      "physical_reference_status": "no_matching_user_measured_ball_xy; do not transfer references from the measured grid",
+      "notes": "Ball positions were moved by view 006; physical coordinates from measured-grid do not apply to any checkerboard frame.",
+      "checkerboard_corner_data": {
+        "path": "thoughts/calibration/checkerboard-session/view-002-corners.json",
+        "sha256": "5c764a102deed8e1e0f27c9b24550cbc4918e236870e428eef87a4a9cd3d753b"
+      },
+      "checkerboard_corner_count": 54
+    },
+    {
+      "path": "thoughts/calibration/checkerboard-session/view-003.jpg",
+      "sha256": "876aa0904e5472625736f7200ec38a6ce895a768296be9c03e4bb9b062ea463c",
+      "id": "checkerboard-view-003",
+      "dimensions_px": [
+        1280,
+        720
+      ],
+      "arrangement_id": "checkerboard-view-003-arrangement",
+      "intended_use": "checkerboard_optics_only_previously_seen",
+      "optics_model_id": "frozen_zero_radial_720",
+      "ball_proposals": {
+        "status": "not_yet_reviewed",
+        "proposals": [],
+        "notes": "No saved reviewed proposal boxes are available; do not infer centers or claim prior acceptance is reproducible."
+      },
+      "physical_reference_status": "no_matching_user_measured_ball_xy; do not transfer references from the measured grid",
+      "notes": "Ball positions were moved by view 006; physical coordinates from measured-grid do not apply to any checkerboard frame.",
+      "checkerboard_corner_data": {
+        "path": "thoughts/calibration/checkerboard-session/view-003-corners.json",
+        "sha256": "3be5964842b5a934492a9162b22438b8a4aa4ac6c7e449b253be6d31bca52b70"
+      },
+      "checkerboard_corner_count": 54
+    },
+    {
+      "path": "thoughts/calibration/checkerboard-session/view-004.jpg",
+      "sha256": "cf661b869160b1a0d6ff252ac2585270a22d8479407706f05bcd40feee5854e4",
+      "id": "checkerboard-view-004",
+      "dimensions_px": [
+        1280,
+        720
+      ],
+      "arrangement_id": "checkerboard-view-004-arrangement",
+      "intended_use": "checkerboard_optics_only_previously_seen",
+      "optics_model_id": "frozen_zero_radial_720",
+      "ball_proposals": {
+        "status": "not_yet_reviewed",
+        "proposals": [],
+        "notes": "No saved reviewed proposal boxes are available; do not infer centers or claim prior acceptance is reproducible."
+      },
+      "physical_reference_status": "no_matching_user_measured_ball_xy; do not transfer references from the measured grid",
+      "notes": "Ball positions were moved by view 006; physical coordinates from measured-grid do not apply to any checkerboard frame.",
+      "checkerboard_corner_data": {
+        "path": "thoughts/calibration/checkerboard-session/view-004-corners.json",
+        "sha256": "501c801711ea75463082a5a91791dfc777ce0fadb944c9980ceffa637878d239"
+      },
+      "checkerboard_corner_count": 54
+    },
+    {
+      "path": "thoughts/calibration/checkerboard-session/view-005.jpg",
+      "sha256": "31c913cf623d60987777e35f15474ea6f09ce43d44b9209ee31572e0da07c9cb",
+      "id": "checkerboard-view-005",
+      "dimensions_px": [
+        1280,
+        720
+      ],
+      "arrangement_id": "checkerboard-view-005-arrangement",
+      "intended_use": "checkerboard_optics_only_previously_seen",
+      "optics_model_id": "frozen_zero_radial_720",
+      "ball_proposals": {
+        "status": "not_yet_reviewed",
+        "proposals": [],
+        "notes": "No saved reviewed proposal boxes are available; do not infer centers or claim prior acceptance is reproducible."
+      },
+      "physical_reference_status": "no_matching_user_measured_ball_xy; do not transfer references from the measured grid",
+      "notes": "Ball positions were moved by view 006; physical coordinates from measured-grid do not apply to any checkerboard frame.",
+      "checkerboard_corner_data": {
+        "path": "thoughts/calibration/checkerboard-session/view-005-corners.json",
+        "sha256": "2a40596a778e7d196cee9dd05c500700110e748526da044a6ad04e52fda2d96c"
+      },
+      "checkerboard_corner_count": 54
+    },
+    {
+      "path": "thoughts/calibration/checkerboard-session/view-006.jpg",
+      "sha256": "bd9ac037d06d912681abdf529883fdcf8db03eb88bbe25dd8484abd370be9096",
+      "id": "checkerboard-view-006",
+      "dimensions_px": [
+        1280,
+        720
+      ],
+      "arrangement_id": "checkerboard-view-006-arrangement",
+      "intended_use": "checkerboard_optics_only_previously_seen",
+      "optics_model_id": "frozen_zero_radial_720",
+      "ball_proposals": {
+        "status": "not_yet_reviewed",
+        "proposals": [],
+        "notes": "No saved reviewed proposal boxes are available; do not infer centers or claim prior acceptance is reproducible."
+      },
+      "physical_reference_status": "no_matching_user_measured_ball_xy; do not transfer references from the measured grid",
+      "notes": "Ball positions were moved by view 006; physical coordinates from measured-grid do not apply to any checkerboard frame.",
+      "checkerboard_corner_data": {
+        "path": "thoughts/calibration/checkerboard-session/view-006-corners.json",
+        "sha256": "1b2d5302f4ec5937fcb78a79306bd1195952284efa333195650b06d891f8f9d1"
+      },
+      "checkerboard_corner_count": 54
+    },
+    {
+      "path": "thoughts/calibration/checkerboard-session/view-007.jpg",
+      "sha256": "5d0fa8c59584e5342f48cdb6bf871f20aa0cb953c26735a5075892da294d59ec",
+      "id": "checkerboard-view-007",
+      "dimensions_px": [
+        1280,
+        720
+      ],
+      "arrangement_id": "checkerboard-view-007-arrangement",
+      "intended_use": "checkerboard_optics_only_previously_seen",
+      "optics_model_id": "frozen_zero_radial_720",
+      "ball_proposals": {
+        "status": "not_yet_reviewed",
+        "proposals": [],
+        "notes": "No saved reviewed proposal boxes are available; do not infer centers or claim prior acceptance is reproducible."
+      },
+      "physical_reference_status": "no_matching_user_measured_ball_xy; do not transfer references from the measured grid",
+      "notes": "Ball positions were moved by view 006; physical coordinates from measured-grid do not apply to any checkerboard frame.",
+      "checkerboard_corner_data": {
+        "path": "thoughts/calibration/checkerboard-session/view-007-corners.json",
+        "sha256": "c9ef68c5871a1f84d2858336fb2cf553b3dea9c2c441cb40bbd23f280ba57408"
+      },
+      "checkerboard_corner_count": 54
+    },
+    {
+      "path": "thoughts/calibration/checkerboard-session/view-008.jpg",
+      "sha256": "dc811b6dfac7e3ee078860ad9a73646a76f8461fb091fcb348d54cfcda4fc392",
+      "id": "checkerboard-view-008",
+      "dimensions_px": [
+        1280,
+        720
+      ],
+      "arrangement_id": "checkerboard-view-008-arrangement",
+      "intended_use": "checkerboard_optics_only_previously_seen",
+      "optics_model_id": "frozen_zero_radial_720",
+      "ball_proposals": {
+        "status": "not_yet_reviewed",
+        "proposals": [],
+        "notes": "No saved reviewed proposal boxes are available; do not infer centers or claim prior acceptance is reproducible."
+      },
+      "physical_reference_status": "no_matching_user_measured_ball_xy; do not transfer references from the measured grid",
+      "notes": "Ball positions were moved by view 006; physical coordinates from measured-grid do not apply to any checkerboard frame.",
+      "checkerboard_corner_data": {
+        "path": "thoughts/calibration/checkerboard-session/view-008-corners.json",
+        "sha256": "f3829da1786d121957c9694679926a59de5f059aea4910ab6ff71c5198e13c6b"
+      },
+      "checkerboard_corner_count": 54
+    },
+    {
+      "path": "thoughts/calibration/checkerboard-session/view-009.jpg",
+      "sha256": "7337b2ce32a2ced2498630267dca12dbf2b10f2f2d4490b68f7b578a0b97ef65",
+      "id": "checkerboard-view-009",
+      "dimensions_px": [
+        1280,
+        720
+      ],
+      "arrangement_id": "checkerboard-view-009-arrangement",
+      "intended_use": "checkerboard_optics_only_previously_seen",
+      "optics_model_id": "frozen_zero_radial_720",
+      "ball_proposals": {
+        "status": "not_yet_reviewed",
+        "proposals": [],
+        "notes": "No saved reviewed proposal boxes are available; do not infer centers or claim prior acceptance is reproducible."
+      },
+      "physical_reference_status": "no_matching_user_measured_ball_xy; do not transfer references from the measured grid",
+      "notes": "Ball positions were moved by view 006; physical coordinates from measured-grid do not apply to any checkerboard frame.",
+      "checkerboard_corner_data": {
+        "path": "thoughts/calibration/checkerboard-session/view-009-corners.json",
+        "sha256": "ac9062a825ddfb83cc96a2e76a12ca1ee9f2815dd2b54f3b0def4a780c2790bc"
+      },
+      "checkerboard_corner_count": 54
+    }
+  ],
+  "limitations": [
+    "All proposal and reference coordinates belong to their named source images and arrangements only.",
+    "Reviewed proposals are not detector output, pixel-center ground truth, or independently measured physical XY.",
+    "Reserved images were previously inspected and are held out only from further tuning.",
+    "No qualified production optics profile or ball-center asset is asserted.",
+    "Saved still images cannot establish motion response, sustained availability, or live FPS."
+  ]
+}
