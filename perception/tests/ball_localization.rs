@@ -5,7 +5,7 @@ use billiards_perception::ball_center_calibration::{
 use billiards_perception::ball_localization::*;
 use billiards_perception::ball_localization_profile::{
     BallLocalizationSettings, CameraOpticsProfileV1, LoadedBallLocalizationProfile,
-    CAMERA_OPTICS_PROFILE_VERSION,
+    BALL_REFINER_REVISION, CAMERA_OPTICS_PROFILE_VERSION,
 };
 use billiards_perception::calibration::{ImagePointPx, TablePointMm};
 use billiards_perception::detection_batch::{
@@ -102,7 +102,8 @@ fn image(center: [f64; 2], striped: bool, shadow: bool) -> (Vec<u8>, BallProposa
 fn recovers_native_source_centers_for_perspective_circles() {
     for center in [[240., 150.], [75., 145.], [405., 145.]] {
         let (rgb, p) = image(center, false, false);
-        let result = refine_ball_batch(&rgb, &intrinsics(), &[p], &config()).unwrap();
+        let result =
+            refine_ball_batch(&rgb, &intrinsics(), std::slice::from_ref(&p), &config()).unwrap();
         let result = &result[0];
         assert_eq!(
             result.status,
@@ -159,7 +160,13 @@ fn validates_buffer_configuration_intrinsics_and_duplicate_identity() {
         Err(BallLocalizationError::InvalidConfiguration)
     );
     let mut cfg = config();
-    cfg.minimum_competing_fit_votes = cfg.ransac_iterations + 1;
+    cfg.maximum_refined_candidates = 17;
+    assert_eq!(
+        cfg.validate(),
+        Err(BallLocalizationError::InvalidConfiguration)
+    );
+    let mut cfg = config();
+    cfg.maximum_inlier_reselection_rounds = 4;
     assert_eq!(
         cfg.validate(),
         Err(BallLocalizationError::InvalidConfiguration)
@@ -182,6 +189,17 @@ fn validates_buffer_configuration_intrinsics_and_duplicate_identity() {
     assert_eq!(k.validate(), Err(BallLocalizationError::InvalidIntrinsics));
     let parsed: BallLocalizationConfig = serde_json::from_str("{}").unwrap();
     assert_eq!(parsed, BallLocalizationConfig::default());
+}
+
+#[test]
+fn checked_in_defaults_match_typed_candidate_search_configuration() {
+    let defaults: serde_json::Value =
+        serde_json::from_str(include_str!("../contracts/configuration/v1/defaults.json")).unwrap();
+    let parameters: BallLocalizationConfig = serde_json::from_value(
+        defaults["perception"]["rust_live"]["ball_localization"]["parameters"].clone(),
+    )
+    .unwrap();
+    assert_eq!(parameters, BallLocalizationConfig::default());
 }
 #[test]
 fn exhausted_deadline_retains_one_rejection_per_proposal() {
@@ -214,7 +232,8 @@ fn audit_traces_the_same_fitting_results_with_bounded_events() {
     )
     .unwrap();
     assert_eq!(observations, baseline);
-    assert_eq!(trace.schema_version, BALL_LOCALIZATION_AUDIT_VERSION);
+    assert_eq!(BALL_LOCALIZATION_AUDIT_VERSION, 2);
+    assert_eq!(trace.schema_version, 2);
     assert_eq!(trace.dropped_events, 0);
     assert!(trace.retained_bytes <= trace.maximum_bytes);
     assert_eq!(trace.maximum_bytes, MAX_BALL_LOCALIZATION_AUDIT_BYTES);
@@ -249,6 +268,14 @@ fn audit_traces_the_same_fitting_results_with_bounded_events() {
             point_image_px: Some(_),
             ..
         }
+    )));
+    assert!(trace.events.iter().any(|event| matches!(
+        &event.data,
+        BallLocalizationAuditEventData::CandidateEvaluation {
+            source_residual_rms_px: Some(_),
+            outline_image_px,
+            ..
+        } if !outline_image_px.is_empty()
     )));
     let outcome = trace.events.last().unwrap();
     assert_eq!(outcome.stage, observations[0].quality.stage);
@@ -520,7 +547,7 @@ fn resolver_profile() -> LoadedBallLocalizationProfile {
             optics_profile_id: "optics-test".to_owned(),
             camera_profile_id: "camera-profile-test".to_owned(),
             optics_revision: 2,
-            refiner_revision: 1,
+            refiner_revision: BALL_REFINER_REVISION,
             image_space: CalibrationImageSpace::Raw,
             intrinsics: CameraIntrinsics {
                 source_width_px: 3840,
@@ -548,7 +575,7 @@ fn accepted_refinement(
         configuration_revision: 7,
         optics_profile_id: "optics-test".to_owned(),
         optics_revision: 2,
-        refiner_revision: 1,
+        refiner_revision: BALL_REFINER_REVISION,
         table_revision: 1,
         refinement_elapsed_ms: 1.0,
         identity: Some(BallRefinementIdentity {
@@ -602,7 +629,7 @@ fn resolver_calibration(
         camera_profile_id: "camera-profile-test".to_owned(),
         optics_profile_id: "optics-test".to_owned(),
         optics_revision: 2,
-        refiner_revision: 1,
+        refiner_revision: BALL_REFINER_REVISION,
         table_revision: 1,
         rectification_revision: 0,
         image_space: CalibrationImageSpace::Raw,

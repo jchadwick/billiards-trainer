@@ -2051,7 +2051,7 @@ mod tests {
                 optics_profile_id: "test-optics".to_owned(),
                 camera_profile_id: "test-camera".to_owned(),
                 optics_revision: 1,
-                refiner_revision: 1,
+                refiner_revision: crate::ball_localization_profile::BALL_REFINER_REVISION,
                 image_space: crate::ImageSpace::Raw,
                 intrinsics: CameraIntrinsics {
                     source_width_px: 320,

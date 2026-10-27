@@ -28,7 +28,7 @@ const MAX_PROFILE_ID_CHARACTERS: usize = 128;
 const MAX_PROVENANCE_CHARACTERS: usize = 2048;
 pub const PLAYING_AREA_WIDTH_MM: f64 = 2336.8;
 pub const PLAYING_AREA_HEIGHT_MM: f64 = 1155.7;
-pub const BALL_REFINER_REVISION: u64 = 1;
+pub const BALL_REFINER_REVISION: u64 = 2;
 
 /// Runtime settings. Missing assets indicate unavailable precision, rather than
 /// selecting a different localization algorithm or manufacturing coordinates.
@@ -332,7 +332,7 @@ mod tests {
             optics_profile_id: "optics-a".to_owned(),
             camera_profile_id: "camera-a".to_owned(),
             optics_revision: 4,
-            refiner_revision: 3,
+            refiner_revision: BALL_REFINER_REVISION,
             image_space: ImageSpace::Raw,
             intrinsics: CameraIntrinsics {
                 source_width_px: 3840,
@@ -364,6 +364,29 @@ mod tests {
         let mut invalid = profile;
         invalid.intrinsics.fx = f64::NAN;
         assert!(invalid.validate().is_err());
+    }
+
+    #[test]
+    fn optics_profile_must_match_the_current_refiner_revision() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("optics.json");
+        let mut profile = optics();
+        assert_eq!(profile.refiner_revision, BALL_REFINER_REVISION);
+        profile.refiner_revision -= 1;
+        std::fs::write(&path, serde_json::to_vec(&profile).unwrap()).unwrap();
+        let settings = BallLocalizationSettings {
+            optics_profile_path: Some(path),
+            ..BallLocalizationSettings::default()
+        };
+        assert!(LoadedBallLocalizationProfile::load_for_frame(
+            settings,
+            "camera-a",
+            ImageSpace::Raw,
+            3840,
+            2160,
+            0,
+        )
+        .is_err());
     }
 
     #[test]

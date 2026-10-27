@@ -213,7 +213,7 @@ mod tests {
             "camera_profile_id": "camera-test",
             "optics_profile_id": "optics-test",
             "optics_revision": 2,
-            "refiner_revision": 1,
+            "refiner_revision": billiards_perception::ball_localization_profile::BALL_REFINER_REVISION,
             "table_revision": 1,
             "rectification_revision": 0,
             "image_space": "raw",

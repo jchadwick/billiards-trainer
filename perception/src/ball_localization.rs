@@ -51,12 +51,20 @@ pub struct BallLocalizationConfig {
     pub patch_size_px: u32,
     pub minimum_supported_ray_fraction: f64,
     pub minimum_alternative_support_fraction: f64,
-    /// Number of spatially coherent competing RANSAC samples required before
-    /// treating a second plausible center as genuine boundary ambiguity.
-    pub minimum_competing_fit_votes: usize,
-    /// Alternative circle hypotheses must be within this factor of the best
-    /// residual before they can make the boundary ambiguous.
+    /// Maximum number of geometrically diverse, plausible candidates that
+    /// may be fully refined for one aiming iteration.
+    pub maximum_refined_candidates: usize,
+    /// Maximum rounds in which a refined fit is reselected against radial
+    /// boundary candidates and fit again.
+    pub maximum_inlier_reselection_rounds: usize,
+    /// Competing, fully qualified candidates must have residual RMS no worse
+    /// than this factor of the best candidate, plus the configured noise floor.
     pub maximum_alternative_error_ratio: f64,
+    /// Additive source-pixel noise floor for comparing alternative residuals.
+    pub maximum_alternative_residual_tolerance_px: f64,
+    /// Source-pixel outline difference above which two candidates cannot be
+    /// treated as the same visible boundary.
+    pub maximum_same_boundary_outline_disagreement_px: f64,
     pub minimum_background_supported_fraction: f64,
     pub batch_budget_ms: u64,
     pub proposal_budget_ms: u64,
@@ -103,15 +111,18 @@ impl Default for BallLocalizationConfig {
             patch_size_px: 193,
             minimum_supported_ray_fraction: 0.5,
             minimum_alternative_support_fraction: 0.95,
-            minimum_competing_fit_votes: 3,
+            maximum_refined_candidates: 16,
+            maximum_inlier_reselection_rounds: 3,
             maximum_alternative_error_ratio: 1.1,
+            maximum_alternative_residual_tolerance_px: 0.25,
+            maximum_same_boundary_outline_disagreement_px: 1.5,
             minimum_background_supported_fraction: 0.6,
             batch_budget_ms: 25,
             proposal_budget_ms: 10,
             max_roi_side_px: 512,
             roi_padding_factor: 1.8,
             angular_samples: 96,
-            radial_samples: 48,
+            radial_samples: 96,
             candidates_per_ray: 3,
             max_iterations: 3,
             ransac_iterations: 128,
@@ -178,6 +189,8 @@ impl BallLocalizationConfig {
             self.maximum_residual_px,
             self.maximum_center_shift_fraction,
             self.maximum_center_spread_px,
+            self.maximum_alternative_residual_tolerance_px,
+            self.maximum_same_boundary_outline_disagreement_px,
             self.irls_tuning,
             self.irls_scale_floor_px,
             self.convergence_px,
@@ -203,8 +216,10 @@ impl BallLocalizationConfig {
             || self.radial_samples > MAX_RADIAL_SAMPLES
             || self.candidates_per_ray > MAX_CANDIDATES_PER_RAY
             || self.ransac_iterations > MAX_RANSAC_ITERATIONS
-            || self.minimum_competing_fit_votes == 0
-            || self.minimum_competing_fit_votes > self.ransac_iterations
+            || self.maximum_refined_candidates == 0
+            || self.maximum_refined_candidates > 16
+            || self.maximum_inlier_reselection_rounds == 0
+            || self.maximum_inlier_reselection_rounds > 3
             || self.irls_iterations > MAX_IRLS_ITERATIONS
             || self.outline_samples > MAX_OUTLINE_SAMPLES
             || self.angular_sectors > MAX_ANGULAR_SECTORS
@@ -277,6 +292,7 @@ pub enum RejectionReason {
     AmbiguousBoundary,
     InadequateCoverage,
     ExcessiveResidual,
+    RadiusOutOfRange,
     ExcessiveCenterShift,
     UnstableCenter,
     InsufficientForeground,
@@ -294,14 +310,21 @@ pub struct BallLocalizationQuality {
     pub supported_ray_fraction: Option<f64>,
     pub background_sample_fraction: Option<f64>,
     pub background_supported_fraction: Option<f64>,
+    pub candidate_outer_background_fraction: Option<f64>,
     pub inliers: Option<usize>,
     pub angular_coverage: Option<f64>,
     pub largest_gap_fraction: Option<f64>,
     pub residual_rms_px: Option<f64>,
+    /// Radial fit RMS after mapping measured edge points and fitted boundary
+    /// points back into the native source image.
+    pub source_residual_rms_px: Option<f64>,
     pub center_shift_px: Option<f64>,
     pub center_spread_px: Option<f64>,
     pub foreground_fraction: Option<f64>,
     pub iterations: usize,
+    pub candidate_representatives_evaluated: usize,
+    pub qualified_candidate_count: usize,
+    pub candidate_search_truncated: bool,
 }
 
 impl BallLocalizationQuality {
@@ -328,8 +351,10 @@ pub enum BallFitStage {
     BackgroundSampling,
     BoundarySampling,
     HypothesisGeneration,
+    CandidateSelection,
     AmbiguityAssessment,
     FitRefinement,
+    CandidateQualification,
     Coverage,
     Residual,
     CenterProjection,
@@ -383,6 +408,16 @@ pub enum BallLocalizationAuditEventData {
         radius_local_px: f64,
         outline_image_px: Vec<Option<[f64; 2]>>,
     },
+    CandidateEvaluation {
+        fit_id: usize,
+        center_image_px: Option<[f64; 2]>,
+        supported_rays: usize,
+        residual_rms_px: Option<f64>,
+        source_residual_rms_px: Option<f64>,
+        rejection: Option<RejectionReason>,
+        quality: Box<BallLocalizationQuality>,
+        outline_image_px: Vec<Option<[f64; 2]>>,
+    },
     Outcome {
         status: RefinementStatus,
         reason: Option<RejectionReason>,
@@ -398,7 +433,7 @@ pub const MAX_BALL_LOCALIZATION_AUDIT_EVENTS: usize = 8192;
 /// Trace storage is also bounded by bytes, independently of estimator/sample
 /// limits. This covers reserved event slots and owned variable-length arrays.
 pub const MAX_BALL_LOCALIZATION_AUDIT_BYTES: usize = 8 * 1024 * 1024;
-pub const BALL_LOCALIZATION_AUDIT_VERSION: u32 = 1;
+pub const BALL_LOCALIZATION_AUDIT_VERSION: u32 = 2;
 
 /// Per-audit limits control diagnostics only; they do not select a production
 /// algorithm or change estimator configuration. Both are capped independently.
@@ -447,13 +482,21 @@ impl BallLocalizationAuditTrace {
                     + std::mem::size_of::<BallOutline>()
                     + outline.points_image_px.capacity() * std::mem::size_of::<[f64; 2]>()
             }
+            BallLocalizationAuditEventData::CandidateEvaluation {
+                quality: _,
+                outline_image_px,
+                ..
+            } => {
+                std::mem::size_of::<BallLocalizationQuality>()
+                    + outline_image_px.capacity() * std::mem::size_of::<Option<[f64; 2]>>()
+            }
+            BallLocalizationAuditEventData::Outcome { outline: None, .. } => {
+                std::mem::size_of::<BallLocalizationQuality>()
+            }
             BallLocalizationAuditEventData::IterationStarted { .. }
             | BallLocalizationAuditEventData::BoundaryCandidate { .. }
             | BallLocalizationAuditEventData::RawHypothesis { .. }
-            | BallLocalizationAuditEventData::SelectedInlier { .. }
-            | BallLocalizationAuditEventData::Outcome { outline: None, .. } => {
-                std::mem::size_of::<BallLocalizationQuality>()
-            }
+            | BallLocalizationAuditEventData::SelectedInlier { .. } => 0,
         };
         let Some(retained_bytes) = self.retained_bytes.checked_add(extra) else {
             self.dropped_events = self.dropped_events.saturating_add(1);
@@ -884,10 +927,600 @@ struct Candidate {
     ray: usize,
     strength: f64,
 }
-#[derive(Clone, Copy, Debug)]
+
+fn strongest_distinct_ray_transitions(
+    mut candidates: Vec<Candidate>,
+    maximum_count: usize,
+    minimum_separation_px: f64,
+) -> Vec<Candidate> {
+    candidates.sort_by(|a, b| b.strength.total_cmp(&a.strength));
+    let mut selected = Vec::<Candidate>::new();
+    for candidate in candidates {
+        if selected
+            .iter()
+            .all(|previous| distance(previous.point, candidate.point) >= minimum_separation_px)
+        {
+            selected.push(candidate);
+            if selected.len() == maximum_count {
+                break;
+            }
+        }
+    }
+    selected
+}
+#[derive(Clone, Copy, Debug, PartialEq)]
 struct Circle {
     center: [f64; 2],
     radius: f64,
+}
+
+#[derive(Clone, Debug)]
+struct RawHypothesis {
+    fit_id: usize,
+    fit: Circle,
+    supported_rays: usize,
+    source_residual_rms_px: f64,
+    center_image_px: [f64; 2],
+}
+
+#[derive(Clone, Debug)]
+struct CandidateRepresentative {
+    hypothesis: RawHypothesis,
+    outline_image_px: Vec<[f64; 2]>,
+}
+
+#[derive(Debug)]
+struct CandidateAttempt {
+    fit_id: usize,
+    fit: Circle,
+    supported_rays: usize,
+    source_residual_rms_px: Option<f64>,
+    center_image_px: Option<[f64; 2]>,
+    outline: Option<BallOutline>,
+    diagnostic_outline_image_px: Vec<Option<[f64; 2]>>,
+    quality: BallLocalizationQuality,
+    rejection: Option<RejectionReason>,
+}
+
+#[derive(Clone, Copy)]
+struct CandidateEvaluationContext<'a> {
+    candidates: &'a [Candidate],
+    view: View,
+    intrinsics: &'a CameraIntrinsics,
+    initial_center_image_px: [f64; 2],
+    proposal_radius_px: f64,
+    bbox_width_px: f64,
+    bbox_height_px: f64,
+    background_rgb: [f64; 3],
+    sample: &'a dyn Fn([f64; 2]) -> Option<[f64; 3]>,
+    config: &'a BallLocalizationConfig,
+    deadline: Instant,
+    base_quality: &'a BallLocalizationQuality,
+    detection_index: u64,
+}
+
+impl CandidateAttempt {
+    fn is_qualified(&self) -> bool {
+        self.rejection.is_none() && self.center_image_px.is_some() && self.outline.is_some()
+    }
+}
+
+fn hypothesis_rank(a: &RawHypothesis, b: &RawHypothesis) -> std::cmp::Ordering {
+    b.supported_rays
+        .cmp(&a.supported_rays)
+        .then_with(|| {
+            a.source_residual_rms_px
+                .total_cmp(&b.source_residual_rms_px)
+        })
+        .then_with(|| a.center_image_px[0].total_cmp(&b.center_image_px[0]))
+        .then_with(|| a.center_image_px[1].total_cmp(&b.center_image_px[1]))
+        .then_with(|| a.fit.radius.total_cmp(&b.fit.radius))
+        .then_with(|| a.fit_id.cmp(&b.fit_id))
+}
+
+fn residual_is_plausible(
+    support: usize,
+    residual_rms_px: f64,
+    best_support: usize,
+    best_residual_rms_px: f64,
+    cfg: &BallLocalizationConfig,
+) -> bool {
+    support as f64 >= best_support as f64 * cfg.minimum_alternative_support_fraction
+        && residual_rms_px
+            <= best_residual_rms_px * cfg.maximum_alternative_error_ratio
+                + cfg.maximum_alternative_residual_tolerance_px
+}
+
+fn outline_disagreement_px(
+    a: &[[f64; 2]],
+    b: &[[f64; 2]],
+    end: Instant,
+) -> Result<f64, RejectionReason> {
+    fn directed_max_distance(
+        source: &[[f64; 2]],
+        target: &[[f64; 2]],
+        end: Instant,
+    ) -> Result<f64, RejectionReason> {
+        let mut greatest = 0.0f64;
+        for point in source {
+            deadline(Instant::now(), end)?;
+            let mut nearest = f64::INFINITY;
+            for other in target {
+                deadline(Instant::now(), end)?;
+                nearest = nearest.min(distance(*point, *other));
+            }
+            greatest = greatest.max(nearest);
+        }
+        Ok(greatest)
+    }
+    if a.is_empty() || b.is_empty() {
+        return Ok(f64::INFINITY);
+    }
+    Ok(directed_max_distance(a, b, end)?.max(directed_max_distance(b, a, end)?))
+}
+
+fn same_source_boundary(
+    a_center: [f64; 2],
+    a_outline: &[[f64; 2]],
+    b_center: [f64; 2],
+    b_outline: &[[f64; 2]],
+    cfg: &BallLocalizationConfig,
+    end: Instant,
+) -> Result<bool, RejectionReason> {
+    if distance(a_center, b_center) > cfg.maximum_center_spread_px {
+        return Ok(false);
+    }
+    Ok(outline_disagreement_px(a_outline, b_outline, end)?
+        <= cfg.maximum_same_boundary_outline_disagreement_px)
+}
+
+fn source_outline_points(
+    k: &CameraIntrinsics,
+    view: View,
+    fit: Circle,
+    sample_count: usize,
+    end: Instant,
+) -> Result<Vec<[f64; 2]>, RejectionReason> {
+    let mut points = Vec::with_capacity(sample_count);
+    for step in 0..sample_count {
+        deadline(Instant::now(), end)?;
+        let angle = std::f64::consts::TAU * step as f64 / sample_count as f64;
+        points.push(
+            view.source(
+                k,
+                [
+                    fit.center[0] + fit.radius * angle.cos(),
+                    fit.center[1] + fit.radius * angle.sin(),
+                ],
+            )
+            .ok_or(RejectionReason::NumericalFailure)?,
+        );
+    }
+    Ok(points)
+}
+
+/// Measure residuals in native source pixels, where configured comparison
+/// noise and outline tolerances are defined. A local-patch residual is not
+/// interchangeable with a source-pixel residual because the inverse view
+/// projection has position-dependent magnification.
+fn source_residual_rms_px(
+    candidates: &[Candidate],
+    fit: Circle,
+    view: View,
+    k: &CameraIntrinsics,
+    end: Instant,
+) -> Result<f64, RejectionReason> {
+    if candidates.is_empty() {
+        return Err(RejectionReason::InsufficientBoundary);
+    }
+    let mut squared_error = 0.0;
+    for candidate in candidates {
+        deadline(Instant::now(), end)?;
+        let dx = candidate.point[0] - fit.center[0];
+        let dy = candidate.point[1] - fit.center[1];
+        let distance_local = dx.hypot(dy);
+        if distance_local <= f64::EPSILON {
+            return Err(RejectionReason::NumericalFailure);
+        }
+        let boundary_local = [
+            fit.center[0] + fit.radius * dx / distance_local,
+            fit.center[1] + fit.radius * dy / distance_local,
+        ];
+        let observed_source = view
+            .source(k, candidate.point)
+            .ok_or(RejectionReason::NumericalFailure)?;
+        let boundary_source = view
+            .source(k, boundary_local)
+            .ok_or(RejectionReason::NumericalFailure)?;
+        squared_error += distance(observed_source, boundary_source).powi(2);
+    }
+    Ok((squared_error / candidates.len() as f64).sqrt())
+}
+
+fn choose_diverse_representatives(
+    hypotheses: &[RawHypothesis],
+    k: &CameraIntrinsics,
+    view: View,
+    cfg: &BallLocalizationConfig,
+    end: Instant,
+) -> Result<(Vec<CandidateRepresentative>, bool), RejectionReason> {
+    let mut ranked = hypotheses.to_vec();
+    ranked.sort_by(hypothesis_rank);
+    let Some(best) = ranked.first() else {
+        return Ok((Vec::new(), false));
+    };
+    let best_support = best.supported_rays;
+    let best_residual_rms_px = best.source_residual_rms_px;
+    let mut representatives: Vec<CandidateRepresentative> = Vec::new();
+    let mut truncated = false;
+    for hypothesis in ranked {
+        deadline(Instant::now(), end)?;
+        if !residual_is_plausible(
+            hypothesis.supported_rays,
+            hypothesis.source_residual_rms_px,
+            best_support,
+            best_residual_rms_px,
+            cfg,
+        ) {
+            continue;
+        }
+        let mut duplicate = false;
+        for representative in &representatives {
+            if distance(
+                hypothesis.center_image_px,
+                representative.hypothesis.center_image_px,
+            ) > cfg.maximum_center_spread_px
+            {
+                continue;
+            }
+            let outline = source_outline_points(k, view, hypothesis.fit, cfg.outline_samples, end)?;
+            if same_source_boundary(
+                hypothesis.center_image_px,
+                &outline,
+                representative.hypothesis.center_image_px,
+                &representative.outline_image_px,
+                cfg,
+                end,
+            )? {
+                duplicate = true;
+                break;
+            }
+        }
+        if duplicate {
+            continue;
+        }
+        if representatives.len() == cfg.maximum_refined_candidates {
+            truncated = true;
+            continue;
+        }
+        let outline = source_outline_points(k, view, hypothesis.fit, cfg.outline_samples, end)?;
+        representatives.push(CandidateRepresentative {
+            hypothesis,
+            outline_image_px: outline,
+        });
+    }
+    Ok((representatives, truncated))
+}
+
+fn same_inlier_set(a: &[Candidate], b: &[Candidate]) -> bool {
+    a.len() == b.len()
+        && a.iter().zip(b).all(|(left, right)| {
+            left.ray == right.ray && left.point == right.point && left.strength == right.strength
+        })
+}
+
+fn candidate_attempt_rank(a: &CandidateAttempt, b: &CandidateAttempt) -> std::cmp::Ordering {
+    b.supported_rays
+        .cmp(&a.supported_rays)
+        .then_with(|| {
+            a.source_residual_rms_px
+                .unwrap_or(f64::INFINITY)
+                .total_cmp(&b.source_residual_rms_px.unwrap_or(f64::INFINITY))
+        })
+        .then_with(|| {
+            a.center_image_px.unwrap_or([f64::INFINITY; 2])[0]
+                .total_cmp(&b.center_image_px.unwrap_or([f64::INFINITY; 2])[0])
+        })
+        .then_with(|| {
+            a.center_image_px.unwrap_or([f64::INFINITY; 2])[1]
+                .total_cmp(&b.center_image_px.unwrap_or([f64::INFINITY; 2])[1])
+        })
+        .then_with(|| a.fit.radius.total_cmp(&b.fit.radius))
+        .then_with(|| a.fit_id.cmp(&b.fit_id))
+}
+
+fn within_center_shift_budget(
+    displacement_source_px: f64,
+    box_width_source_px: f64,
+    box_height_source_px: f64,
+    maximum_shift_fraction: f64,
+) -> bool {
+    let maximum_shift = box_width_source_px.min(box_height_source_px) * maximum_shift_fraction;
+    displacement_source_px <= maximum_shift
+}
+
+fn within_refined_radius_bounds(
+    radius_px: f64,
+    proposal_radius_px: f64,
+    cfg: &BallLocalizationConfig,
+) -> bool {
+    radius_px.is_finite()
+        && radius_px >= cfg.minimum_radius_px
+        && radius_px <= cfg.maximum_radius_px
+        && radius_px >= proposal_radius_px * cfg.radius_min_fraction
+        && radius_px <= proposal_radius_px * cfg.radius_max_fraction
+}
+
+fn has_distinct_qualified_alternative(
+    attempts: &[CandidateAttempt],
+    qualified_indices: &[usize],
+    cfg: &BallLocalizationConfig,
+    end: Instant,
+) -> Result<bool, RejectionReason> {
+    let Some(&best_index) = qualified_indices.first() else {
+        return Ok(false);
+    };
+    let best = &attempts[best_index];
+    let best_center = best.center_image_px.expect("qualified candidate center");
+    let best_outline = best.outline.as_ref().expect("qualified candidate outline");
+    let best_residual = best
+        .source_residual_rms_px
+        .expect("qualified candidate residual");
+    for &candidate_index in qualified_indices.iter().skip(1) {
+        deadline(Instant::now(), end)?;
+        let alternative = &attempts[candidate_index];
+        let alternative_residual = alternative
+            .source_residual_rms_px
+            .expect("qualified alternative residual");
+        if !residual_is_plausible(
+            alternative.supported_rays,
+            alternative_residual,
+            best.supported_rays,
+            best_residual,
+            cfg,
+        ) {
+            continue;
+        }
+        let alternative_center = alternative
+            .center_image_px
+            .expect("qualified alternative center");
+        let alternative_outline = alternative
+            .outline
+            .as_ref()
+            .expect("qualified alternative outline");
+        if !same_source_boundary(
+            best_center,
+            &best_outline.points_image_px,
+            alternative_center,
+            &alternative_outline.points_image_px,
+            cfg,
+            end,
+        )? {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+fn evaluate_candidate(
+    raw: &RawHypothesis,
+    context: &CandidateEvaluationContext<'_>,
+    trace: &mut Option<&mut BallLocalizationAuditTrace>,
+) -> CandidateAttempt {
+    let CandidateEvaluationContext {
+        candidates,
+        view,
+        intrinsics: k,
+        initial_center_image_px,
+        proposal_radius_px,
+        bbox_width_px,
+        bbox_height_px,
+        background_rgb,
+        sample,
+        config: cfg,
+        deadline: end,
+        base_quality,
+        detection_index,
+    } = *context;
+    let mut fit = raw.fit;
+    let mut supported_rays = raw.supported_rays;
+    let mut source_rms_px = None;
+    let mut center_image_px = None;
+    let mut outline = None;
+    let mut diagnostic_outline_image_px = Vec::new();
+    let mut quality = base_quality.clone();
+    quality.fit_id = Some(raw.fit_id);
+    quality.stage = BallFitStage::FitRefinement;
+
+    let evaluation = (|| -> Result<(), RejectionReason> {
+        let mut selected = select(candidates, fit, cfg);
+        if selected.len() < cfg.minimum_inliers {
+            return Err(RejectionReason::InsufficientBoundary);
+        }
+        let mut converged = false;
+        for _round in 0..cfg.maximum_inlier_reselection_rounds {
+            deadline(Instant::now(), end)?;
+            let previous = selected;
+            let points: Vec<[f64; 2]> = previous.iter().map(|candidate| candidate.point).collect();
+            fit = irls(fit, &points, cfg, end)?;
+            selected = select(candidates, fit, cfg);
+            if selected.len() < cfg.minimum_inliers {
+                return Err(RejectionReason::InsufficientBoundary);
+            }
+            if same_inlier_set(&previous, &selected) {
+                converged = true;
+                break;
+            }
+        }
+        if !converged {
+            return Err(RejectionReason::AmbiguousBoundary);
+        }
+        quality.stage = BallFitStage::CandidateQualification;
+        if !within_refined_radius_bounds(fit.radius, proposal_radius_px, cfg) {
+            return Err(RejectionReason::RadiusOutOfRange);
+        }
+        supported_rays = selected.len();
+        quality.inliers = Some(supported_rays);
+        let center = view
+            .source(k, fit.center)
+            .ok_or(RejectionReason::NumericalFailure)?;
+        center_image_px = Some(center);
+        let projected = source_outline_points(k, view, fit, cfg.outline_samples, end)?;
+        diagnostic_outline_image_px = projected.iter().copied().map(Some).collect();
+
+        if trace.is_some() {
+            for candidate in &selected {
+                deadline(Instant::now(), end)?;
+                record_trace(trace, detection_index, &quality, || {
+                    BallLocalizationAuditEventData::SelectedInlier {
+                        fit_id: raw.fit_id,
+                        ray: candidate.ray,
+                        point_local_px: candidate.point,
+                        point_image_px: view.source(k, candidate.point),
+                    }
+                });
+            }
+        }
+
+        quality.stage = BallFitStage::Coverage;
+        let (coverage, gap) = coverage(&selected, fit.center, cfg);
+        quality.angular_coverage = Some(coverage);
+        quality.largest_gap_fraction = Some(gap);
+        if coverage < cfg.minimum_coverage || gap > cfg.maximum_gap_fraction {
+            return Err(RejectionReason::InadequateCoverage);
+        }
+
+        quality.stage = BallFitStage::Residual;
+        let rms = (selected
+            .iter()
+            .map(|candidate| (distance(candidate.point, fit.center) - fit.radius).powi(2))
+            .sum::<f64>()
+            / selected.len() as f64)
+            .sqrt();
+        quality.residual_rms_px = Some(rms);
+        if rms > cfg.maximum_residual_px {
+            return Err(RejectionReason::ExcessiveResidual);
+        }
+        let source_rms = source_residual_rms_px(&selected, fit, view, k, end)?;
+        source_rms_px = Some(source_rms);
+        quality.source_residual_rms_px = Some(source_rms);
+
+        let mut outer_available = 0usize;
+        let mut outer_supported = 0usize;
+        for ray in 0..cfg.angular_samples {
+            deadline(Instant::now(), end)?;
+            let angle = std::f64::consts::TAU * ray as f64 / cfg.angular_samples as f64;
+            let point = [
+                fit.center[0] + (fit.radius + cfg.background_probe_px) * angle.cos(),
+                fit.center[1] + (fit.radius + cfg.background_probe_px) * angle.sin(),
+            ];
+            if let Some(color) = sample(point) {
+                outer_available += 1;
+                if color_distance(color, background_rgb) <= cfg.maximum_outer_background_distance {
+                    outer_supported += 1;
+                }
+            }
+        }
+        let outer_sample_fraction = outer_available as f64 / cfg.angular_samples as f64;
+        let outer_supported_fraction = outer_supported as f64 / outer_available.max(1) as f64;
+        quality.candidate_outer_background_fraction = Some(outer_supported_fraction);
+        if outer_sample_fraction < cfg.minimum_background_supported_fraction
+            || outer_supported_fraction < cfg.minimum_background_supported_fraction
+        {
+            return Err(RejectionReason::InsufficientBoundary);
+        }
+
+        quality.stage = BallFitStage::CenterProjection;
+        let shift = distance(center, initial_center_image_px);
+        quality.center_shift_px = Some(shift);
+        if !within_center_shift_budget(
+            shift,
+            bbox_width_px,
+            bbox_height_px,
+            cfg.maximum_center_shift_fraction,
+        ) {
+            return Err(RejectionReason::ExcessiveCenterShift);
+        }
+
+        quality.stage = BallFitStage::CenterStability;
+        let mut spread = 0.0f64;
+        for omit in 0..4 {
+            deadline(Instant::now(), end)?;
+            let subset: Vec<[f64; 2]> = selected
+                .iter()
+                .filter(|candidate| {
+                    let angle = (candidate.point[1] - fit.center[1])
+                        .atan2(candidate.point[0] - fit.center[0])
+                        .rem_euclid(std::f64::consts::TAU);
+                    (angle / std::f64::consts::FRAC_PI_2).floor() as usize != omit
+                })
+                .map(|candidate| candidate.point)
+                .collect();
+            if subset.len() < 3 {
+                return Err(RejectionReason::UnstableCenter);
+            }
+            let other = irls(fit, &subset, cfg, end)?;
+            if !within_refined_radius_bounds(other.radius, proposal_radius_px, cfg) {
+                return Err(RejectionReason::RadiusOutOfRange);
+            }
+            let other = view
+                .source(k, other.center)
+                .ok_or(RejectionReason::NumericalFailure)?;
+            spread = spread.max(distance(center, other));
+        }
+        quality.center_spread_px = Some(spread);
+        if spread > cfg.maximum_center_spread_px {
+            return Err(RejectionReason::UnstableCenter);
+        }
+
+        quality.stage = BallFitStage::Foreground;
+        let mut foreground = 0usize;
+        let mut foreground_available = 0usize;
+        for ray in 0..cfg.angular_samples {
+            deadline(Instant::now(), end)?;
+            let angle = std::f64::consts::TAU * ray as f64 / cfg.angular_samples as f64;
+            let radius = fit.radius * cfg.radius_min_fraction;
+            if let Some(color) = sample([
+                fit.center[0] + radius * angle.cos(),
+                fit.center[1] + radius * angle.sin(),
+            ]) {
+                foreground_available += 1;
+                if color_distance(color, background_rgb)
+                    >= cfg.minimum_foreground_background_contrast
+                {
+                    foreground += 1;
+                }
+            }
+        }
+        let foreground_fraction = foreground as f64 / foreground_available.max(1) as f64;
+        quality.foreground_fraction = Some(foreground_fraction);
+        if foreground_fraction < cfg.minimum_foreground_fraction {
+            return Err(RejectionReason::InsufficientForeground);
+        }
+
+        outline = Some(outline_from_source_points(
+            k,
+            fit,
+            center,
+            &projected,
+            end,
+            &mut quality,
+        )?);
+        Ok(())
+    })();
+
+    let rejection = evaluation.err();
+    CandidateAttempt {
+        fit_id: raw.fit_id,
+        fit,
+        supported_rays,
+        source_residual_rms_px: source_rms_px,
+        center_image_px,
+        outline,
+        diagnostic_outline_image_px,
+        quality,
+        rejection,
+    }
 }
 fn three_circle(a: [f64; 2], b: [f64; 2], c: [f64; 2], eps: f64) -> Option<Circle> {
     let b = [b[0] - a[0], b[1] - a[1]];
@@ -981,44 +1614,6 @@ fn select(candidates: &[Candidate], fit: Circle, cfg: &BallLocalizationConfig) -
         }
     }
     chosen.into_iter().flatten().map(|(_, c)| c).collect()
-}
-
-fn has_competing_fit_cluster(
-    hypotheses: &[(Circle, usize, f64)],
-    best: Circle,
-    best_support: usize,
-    best_error: f64,
-    config: &BallLocalizationConfig,
-    end: Instant,
-) -> Result<bool, RejectionReason> {
-    let error_limit = best_error * config.maximum_alternative_error_ratio
-        + config.numerical_epsilon * best_support as f64;
-    let plausible = hypotheses
-        .iter()
-        .filter(|(_, support, error)| {
-            *support as f64 >= best_support as f64 * config.minimum_alternative_support_fraction
-                && *error <= error_limit
-        })
-        .collect::<Vec<_>>();
-
-    for (candidate, _, _) in &plausible {
-        deadline(Instant::now(), end)?;
-        if distance(candidate.center, best.center) <= config.maximum_center_spread_px {
-            continue;
-        }
-        let mut cluster_votes = 0;
-        for (other, _, _) in &plausible {
-            if distance(other.center, best.center) > config.maximum_center_spread_px
-                && distance(other.center, candidate.center) <= config.maximum_center_spread_px
-            {
-                cluster_votes += 1;
-                if cluster_votes >= config.minimum_competing_fit_votes {
-                    return Ok(true);
-                }
-            }
-        }
-    }
-    Ok(false)
 }
 
 fn coverage(points: &[Candidate], center: [f64; 2], cfg: &BallLocalizationConfig) -> (f64, f64) {
@@ -1173,6 +1768,8 @@ fn refine_ball_batch_impl(
     scaled.inlier_threshold_px *= scale;
     scaled.maximum_residual_px *= scale;
     scaled.maximum_center_spread_px *= scale;
+    scaled.maximum_alternative_residual_tolerance_px *= scale;
+    scaled.maximum_same_boundary_outline_disagreement_px *= scale;
     scaled.irls_scale_floor_px *= scale;
     scaled.convergence_px *= scale;
     let batch_end = Instant::now() + Duration::from_millis(config.batch_budget_ms);
@@ -1401,20 +1998,14 @@ fn refine_one(
                     strength,
                 });
             }
-            ray_candidates.sort_by(|a, b| b.strength.total_cmp(&a.strength));
-            let mut selected = Vec::<Candidate>::new();
-            for c in ray_candidates {
-                if selected
-                    .iter()
-                    .all(|p| distance(p.point, c.point) >= cfg.gradient_step_px)
-                {
-                    selected.push(c);
-                    if selected.len() == cfg.candidates_per_ray {
-                        break;
-                    }
-                }
-            }
-            candidates.extend(selected);
+            // Adjacent samples whose gradient footprints overlap are the same
+            // observed transition, not independent contour hypotheses. Keep
+            // genuinely separated transitions on the same ray.
+            candidates.extend(strongest_distinct_ray_transitions(
+                ray_candidates,
+                cfg.candidates_per_ray,
+                2.0 * cfg.gradient_step_px,
+            ));
         }
         quality.boundary_candidates = Some(candidates.len());
         let mut supported = vec![false; cfg.angular_samples];
@@ -1447,8 +2038,6 @@ fn refine_one(
         // Sampling belongs to the crop and configuration. Detection identity
         // is metadata only and must not change the geometry we estimate.
         let mut seed = cfg.seed;
-        let mut best: Option<(Circle, usize, f64)> = None;
-        let mut best_id = 0;
         let mut hypotheses = Vec::new();
         for _ in 0..cfg.ransac_iterations {
             deadline(Instant::now(), end)?;
@@ -1461,189 +2050,194 @@ fn refine_one(
             let Some(fit) = three_circle(a.point, b.point, c.point, cfg.numerical_epsilon) else {
                 continue;
             };
-            if fit.radius < radius * cfg.radius_min_fraction
-                || fit.radius > radius * cfg.radius_max_fraction
-                || distance(fit.center, [0.0, 0.0]) > radius * cfg.maximum_center_shift_fraction
-            {
+            if !within_refined_radius_bounds(fit.radius, radius, cfg) {
+                continue;
+            }
+            let Some(center_image_px) = view.source(k, fit.center) else {
+                continue;
+            };
+            if !within_center_shift_budget(
+                distance(center_image_px, initial),
+                right - left,
+                bottom - top,
+                cfg.maximum_center_shift_fraction,
+            ) {
                 continue;
             }
             let selected = select(&candidates, fit, cfg);
-            let error = selected
+            if selected.len() < cfg.minimum_inliers {
+                continue;
+            }
+            let residual_rms_px = (selected
                 .iter()
                 .map(|c| (distance(c.point, fit.center) - fit.radius).powi(2))
-                .sum::<f64>();
+                .sum::<f64>()
+                / selected.len() as f64)
+                .sqrt();
+            if !residual_rms_px.is_finite() {
+                continue;
+            }
+            let source_residual_rms_px = source_residual_rms_px(&selected, fit, view, k, end)?;
             let fit_id = hypotheses.len();
-            hypotheses.push((fit, selected.len(), error));
+            hypotheses.push(RawHypothesis {
+                fit_id,
+                fit,
+                supported_rays: selected.len(),
+                source_residual_rms_px,
+                center_image_px,
+            });
             record_trace(trace, proposal.detection_index, quality, || {
                 BallLocalizationAuditEventData::RawHypothesis {
                     fit_id,
                     center_local_px: fit.center,
-                    center_image_px: view.source(k, fit.center),
+                    center_image_px: Some(center_image_px),
                     radius_local_px: fit.radius,
                     support: selected.len(),
-                    squared_error_local_px: error,
+                    squared_error_local_px: residual_rms_px.powi(2) * selected.len() as f64,
                 }
             });
-            if best.is_none_or(|(_, n, e)| selected.len() > n || (selected.len() == n && error < e))
-            {
-                best = Some((fit, selected.len(), error));
-                best_id = fit_id;
-            }
         }
-        let Some((fit, best_support, best_error)) = best else {
-            return Err(RejectionReason::AmbiguousBoundary);
+        quality.stage = BallFitStage::CandidateSelection;
+        let (representatives, search_truncated) =
+            choose_diverse_representatives(&hypotheses, k, view, cfg, end)?;
+        if representatives.is_empty() {
+            quality.candidate_search_truncated = search_truncated;
+            return Err(if search_truncated {
+                RejectionReason::AmbiguousBoundary
+            } else {
+                RejectionReason::InsufficientBoundary
+            });
+        }
+
+        let base_quality = quality.clone();
+        let candidate_context = CandidateEvaluationContext {
+            candidates: &candidates,
+            view,
+            intrinsics: k,
+            initial_center_image_px: initial,
+            proposal_radius_px: radius,
+            bbox_width_px: right - left,
+            bbox_height_px: bottom - top,
+            background_rgb: bg,
+            sample: &sample,
+            config: cfg,
+            deadline: end,
+            base_quality: &base_quality,
+            detection_index: proposal.detection_index,
         };
-        quality.fit_id = Some(best_id);
-        quality.stage = BallFitStage::AmbiguityAssessment;
-        // Competing high-support centers are ambiguity, not extra confidence.
-        // Preserve the coarse proposal only when a spatially coherent
-        // alternative is repeatedly found. A lone random RANSAC sample can
-        // land on another edge combination even when the selected contour's
-        // coverage and quadrant-removal stability are strong.
-        if has_competing_fit_cluster(&hypotheses, fit, best_support, best_error, cfg, end)? {
-            return Err(RejectionReason::AmbiguousBoundary);
-        }
-        quality.stage = BallFitStage::FitRefinement;
-        let selected = select(&candidates, fit, cfg);
-        if selected.len() < cfg.minimum_inliers {
-            return Err(RejectionReason::InsufficientBoundary);
-        }
-        let points: Vec<[f64; 2]> = selected.iter().map(|c| c.point).collect();
-        let fit = irls(fit, &points, cfg, end)?;
-        record_trace(trace, proposal.detection_index, quality, || {
-            BallLocalizationAuditEventData::RefinedFit {
-                fit_id: best_id,
-                center_local_px: fit.center,
-                center_image_px: view.source(k, fit.center),
-                radius_local_px: fit.radius,
-                outline_image_px: (0..cfg.outline_samples)
-                    .map(|step| {
-                        let angle =
-                            std::f64::consts::TAU * step as f64 / cfg.outline_samples as f64;
-                        view.source(
-                            k,
-                            [
-                                fit.center[0] + fit.radius * angle.cos(),
-                                fit.center[1] + fit.radius * angle.sin(),
-                            ],
-                        )
-                    })
-                    .collect(),
-            }
-        });
-        deadline(Instant::now(), end)?;
-        let selected = select(&candidates, fit, cfg);
-        quality.inliers = Some(selected.len());
-        if trace.is_some() {
-            for candidate in &selected {
-                deadline(Instant::now(), end)?;
-                record_trace(trace, proposal.detection_index, quality, || {
-                    BallLocalizationAuditEventData::SelectedInlier {
-                        fit_id: best_id,
-                        ray: candidate.ray,
-                        point_local_px: candidate.point,
-                        point_image_px: view.source(k, candidate.point),
-                    }
-                });
-            }
-        }
-        if selected.len() < cfg.minimum_inliers {
-            return Err(RejectionReason::InsufficientBoundary);
-        }
-        quality.stage = BallFitStage::Coverage;
-        let (coverage, gap) = coverage(&selected, fit.center, cfg);
-        quality.angular_coverage = Some(coverage);
-        quality.largest_gap_fraction = Some(gap);
-        if coverage < cfg.minimum_coverage || gap > cfg.maximum_gap_fraction {
-            return Err(RejectionReason::InadequateCoverage);
-        }
-        quality.stage = BallFitStage::Residual;
-        let rms = (selected
-            .iter()
-            .map(|c| (distance(c.point, fit.center) - fit.radius).powi(2))
-            .sum::<f64>()
-            / selected.len() as f64)
-            .sqrt();
-        quality.residual_rms_px = Some(rms);
-        if rms > cfg.maximum_residual_px {
-            return Err(RejectionReason::ExcessiveResidual);
-        }
-        quality.stage = BallFitStage::CenterProjection;
-        let source = view
-            .source(k, fit.center)
-            .ok_or(RejectionReason::NumericalFailure)?;
-        let shift = distance(source, initial);
-        quality.center_shift_px = Some(shift);
-        if shift > (right - left).min(bottom - top) / 2.0 * cfg.maximum_center_shift_fraction {
-            return Err(RejectionReason::ExcessiveCenterShift);
-        }
-        // Leave-sector-group-out fits expose arc sensitivity without pretending
-        // this spread is a calibrated statistical uncertainty or confidence.
-        quality.stage = BallFitStage::CenterStability;
-        let mut spread: f64 = 0.0;
-        for omit in 0..4 {
+        let mut attempts = Vec::with_capacity(representatives.len());
+        let mut first_rejection: Option<(RejectionReason, BallLocalizationQuality)> = None;
+        for (attempt_index, representative) in representatives.iter().enumerate() {
             deadline(Instant::now(), end)?;
-            let subset: Vec<[f64; 2]> = selected
-                .iter()
-                .filter(|c| {
-                    let a = (c.point[1] - fit.center[1])
-                        .atan2(c.point[0] - fit.center[0])
-                        .rem_euclid(std::f64::consts::TAU);
-                    (a / std::f64::consts::FRAC_PI_2).floor() as usize != omit
-                })
-                .map(|c| c.point)
-                .collect();
-            if subset.len() < 3 {
-                return Err(RejectionReason::UnstableCenter);
-            }
-            let other = irls(fit, &subset, cfg, end)?;
-            let other = view
-                .source(k, other.center)
-                .ok_or(RejectionReason::NumericalFailure)?;
-            spread = spread.max(distance(source, other));
-        }
-        quality.center_spread_px = Some(spread);
-        if spread > cfg.maximum_center_spread_px {
-            return Err(RejectionReason::UnstableCenter);
-        }
-        quality.stage = BallFitStage::Foreground;
-        let mut foreground = 0;
-        let mut available = 0;
-        // Probe the interior across all ray directions, rather than accepting
-        // a small bright number or highlight as an entire ball silhouette.
-        for ray in 0..cfg.angular_samples {
-            deadline(Instant::now(), end)?;
-            let angle = std::f64::consts::TAU * ray as f64 / cfg.angular_samples as f64;
-            let r = fit.radius * cfg.radius_min_fraction;
-            if let Some(p) = sample([
-                fit.center[0] + r * angle.cos(),
-                fit.center[1] + r * angle.sin(),
-            ]) {
-                available += 1;
-                if color_distance(p, bg) >= cfg.minimum_foreground_background_contrast {
-                    foreground += 1;
+            let mut attempt =
+                evaluate_candidate(&representative.hypothesis, &candidate_context, trace);
+            attempt.quality.candidate_representatives_evaluated = attempt_index + 1;
+            attempt.quality.candidate_search_truncated = search_truncated;
+            let attempt_deadline_exceeded =
+                attempt.rejection == Some(RejectionReason::DeadlineExceeded);
+            if let Some(reason) = attempt.rejection {
+                if reason != RejectionReason::DeadlineExceeded && first_rejection.is_none() {
+                    first_rejection = Some((reason, attempt.quality.clone()));
                 }
             }
+            if trace.is_some() && !attempt.diagnostic_outline_image_px.is_empty() {
+                record_trace(trace, proposal.detection_index, &attempt.quality, || {
+                    BallLocalizationAuditEventData::RefinedFit {
+                        fit_id: attempt.fit_id,
+                        center_local_px: attempt.fit.center,
+                        center_image_px: attempt.center_image_px,
+                        radius_local_px: attempt.fit.radius,
+                        outline_image_px: attempt.diagnostic_outline_image_px.clone(),
+                    }
+                });
+                if !attempt_deadline_exceeded {
+                    deadline(Instant::now(), end)?;
+                }
+            }
+            if trace.is_some() {
+                record_trace(trace, proposal.detection_index, &attempt.quality, || {
+                    BallLocalizationAuditEventData::CandidateEvaluation {
+                        fit_id: attempt.fit_id,
+                        center_image_px: attempt.center_image_px,
+                        supported_rays: attempt.supported_rays,
+                        residual_rms_px: attempt.quality.residual_rms_px,
+                        source_residual_rms_px: attempt.source_residual_rms_px,
+                        rejection: attempt.rejection,
+                        quality: Box::new(attempt.quality.clone()),
+                        outline_image_px: attempt.diagnostic_outline_image_px.clone(),
+                    }
+                });
+                if !attempt_deadline_exceeded {
+                    deadline(Instant::now(), end)?;
+                }
+            }
+            if attempt_deadline_exceeded {
+                *quality = attempt.quality;
+                return Err(RejectionReason::DeadlineExceeded);
+            }
+            attempts.push(attempt);
         }
-        let fraction = foreground as f64 / available.max(1) as f64;
-        quality.foreground_fraction = Some(fraction);
-        if fraction < cfg.minimum_foreground_fraction {
-            return Err(RejectionReason::InsufficientForeground);
+
+        let mut qualified_indices = attempts
+            .iter()
+            .enumerate()
+            .filter_map(|(index, attempt)| attempt.is_qualified().then_some(index))
+            .collect::<Vec<_>>();
+        qualified_indices.sort_by(|&a, &b| candidate_attempt_rank(&attempts[a], &attempts[b]));
+        if qualified_indices.is_empty() {
+            if let Some((reason, mut failed_quality)) = first_rejection {
+                failed_quality.candidate_representatives_evaluated = attempts.len();
+                failed_quality.candidate_search_truncated = search_truncated;
+                failed_quality.qualified_candidate_count = 0;
+                *quality = failed_quality;
+                if search_truncated {
+                    quality.stage = BallFitStage::AmbiguityAssessment;
+                    return Err(RejectionReason::AmbiguousBoundary);
+                }
+                return Err(reason);
+            }
+            quality.candidate_representatives_evaluated = attempts.len();
+            quality.candidate_search_truncated = search_truncated;
+            return Err(if search_truncated {
+                quality.stage = BallFitStage::AmbiguityAssessment;
+                RejectionReason::AmbiguousBoundary
+            } else {
+                RejectionReason::InsufficientBoundary
+            });
         }
-        let change = distance(axis, source);
-        axis = source;
-        final_fit = Some((view, fit, source));
+
+        let best_index = qualified_indices[0];
+        let best = &attempts[best_index];
+        let distinct_qualified_alternative =
+            has_distinct_qualified_alternative(&attempts, &qualified_indices, cfg, end)?;
+        if search_truncated || distinct_qualified_alternative {
+            *quality = best.quality.clone();
+            quality.candidate_representatives_evaluated = attempts.len();
+            quality.qualified_candidate_count = qualified_indices.len();
+            quality.candidate_search_truncated = search_truncated;
+            quality.stage = BallFitStage::AmbiguityAssessment;
+            return Err(RejectionReason::AmbiguousBoundary);
+        }
+
+        let best = &attempts[best_index];
+        let center = best.center_image_px.expect("qualified candidate center");
+        let outline = best.outline.clone().expect("qualified candidate outline");
+        let change = distance(axis, center);
+        axis = center;
+        *quality = best.quality.clone();
+        quality.candidate_representatives_evaluated = attempts.len();
+        quality.qualified_candidate_count = qualified_indices.len();
+        quality.candidate_search_truncated = false;
+        final_fit = Some((center, outline));
         if change < cfg.convergence_px {
             break;
         }
     }
-    quality.stage = BallFitStage::OutlineProjection;
     deadline(Instant::now(), end)?;
-    let (view, fit, center) = final_fit.ok_or(RejectionReason::NumericalFailure)?;
-    let outline = project_outline(k, view, fit, center, cfg, end, quality)?;
-    Ok((center, outline))
+    final_fit.ok_or(RejectionReason::NumericalFailure)
 }
 
+#[cfg(test)]
 fn project_outline(
     k: &CameraIntrinsics,
     view: View,
@@ -1653,22 +2247,24 @@ fn project_outline(
     end: Instant,
     quality: &mut BallLocalizationQuality,
 ) -> Result<BallOutline, RejectionReason> {
+    let points = source_outline_points(k, view, fit, cfg.outline_samples, end)?;
+    outline_from_source_points(k, fit, center, &points, end, quality)
+}
+
+fn outline_from_source_points(
+    k: &CameraIntrinsics,
+    fit: Circle,
+    center: [f64; 2],
+    points: &[[f64; 2]],
+    end: Instant,
+    quality: &mut BallLocalizationQuality,
+) -> Result<BallOutline, RejectionReason> {
     quality.stage = BallFitStage::OutlineProjection;
     deadline(Instant::now(), end)?;
-    let mut points = Vec::new();
+    let mut outline_points = Vec::with_capacity(points.len());
     let mut extent = [0.0f64; 2];
-    for step in 0..cfg.outline_samples {
+    for &p in points {
         deadline(Instant::now(), end)?;
-        let angle = std::f64::consts::TAU * step as f64 / cfg.outline_samples as f64;
-        let p = view
-            .source(
-                k,
-                [
-                    fit.center[0] + fit.radius * angle.cos(),
-                    fit.center[1] + fit.radius * angle.sin(),
-                ],
-            )
-            .ok_or(RejectionReason::NumericalFailure)?;
         if p[0] < 0.0
             || p[1] < 0.0
             || p[0] >= f64::from(k.source_width_px)
@@ -1679,11 +2275,11 @@ fn project_outline(
         for i in 0..2 {
             extent[i] = extent[i].max((p[i] - center[i]).abs());
         }
-        points.push(p);
+        outline_points.push(p);
     }
     quality.stage = BallFitStage::Complete;
     Ok(BallOutline {
-        points_image_px: points,
+        points_image_px: outline_points,
         half_extent_image_px: extent,
         local_radius_px: fit.radius,
     })
@@ -1794,73 +2390,350 @@ mod diagnostic_tests {
 
 #[cfg(test)]
 mod ambiguity_tests {
-    use super::{has_competing_fit_cluster, BallLocalizationConfig, Circle};
+    use super::{
+        choose_diverse_representatives, has_distinct_qualified_alternative, irls,
+        outline_disagreement_px, residual_is_plausible, same_source_boundary,
+        source_residual_rms_px, strongest_distinct_ray_transitions, within_center_shift_budget,
+        within_refined_radius_bounds, BallFitStage, BallLocalizationConfig,
+        BallLocalizationQuality, BallOutline, CameraIntrinsics, Candidate, CandidateAttempt,
+        Circle, RawHypothesis, RejectionReason, View,
+    };
     use std::time::{Duration, Instant};
 
-    fn deadline() -> Instant {
-        Instant::now() + Duration::from_secs(1)
+    fn source_camera() -> CameraIntrinsics {
+        CameraIntrinsics {
+            source_width_px: 480,
+            source_height_px: 300,
+            fx: 260.0,
+            fy: 273.0,
+            cx: 240.0,
+            cy: 150.0,
+        }
     }
 
     #[test]
-    fn isolated_alternative_ransac_sample_does_not_reject_a_stable_center() {
-        let config = BallLocalizationConfig::default();
-        let best = Circle {
-            center: [0.0, 0.0],
-            radius: 20.0,
-        };
+    fn jittered_raw_hypotheses_collapse_to_one_source_boundary() {
+        let k = source_camera();
+        let axis = [240.0, 150.0];
+        let view = View::new(&k, axis);
         let hypotheses = [
-            (best, 96, 1.0),
-            (
-                Circle {
-                    center: [4.0, 0.0],
-                    radius: 20.1,
+            RawHypothesis {
+                fit_id: 0,
+                fit: Circle {
+                    center: [0.0, 0.0],
+                    radius: 20.0,
                 },
-                95,
-                1.05,
-            ),
+                supported_rays: 96,
+                source_residual_rms_px: 0.2,
+                center_image_px: axis,
+            },
+            RawHypothesis {
+                fit_id: 1,
+                fit: Circle {
+                    center: [0.12, -0.08],
+                    radius: 20.07,
+                },
+                supported_rays: 95,
+                source_residual_rms_px: 0.21,
+                center_image_px: view.source(&k, [0.12, -0.08]).unwrap(),
+            },
+            RawHypothesis {
+                fit_id: 2,
+                fit: Circle {
+                    center: [-0.1, 0.06],
+                    radius: 19.95,
+                },
+                supported_rays: 94,
+                source_residual_rms_px: 0.22,
+                center_image_px: view.source(&k, [-0.1, 0.06]).unwrap(),
+            },
         ];
-
-        assert!(
-            !has_competing_fit_cluster(&hypotheses, best, 96, 1.0, &config, deadline()).unwrap()
-        );
+        let (representatives, truncated) = choose_diverse_representatives(
+            &hypotheses,
+            &k,
+            view,
+            &BallLocalizationConfig::default(),
+            Instant::now() + Duration::from_secs(1),
+        )
+        .unwrap();
+        assert_eq!(representatives.len(), 1);
+        assert!(!truncated);
     }
 
     #[test]
-    fn repeated_plausible_alternative_center_is_rejected() {
-        let config = BallLocalizationConfig::default();
-        let best = Circle {
-            center: [0.0, 0.0],
-            radius: 20.0,
-        };
-        let alternative = Circle {
-            center: [4.0, 0.0],
-            radius: 20.1,
-        };
-        let hypotheses = [
-            (best, 96, 1.0),
-            (alternative, 95, 1.05),
-            (alternative, 95, 1.06),
-            (alternative, 94, 1.07),
-        ];
-
-        assert!(
-            has_competing_fit_cluster(&hypotheses, best, 96, 1.0, &config, deadline()).unwrap()
-        );
+    fn distinct_fully_qualified_source_contours_are_ambiguous() {
+        let first = qualified_attempt(0, [100.0, 100.0], 20.0, 96, 0.2);
+        let second = qualified_attempt(1, [104.0, 100.0], 20.2, 95, 0.22);
+        let attempts = [first, second];
+        assert!(has_distinct_qualified_alternative(
+            &attempts,
+            &[0, 1],
+            &BallLocalizationConfig::default(),
+            Instant::now() + Duration::from_secs(1),
+        )
+        .unwrap());
     }
 
     #[test]
-    fn competing_fit_scan_respects_the_refinement_deadline() {
-        let config = BallLocalizationConfig::default();
-        let best = Circle {
-            center: [0.0, 0.0],
-            radius: 20.0,
-        };
-        let hypotheses = [(best, 96, 1.0)];
-        let expired = Instant::now() - Duration::from_millis(1);
-
+    fn converged_candidates_with_matching_source_outlines_are_one_boundary() {
+        let first = qualified_attempt(0, [100.0, 100.0], 20.0, 96, 0.2);
+        let second = qualified_attempt(1, [100.2, 100.1], 20.15, 95, 0.22);
+        let attempts = [first, second];
         assert_eq!(
-            has_competing_fit_cluster(&hypotheses, best, 96, 1.0, &config, expired),
-            Err(super::RejectionReason::DeadlineExceeded)
+            has_distinct_qualified_alternative(
+                &attempts,
+                &[0, 1],
+                &BallLocalizationConfig::default(),
+                Instant::now() + Duration::from_secs(1),
+            ),
+            Ok(false)
         );
+    }
+
+    #[test]
+    fn alternative_residual_uses_normalized_rms_and_an_explicit_noise_floor() {
+        let cfg = BallLocalizationConfig {
+            maximum_alternative_residual_tolerance_px: 0.25,
+            ..BallLocalizationConfig::default()
+        };
+        assert!(residual_is_plausible(95, 0.25, 96, 0.01, &cfg));
+        assert!(!residual_is_plausible(95, 0.27, 96, 0.01, &cfg));
+        assert!(!residual_is_plausible(90, 0.01, 96, 0.01, &cfg));
+    }
+
+    #[test]
+    fn residual_rms_comparison_projects_measurements_to_source_pixels() {
+        let k = source_camera();
+        let fit = Circle {
+            center: [0.0, 0.0],
+            radius: 20.0,
+        };
+        let candidates = (0..96)
+            .map(|ray| {
+                let angle = std::f64::consts::TAU * ray as f64 / 96.0;
+                Candidate {
+                    point: [21.0 * angle.cos(), 21.0 * angle.sin()],
+                    ray,
+                    strength: 1.0,
+                }
+            })
+            .collect::<Vec<_>>();
+        let centered_view = View::new(&k, [k.cx, k.cy]);
+        let off_axis_view = View::new(&k, [400.0, k.cy]);
+        let end = Instant::now() + Duration::from_secs(1);
+        let centered_rms =
+            source_residual_rms_px(&candidates, fit, centered_view, &k, end).unwrap();
+        let off_axis_rms =
+            source_residual_rms_px(&candidates, fit, off_axis_view, &k, end).unwrap();
+        assert!((centered_rms - 1.0).abs() < 1e-9);
+        assert!((off_axis_rms - centered_rms).abs() > 0.01);
+    }
+
+    #[test]
+    fn same_boundary_comparison_uses_source_image_pixels() {
+        let k = source_camera();
+        let view = View::new(&k, [60.0, 150.0]);
+        let first_center = view.source(&k, [0.0, 0.0]).unwrap();
+        let second_center = view.source(&k, [1.7, 0.0]).unwrap();
+        let first_outline = circle_outline(first_center, 12.0);
+        let second_outline = circle_outline(second_center, 12.0);
+        assert!((first_center[0] - second_center[0]).abs() > 1.5);
+        assert!(!same_source_boundary(
+            first_center,
+            &first_outline,
+            second_center,
+            &second_outline,
+            &BallLocalizationConfig::default(),
+            Instant::now() + Duration::from_secs(1),
+        )
+        .unwrap());
+    }
+
+    #[test]
+    fn same_center_with_materially_different_outlines_is_not_one_boundary() {
+        let center = [80.0, 80.0];
+        assert!(
+            outline_disagreement_px(
+                &circle_outline(center, 10.0),
+                &circle_outline(center, 13.0),
+                Instant::now() + Duration::from_secs(1),
+            )
+            .unwrap()
+                > 1.5
+        );
+        assert!(!same_source_boundary(
+            center,
+            &circle_outline(center, 10.0),
+            center,
+            &circle_outline(center, 13.0),
+            &BallLocalizationConfig::default(),
+            Instant::now() + Duration::from_secs(1),
+        )
+        .unwrap());
+    }
+
+    #[test]
+    fn candidate_cap_records_plausible_unevaluated_boundary_and_deadline_is_checked() {
+        let k = source_camera();
+        let view = View::new(&k, [240.0, 150.0]);
+        let hypotheses = [
+            raw_hypothesis(0, [0.0, 0.0], 20.0, [240.0, 150.0]),
+            raw_hypothesis(1, [5.0, 0.0], 20.0, [245.0, 150.0]),
+        ];
+        let cfg = BallLocalizationConfig {
+            maximum_refined_candidates: 1,
+            ..BallLocalizationConfig::default()
+        };
+        let (representatives, truncated) = choose_diverse_representatives(
+            &hypotheses,
+            &k,
+            view,
+            &cfg,
+            Instant::now() + Duration::from_secs(1),
+        )
+        .unwrap();
+        assert_eq!(representatives.len(), 1);
+        assert!(truncated);
+
+        let expired = Instant::now() - Duration::from_millis(1);
+        assert!(matches!(
+            choose_diverse_representatives(&hypotheses, &k, view, &cfg, expired),
+            Err(RejectionReason::DeadlineExceeded)
+        ));
+    }
+
+    #[test]
+    fn deadline_during_qualified_alternative_search_is_not_ignored() {
+        let attempts = [
+            qualified_attempt(0, [100.0, 100.0], 20.0, 96, 0.2),
+            qualified_attempt(1, [104.0, 100.0], 20.2, 95, 0.22),
+        ];
+        let expired = Instant::now() - Duration::from_millis(1);
+        assert!(matches!(
+            has_distinct_qualified_alternative(
+                &attempts,
+                &[0, 1],
+                &BallLocalizationConfig::default(),
+                expired,
+            ),
+            Err(RejectionReason::DeadlineExceeded)
+        ));
+    }
+
+    #[test]
+    fn source_shift_limit_is_fraction_of_the_shorter_box_side() {
+        let max_shift = 0.2 * 20.0;
+        assert!(within_center_shift_budget(max_shift, 20.0, 24.0, 0.2));
+        assert!(!within_center_shift_budget(
+            max_shift + 1e-9,
+            20.0,
+            24.0,
+            0.2
+        ));
+    }
+
+    #[test]
+    fn adjacent_radial_samples_collapse_but_a_farther_transition_remains() {
+        let selected = strongest_distinct_ray_transitions(
+            vec![
+                Candidate {
+                    point: [10.0, 0.0],
+                    ray: 0,
+                    strength: 1.0,
+                },
+                Candidate {
+                    point: [11.5, 0.0],
+                    ray: 0,
+                    strength: 0.9,
+                },
+                Candidate {
+                    point: [14.5, 0.0],
+                    ray: 0,
+                    strength: 0.8,
+                },
+            ],
+            3,
+            2.0,
+        );
+        assert_eq!(selected.len(), 2);
+        assert_eq!(selected[0].point, [10.0, 0.0]);
+        assert_eq!(selected[1].point, [14.5, 0.0]);
+    }
+
+    #[test]
+    fn irls_radius_drift_outside_proposal_bounds_is_rejected() {
+        let cfg = BallLocalizationConfig::default();
+        let points = (0..96)
+            .map(|ray| {
+                let angle = std::f64::consts::TAU * ray as f64 / 96.0;
+                [14.2 * angle.cos(), 14.2 * angle.sin()]
+            })
+            .collect::<Vec<_>>();
+        let raw = Circle {
+            center: [0.0, 0.0],
+            radius: 14.0,
+        };
+        assert!(within_refined_radius_bounds(raw.radius, 10.0, &cfg));
+        let refined = irls(raw, &points, &cfg, Instant::now() + Duration::from_secs(1)).unwrap();
+        assert!(refined.radius > 14.0);
+        assert!(!within_refined_radius_bounds(refined.radius, 10.0, &cfg));
+    }
+
+    fn raw_hypothesis(
+        fit_id: usize,
+        center: [f64; 2],
+        radius: f64,
+        source_center: [f64; 2],
+    ) -> RawHypothesis {
+        RawHypothesis {
+            fit_id,
+            fit: Circle { center, radius },
+            supported_rays: 96 - fit_id,
+            source_residual_rms_px: 0.2 + fit_id as f64 * 0.01,
+            center_image_px: source_center,
+        }
+    }
+
+    fn qualified_attempt(
+        fit_id: usize,
+        center: [f64; 2],
+        radius: f64,
+        supported_rays: usize,
+        residual_rms_px: f64,
+    ) -> CandidateAttempt {
+        CandidateAttempt {
+            fit_id,
+            fit: Circle {
+                center: [0.0, 0.0],
+                radius,
+            },
+            supported_rays,
+            source_residual_rms_px: Some(residual_rms_px),
+            center_image_px: Some(center),
+            outline: Some(BallOutline {
+                points_image_px: circle_outline(center, radius),
+                half_extent_image_px: [radius; 2],
+                local_radius_px: radius,
+            }),
+            diagnostic_outline_image_px: Vec::new(),
+            quality: BallLocalizationQuality {
+                stage: BallFitStage::Complete,
+                residual_rms_px: Some(residual_rms_px),
+                ..BallLocalizationQuality::default()
+            },
+            rejection: None,
+        }
+    }
+
+    fn circle_outline(center: [f64; 2], radius: f64) -> Vec<[f64; 2]> {
+        (0..48)
+            .map(|step| {
+                let angle = std::f64::consts::TAU * step as f64 / 48.0;
+                [
+                    center[0] + radius * angle.cos(),
+                    center[1] + radius * angle.sin(),
+                ]
+            })
+            .collect()
     }
 }
