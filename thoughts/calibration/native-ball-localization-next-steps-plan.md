@@ -193,44 +193,68 @@ a spherical silhouette and supports evaluating the fixed-diameter sphere
 geometry before adding another lens warp. It remains diagnostic because the
 outline annotations are not independent true-boundary labels.
 
-### Next investigation — fixed-diameter sphere geometry with 2D output
+### Follow-up — fixed-diameter sphere-conic audit completed
 
-Use the physical invariant already supplied by the user: every ball is
-57.15 mm in diameter and every ball center lies on one fixed plane parallel to
-the cloth, 28.575 mm above it. This investigation must not estimate a separate
-height/depth for each ball and must not publish Z. Its only requested output is
-table X/Y. Existing references are the nine user-confirmed positions in
-`table-grid-20261026-114241-measurements.json`; their uncertainty is unknown,
-so they support geometric consistency checks, not a claim of 2 mm accuracy.
+The saved-image audit is reproducible from
+`offline-sphere-projection-audit-20261027.py`; its evidence and input hashes
+are in `sphere-projection-audit-20261027/`. The tangent-cone inversion passes
+ideal synthetic checks using the fixed 57.15 mm diameter: maximum noiseless
+table X/Y error is 0.00040 mm across six table positions, 200-degree partial
+arcs remain below 0.00077 mm, and 0.15 px contour noise produces up to 0.935 mm
+error. A synthetic competing outline is disambiguated by the common pose.
+These tests verify the geometry under ideal camera and contour assumptions.
 
-1. From the schema-3 qualified candidate outlines for the nine measured
-   positions, fit source-image conics and use the existing checkerboard camera
-   matrix plus fixed physical radius to recover candidate camera rays/ranges.
-   Keep all candidates and their original quality/rejection data; do not choose
-   an outline by rank or color mean.
-2. Fit one rigid camera-to-table transform from candidate sphere centers and
-   the nine known table X/Y positions, with the sphere-center plane offset
-   fixed to the physical radius. Search candidate-family assignments with a
-   deterministic bounded solver. Report every selected/rejected association,
-   pose residual, and leave-one-ball-out prediction. Reject unstable or
-   degenerate solutions; do not turn the training residual into an accuracy
-   claim.
-3. Verify the conic-to-sphere and plane mapping first on synthetic scenes with
-   known intrinsics, camera pose, fixed radius, edge positions, pixel noise,
-   partial arcs, and competing nearby outlines. Check that recovered X/Y is
-   stable and that no ball-specific height is estimated.
-4. Compare its held-out consistency against the existing image-center
-   homography diagnostic and the contour-color failures. Do not activate the
-   method unless it selects stable boundaries across all nine and improves
-   leave-one-ball-out X/Y consistency without weakening quality gates.
-5. If the known references cannot constrain a stable pose, keep the current
-   fail-closed result and document the missing independent information. Do not
-   ask for a jig or new pocket-ball measurements.
+On the saved measured scene, the revision-2 refiner supplies 36 qualified
+outline alternatives for nine balls but rejects all nine final observations as
+ambiguous. The deterministic four-quadrilateral search examined 912 initial
+candidate combinations and found 177 distinct converged assignments; the
+search is bounded and heuristic, not exhaustive. Its best all-nine training
+X/Y RMS is 15.208 mm (maximum point residual 31.839 mm). In leave-one-ball-out
+evaluation, choosing the best held-out candidate after seeing that ball's
+known position gives an optimistic oracle RMS of 18.652 mm. This is not a
+predictive selector. The existing segmentation-center homography's leave-one-
+out RMS is 8.706 mm. The oracle score is worse, and the all-nine solution
+chooses the candidate nearest the same-image segmentation-center prior only
+once in nine cases. The nine references have unknown uncertainty; neither
+method establishes physical accuracy.
 
-This is an offline geometry experiment. No fisheye profile, calibration asset,
-camera/FPS setting, or production refiner change is authorized by its fit
-alone. Physical accuracy, a selected camera FPS, and live availability remain
-unqualified.
+The result rejects this candidate-selection method as an improvement on the
+saved scene. It does not disprove the conic equation or fixed-diameter sphere
+geometry under accurate boundaries. Do not activate it, publish any depth or
+height, or treat a fitted pose as a table calibration asset.
+
+### Next investigation — static table-feature registration on saved images
+
+The user previously said the table dots are precisely measured, but the
+repository contains no exact physical X/Y coordinates for those dots. The
+measurements file contains the table dimensions and nine ball positions only.
+Do not invent dot coordinates from standard table conventions. Continue with
+the existing measured 720p, alternate 720p, and before/after framing images;
+this investigation needs no camera access, new ball positions, or a jig.
+
+1. Annotate visible static marks and geometry in each scene: cloth spots, rail
+   dots, and cushion/cloth boundaries. Record image coordinates and source
+   hashes; distinguish marks on the cloth plane from marks on raised rails.
+2. Estimate image-to-image homographies from only common static features.
+   Hold out at least one visible landmark per comparison and report its
+   transfer error. Never use moving balls as registration anchors.
+3. Compare the measured and alternate 720p frames, then the retained 720p and
+   4K framing pair. Do not transfer the measured scene's ball coordinates to
+   another arrangement. Use the existing checkerboard/framing evidence only
+   within its recorded limits.
+4. If an exact dot-coordinate record already exists, use those coordinates
+   for an independently defined table-plane mapping and score the nine ball
+   references without fitting on them. If no such record exists, report only
+   relative image-registration consistency and list absolute metric mapping as
+   unresolved; do not infer the marks' physical spacing from appearance.
+5. Keep all conclusions in the research record until an independent mapping
+   reference and stable ball boundary are both available. No optics profile,
+   localization implementation, calibration asset, camera/FPS setting, or
+   guidance behavior changes follow from image registration alone.
+
+This next experiment separates static table registration from ball-boundary
+selection. Physical accuracy, a selected camera FPS, and live availability
+remain unqualified.
 
 ## 2. Fixed requirements and working rules
 

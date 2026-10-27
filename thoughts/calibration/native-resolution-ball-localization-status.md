@@ -43,11 +43,16 @@ seed, or acceptance gates to make these crops pass. The next useful saved-image
 pixel audit has also been completed: across 27 measured/reserved proposals,
 91 qualified fits and 7,891 inlier-ray RGB profiles, neither transition rank
 nor simple inside/outside color statistics consistently distinguishes the
-physical silhouette. Preserve the ambiguous result. The next investigation is
-to use the known 57.15 mm sphere geometry with a fixed center plane to test
-whether global 2D table consistency can distinguish the candidate silhouettes.
-The fisheye-specific model audit failed to produce an admissible calibration;
-its evidence and limits are recorded below.
+physical silhouette. Preserve the ambiguous result. The fisheye-specific
+model audit failed to produce an admissible calibration. The fixed-sphere
+conic audit also failed to improve table consistency: its best all-nine X/Y
+training RMS was 15.21 mm and its held-out oracle candidate score was 18.65 mm
+RMS, compared with 8.71 mm for the existing segmentation-center homography.
+The oracle uses each held-out answer to choose its candidate, so it is not an
+automatic result. Preserve the synthetic math check, but do not activate this
+selector. The next saved-image task inventories static table spots, rail dots,
+and cushion lines across the existing scenes; exact physical dot coordinates
+are not recorded, so registration alone cannot claim metric accuracy.
 
 ## Project requirements
 
@@ -129,6 +134,16 @@ to a verified camera profile and qualifying its effect.
   straight-edge bow and had unresolved flag/skew behavior. It is rejected as a
   correction candidate, not evidence that the lens is perfectly pinhole.
   Details are in `fisheye-optics-audit-20261027/`.
+- The fixed-sphere conic audit is in `sphere-projection-audit-20261027/`.
+  Ideal synthetic tests recover table X/Y to under 0.001 mm, but 0.15 px
+  contour noise produces up to 0.935 mm error. On the saved scene, 36 qualified
+  outlines across nine balls yield 15.21 mm all-nine training X/Y RMS; the
+  held-out oracle candidate score is 18.65 mm RMS versus 8.71 mm for the
+  existing segmentation-center homography. The oracle sees each held-out
+  position when choosing among candidates, and the bounded search is not
+  exhaustive. This rejects the tested selector as an improvement, not the
+  ideal sphere-conic geometry. The user-provided reference uncertainty remains
+  unknown; no height/depth output or production change is made.
 - The separate ball-center calibration solver fits normalized homographies
   from at least 12 distributed correspondences, reports every residual, and
   validates the asset against runtime context.
@@ -185,12 +200,14 @@ requiring a fixture or claiming the desired accuracy.
 
 The ordered next estimator investigation is recorded in
 `native-ball-localization-next-steps-plan.md`. Identity, sensitivity,
-nine-reference, sample-provenance, candidate-cap, and contour-color audits are
-complete. The fisheye-specific model evaluation is complete and rejected. The
-next saved-input investigation tests whether fixed physical sphere geometry
-and the user-confirmed 2D reference grid can consistently select among
-competing outline fits. Do not emit Z, vary physical diameter, or treat fitted
-consistency as independent physical accuracy.
+nine-reference, sample-provenance, candidate-cap, contour-color, fisheye, and
+fixed-sphere audits are complete. The next saved-input investigation registers
+static table features across the measured, alternate, and framing scenes. No
+exact physical dot coordinates are recorded, so this can establish only
+relative registration until those coordinates are verified in existing
+records. Do not transfer ball coordinates between arrangements, emit Z, vary
+physical diameter, or treat image-registration consistency as physical
+accuracy.
 
 1. Verify and select the native source geometry in the live capture request
    without changing the Coral input tensor shape. The repository default has

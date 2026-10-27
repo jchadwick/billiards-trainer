@@ -280,12 +280,25 @@ Existing ball-outline metrics give a plausible geometric explanation for
 some apparent elongation: the far-left yellow gradient ellipse aspect ratio
 is 1.314 against a 1.312 small-sphere off-axis approximation, and the far-right
 purple ellipse is about 1.25 against about 1.27. These annotations are not
-independent true-boundary labels. The next offline investigation uses the known
-57.15 mm ball diameter and one fixed center plane to test whether global camera
-geometry can resolve competing contours. It must produce X/Y only, estimate
-no per-ball height, and remain fail-closed unless held-out consistency improves
-without treating the user-reported measurements or training residuals as
-independent accuracy truth.
+independent true-boundary labels. The fixed-sphere conic audit is recorded in
+`thoughts/calibration/sphere-projection-audit-20261027/`. Its synthetic
+tangent-cone inversion passes under ideal contours, but the saved measured
+scene does not support a useful selector: 36 qualified outlines across nine
+balls produce 15.208 mm all-nine training X/Y RMS, while leave-one-out
+oracle-best-candidate RMS is 18.652 mm. The oracle sees the held-out physical
+position to choose an outline and is only a lower bound. The existing
+segmentation-center homography reports 8.706 mm on the same references. The
+bounded search is heuristic, not exhaustive, and user-reference uncertainty is
+unknown. Do not activate this method or treat these consistency scores as
+accuracy. This rejects the current candidate-selection experiment, not the
+ideal conic geometry.
+
+The next saved-image investigation registers visible static cloth spots, rail
+dots, and cushion geometry across existing scenes. The project does not
+record exact physical coordinates for the dots, so image registration alone
+cannot produce an independently verified metric table mapping. Keep static
+registration and ball-center localization separate; do not transfer ball
+positions between arrangements or infer dot spacing from standard conventions.
 
 
 ## Consequences
