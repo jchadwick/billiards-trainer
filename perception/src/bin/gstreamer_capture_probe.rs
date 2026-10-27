@@ -26,6 +26,10 @@ use gstreamer_app::AppSink;
 use gstreamer_video::{VideoFormat, VideoFrameExt, VideoFrameRef, VideoInfo};
 use serde::Serialize;
 
+/// Encoded source frames have their own limit because a remote JPEG can have
+/// different dimensions and byte size from the RGB frame emitted by the helper.
+const DEFAULT_MAX_COMPRESSED_JPEG_BYTES: usize = 16 * 1024 * 1024;
+
 #[derive(Debug, Parser)]
 #[command(about = "Run a bounded synthetic or opt-in physical GStreamer capture helper")]
 struct Args {
@@ -62,6 +66,10 @@ struct Args {
     /// Collect scalar capture-stage durations for the opt-in live audit.
     #[arg(long, default_value_t = false)]
     capture_audit_timing: bool,
+    /// Maximum encoded bytes retained for one remote multipart JPEG frame.
+    /// Independent of the decoded RGB output-frame budget.
+    #[arg(long, default_value_t = DEFAULT_MAX_COMPRESSED_JPEG_BYTES)]
+    max_compressed_jpeg_bytes: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
@@ -667,13 +675,180 @@ fn run_physical(args: Args) -> Result<()> {
     Ok(())
 }
 
+/// Keep at most the newest complete compressed frame while the decoder is
+/// busy. A one-frame downstream-leaky queue is an ownership/freshness
+/// invariant, not a configurable throughput buffer: allowing old JPEGs to
+/// accumulate before GPU decoding makes the reported live layout stale.
+#[cfg(feature = "camera-gstreamer-source")]
+fn make_latest_compressed_frame_queue() -> Result<gst::Element> {
+    let queue = gst::ElementFactory::make("queue")
+        .name("remote_mjpeg_latest_compressed_frame")
+        .build()
+        .context("create GStreamer latest compressed-frame queue")?;
+    queue.set_property("max-size-buffers", 1_u32);
+    queue.set_property("max-size-bytes", 0_u32);
+    queue.set_property("max-size-time", 0_u64);
+    queue.set_property_from_str("leaky", "downstream");
+    Ok(queue)
+}
+
+/// A multipart JPEG part commonly has no framerate field. Without an explicit
+/// rate, `jpegparse` may infer 1 FPS and prevent negotiation of the requested
+/// drop-only output rate. This is a nominal caps constraint from the exact
+/// capture settings, not a measurement of the remote camera's real cadence.
+#[cfg(feature = "camera-gstreamer-source")]
+fn make_mjpeg_rate_filter(fps_num: u32, fps_den: u32) -> Result<gst::Element> {
+    ensure!(
+        fps_num > 0 && fps_den > 0,
+        "MJPEG frame rate must be positive"
+    );
+    let filter = gst::ElementFactory::make("capsfilter")
+        .name("remote_mjpeg_nominal_input_rate")
+        .build()
+        .context("create GStreamer MJPEG nominal frame-rate filter")?;
+    let fps = gst::Fraction::new(
+        i32::try_from(fps_num).context("MJPEG frame-rate numerator exceeds GStreamer range")?,
+        i32::try_from(fps_den).context("MJPEG frame-rate denominator exceeds GStreamer range")?,
+    );
+    filter.set_property(
+        "caps",
+        gst::Caps::builder("image/jpeg")
+            .field("framerate", fps)
+            .build(),
+    );
+    Ok(filter)
+}
+
+/// Link the first JPEG part from multipartdemux to the input caps filter. The callback
+/// runs on a streaming thread, so record errors for the helper's owner to
+/// report. Non-image parts and later pads do not replace the selected stream.
+#[cfg(feature = "camera-gstreamer-source")]
+fn connect_multipart_jpeg_input(
+    demux: &gst::Element,
+    input_filter: &gst::Element,
+) -> Result<std::sync::Arc<std::sync::Mutex<Option<String>>>> {
+    use std::sync::{Arc, Mutex};
+
+    let input_sink = input_filter
+        .static_pad("sink")
+        .context("JPEG input caps filter has no sink pad")?;
+    let dynamic_link_error = Arc::new(Mutex::new(None::<String>));
+    let link_error_for_callback = Arc::clone(&dynamic_link_error);
+    demux.connect_pad_added(move |_demux, source_pad| {
+        let caps = source_pad
+            .current_caps()
+            .unwrap_or_else(|| source_pad.query_caps(None));
+        if !caps
+            .structure(0)
+            .is_some_and(|structure| structure.name() == "image/jpeg")
+            || input_sink.is_linked()
+        {
+            return;
+        }
+        if let Err(error) = source_pad.link(&input_sink) {
+            *link_error_for_callback
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(error.to_string());
+        }
+    });
+    Ok(dynamic_link_error)
+}
+
+/// Bound encoded JPEG data at the earliest frame-level point exposed by the
+/// multipart demuxer and again after parsing. Count incoming fragments until a
+/// complete parsed frame is emitted; malformed input cannot make jpegparse
+/// retain an unbounded sequence of fragments. The multipart demuxer's own
+/// internal buffering occurs upstream of these probes and is not covered by
+/// this limit; the source transport must be trusted or independently bounded.
+#[cfg(feature = "camera-gstreamer-source")]
+fn install_compressed_jpeg_limit(
+    parser: &gst::Element,
+    stream_error: &std::sync::Arc<std::sync::Mutex<Option<String>>>,
+    maximum_bytes: usize,
+) -> Result<()> {
+    use std::sync::{Arc, Mutex};
+
+    ensure!(
+        maximum_bytes > 0,
+        "encoded JPEG byte limit must be positive"
+    );
+    let pending_bytes = Arc::new(Mutex::new(0_usize));
+    let input_pending = Arc::clone(&pending_bytes);
+    let input_error = Arc::clone(stream_error);
+    parser
+        .static_pad("sink")
+        .context("JPEG parser has no input pad for encoded-frame limit")?
+        .add_probe(
+            gst::PadProbeType::BUFFER | gst::PadProbeType::BUFFER_LIST,
+            move |_, info| {
+                let incoming = probe_buffer_bytes(info);
+                let mut pending = input_pending
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                *pending = pending.saturating_add(incoming);
+                if *pending > maximum_bytes {
+                    let mut error = input_error
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner);
+                    if error.is_none() {
+                        *error = Some(format!(
+                            "encoded JPEG exceeded configured limit of {maximum_bytes} bytes"
+                        ));
+                    }
+                    return gst::PadProbeReturn::Drop;
+                }
+                gst::PadProbeReturn::Ok
+            },
+        )
+        .context("install encoded JPEG input size probe")?;
+
+    let output_pending = Arc::clone(&pending_bytes);
+    let output_error = Arc::clone(stream_error);
+    parser
+        .static_pad("src")
+        .context("JPEG parser has no output pad for encoded-frame limit")?
+        .add_probe(
+            gst::PadProbeType::BUFFER | gst::PadProbeType::BUFFER_LIST,
+            move |_, info| {
+                *output_pending
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner) = 0;
+                if probe_buffer_bytes(info) > maximum_bytes {
+                    let mut error = output_error
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner);
+                    if error.is_none() {
+                        *error = Some(format!(
+                            "parsed JPEG exceeded configured limit of {maximum_bytes} bytes"
+                        ));
+                    }
+                    return gst::PadProbeReturn::Drop;
+                }
+                gst::PadProbeReturn::Ok
+            },
+        )
+        .context("install parsed JPEG output size probe")?;
+    Ok(())
+}
+
+#[cfg(feature = "camera-gstreamer-source")]
+fn probe_buffer_bytes(info: &gst::PadProbeInfo<'_>) -> usize {
+    if let Some(buffer) = info.buffer() {
+        buffer.size()
+    } else if let Some(list) = info.buffer_list() {
+        list.iter()
+            .fold(0_usize, |total, buffer| total.saturating_add(buffer.size()))
+    } else {
+        0
+    }
+}
+
 /// Consume a remote multipart MJPEG stream through a leaky, bounded GStreamer
 /// path. This is an explicit development source; it does not report camera
 /// controls or source exposure timestamps.
 #[cfg(feature = "camera-gstreamer-source")]
 fn run_http_mjpeg(args: Args) -> Result<()> {
     use billiards_perception::capture_settings_wire::ResolvedCameraControlsPolicy;
-    use std::sync::{Arc, Mutex};
 
     let url = args
         .http_mjpeg_url
@@ -747,10 +922,21 @@ fn run_http_mjpeg(args: Args) -> Result<()> {
         .name("remote_mjpeg_demux")
         .build()
         .context("create GStreamer multipartdemux; install the GStreamer multipart plugin")?;
-    let decoder = gst::ElementFactory::make("jpegdec")
+    // `multipartdemux` exposes JPEG parts as dynamic pads. Parse complete
+    // JPEG frames before the one-item queue, so overload discards old
+    // *compressed* images instead of wasting GPU work on stale frames.
+    let input_rate_filter = make_mjpeg_rate_filter(fps_num, fps_den)?;
+    let parser = gst::ElementFactory::make("jpegparse")
+        .name("remote_mjpeg_parser")
+        .build()
+        .context("create GStreamer jpegparse; install the GStreamer JPEG parser plugin")?;
+    let compressed_queue = make_latest_compressed_frame_queue()?;
+    let decoder = gst::ElementFactory::make("vaapijpegdec")
         .name("remote_mjpeg_decoder")
         .build()
-        .context("create GStreamer jpegdec; install the GStreamer JPEG plugin")?;
+        .context(
+            "create GStreamer vaapijpegdec; install the VA-API plugin and make the Intel GPU render device accessible",
+        )?;
     let rate_filter = gst::ElementFactory::make("videorate")
         .name("remote_mjpeg_rate_limit")
         .build()
@@ -794,6 +980,9 @@ fn run_http_mjpeg(args: Args) -> Result<()> {
         .add_many([
             &source,
             &demux,
+            &input_rate_filter,
+            &parser,
+            &compressed_queue,
             &decoder,
             &rate_filter,
             &converter,
@@ -805,6 +994,15 @@ fn run_http_mjpeg(args: Args) -> Result<()> {
     source
         .link(&demux)
         .context("link HTTP source to multipart demuxer")?;
+    input_rate_filter
+        .link(&parser)
+        .context("link MJPEG nominal frame-rate filter to JPEG parser")?;
+    parser
+        .link(&compressed_queue)
+        .context("link JPEG parser to latest compressed-frame queue")?;
+    compressed_queue
+        .link(&decoder)
+        .context("link latest compressed-frame queue to VA-API JPEG decoder")?;
     decoder
         .link(&rate_filter)
         .context("link JPEG decoder to latest-rate limiter")?;
@@ -821,32 +1019,13 @@ fn run_http_mjpeg(args: Args) -> Result<()> {
         .link(&sink)
         .context("link RGB8 caps filter to bounded appsink")?;
 
-    let decoder_sink = decoder
-        .static_pad("sink")
-        .context("JPEG decoder has no sink pad")?;
-    let dynamic_link_error = Arc::new(Mutex::new(None::<String>));
-    let link_error_for_callback = Arc::clone(&dynamic_link_error);
-    demux.connect_pad_added(move |_demux, source_pad| {
-        let caps = source_pad
-            .current_caps()
-            .unwrap_or_else(|| source_pad.query_caps(None));
-        if !caps
-            .structure(0)
-            .is_some_and(|structure| structure.name() == "image/jpeg")
-        {
-            return;
-        }
-        if let Err(error) = source_pad.link(&decoder_sink) {
-            *link_error_for_callback
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(error.to_string());
-        }
-    });
+    let stream_error = connect_multipart_jpeg_input(&demux, &input_rate_filter)?;
+    install_compressed_jpeg_limit(&parser, &stream_error, args.max_compressed_jpeg_bytes)?;
 
+    let _pipeline_guard = PipelineStateGuard(&pipeline);
     pipeline
         .set_state(gst::State::Playing)
         .context("start remote HTTP-MJPEG pipeline")?;
-    let _pipeline_guard = PipelineStateGuard(&pipeline);
     let legacy_helper_start = (!args.capture_audit_timing).then(Instant::now);
     let stdout = io::stdout();
     let mut output = io::BufWriter::new(stdout.lock());
@@ -856,22 +1035,16 @@ fn run_http_mjpeg(args: Args) -> Result<()> {
     // is important for best-effort latest-state consumers: no old frame is
     // replayed while the source catches up.
     let first_sample = loop {
-        if let Some(sample) = pull_http_mjpeg_sample(
+        if let Some(sample) = pull_http_mjpeg_sample_checked(
             &sink,
             &pipeline,
             gst::ClockTime::from_mseconds(args.pull_timeout_ms),
+            &stream_error,
         )? {
             break sample;
         }
     };
     let first_sample_pull_wait_ns = elapsed_nanos(first_sample_pull_started);
-    if let Some(error) = dynamic_link_error
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .take()
-    {
-        return Err(anyhow!("could not link multipart JPEG stream: {error}"));
-    }
     let first_caps = first_sample
         .caps()
         .context("first remote MJPEG sample has no negotiated RGB caps")?;
@@ -926,10 +1099,11 @@ fn run_http_mjpeg(args: Args) -> Result<()> {
         } else {
             let pull_started = args.capture_audit_timing.then(Instant::now);
             let sample = loop {
-                if let Some(sample) = pull_http_mjpeg_sample(
+                if let Some(sample) = pull_http_mjpeg_sample_checked(
                     &sink,
                     &pipeline,
                     gst::ClockTime::from_mseconds(args.pull_timeout_ms),
+                    &stream_error,
                 )? {
                     break sample;
                 }
@@ -1043,6 +1217,27 @@ fn pull_http_mjpeg_sample(
         return Err(anyhow!("remote HTTP-MJPEG appsink reached end of stream"));
     }
     Ok(None)
+}
+
+/// Probes run on streaming threads, so check their failure state after every
+/// pull, including after the initial ready frame. A size or dynamic-pad error
+/// must not silently turn into an endless sequence of transient timeouts.
+#[cfg(feature = "camera-gstreamer-source")]
+fn pull_http_mjpeg_sample_checked(
+    sink: &AppSink,
+    pipeline: &gst::Pipeline,
+    timeout: gst::ClockTime,
+    stream_error: &std::sync::Arc<std::sync::Mutex<Option<String>>>,
+) -> Result<Option<gst::Sample>> {
+    let pulled = pull_http_mjpeg_sample(sink, pipeline, timeout);
+    if let Some(error) = stream_error
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .take()
+    {
+        return Err(anyhow!("remote HTTP-MJPEG stream rejected: {error}"));
+    }
+    pulled
 }
 
 fn elapsed_nanos(started: Option<Instant>) -> Option<u64> {
@@ -1280,6 +1475,10 @@ fn validate_args(args: &Args) -> Result<()> {
         "helper-ready JSON byte limit must be positive"
     );
     ensure!(args.pull_timeout_ms > 0, "pull timeout must be positive");
+    ensure!(
+        args.max_compressed_jpeg_bytes > 0 && u32::try_from(args.max_compressed_jpeg_bytes).is_ok(),
+        "encoded JPEG byte limit must be positive and fit the supported frame length"
+    );
     match (args.source_mode, args.http_mjpeg_url.as_deref()) {
         (SourceMode::HttpMjpeg, Some(url)) => ensure!(
             billiards_perception::configuration_authority::valid_http_uri(url),
@@ -1317,6 +1516,7 @@ mod argument_tests {
             slow_reader_ms: 0,
             pull_timeout_ms: 1_000,
             capture_audit_timing: false,
+            max_compressed_jpeg_bytes: super::DEFAULT_MAX_COMPRESSED_JPEG_BYTES,
         }
     }
 
@@ -1373,10 +1573,335 @@ mod argument_tests {
 
 #[cfg(all(test, feature = "camera-gstreamer-source"))]
 mod http_mjpeg_sample_tests {
-    use super::pull_http_mjpeg_sample;
+    use super::{
+        connect_multipart_jpeg_input, install_compressed_jpeg_limit,
+        make_latest_compressed_frame_queue, make_mjpeg_rate_filter, pull_http_mjpeg_sample,
+        pull_http_mjpeg_sample_checked,
+    };
     use gst::prelude::*;
     use gstreamer as gst;
     use gstreamer_app::{AppSink, AppSrc};
+
+    struct JpegLimitFixture {
+        pipeline: gst::Pipeline,
+        source: AppSrc,
+        sink: AppSink,
+        stream_error: std::sync::Arc<std::sync::Mutex<Option<String>>>,
+    }
+
+    impl JpegLimitFixture {
+        fn new(maximum_bytes: usize) -> Self {
+            gst::init().unwrap();
+            let pipeline = gst::Pipeline::new();
+            let source = gst::ElementFactory::make("appsrc")
+                .build()
+                .unwrap()
+                .downcast::<AppSrc>()
+                .unwrap();
+            let parser = gst::ElementFactory::make("jpegparse").build().unwrap();
+            // This fixture exercises parser/probe behavior, not GPU decoding.
+            // Software decoding remains test-only and is never a fallback.
+            let decoder = gst::ElementFactory::make("jpegdec").build().unwrap();
+            let sink = gst::ElementFactory::make("appsink")
+                .build()
+                .unwrap()
+                .downcast::<AppSink>()
+                .unwrap();
+            source.set_caps(Some(
+                &gst::Caps::builder("image/jpeg")
+                    .field("framerate", gst::Fraction::new(20, 1))
+                    .build(),
+            ));
+            sink.set_wait_on_eos(false);
+            sink.set_sync(false);
+            pipeline
+                .add_many([
+                    source.upcast_ref::<gst::Element>(),
+                    &parser,
+                    &decoder,
+                    sink.upcast_ref::<gst::Element>(),
+                ])
+                .unwrap();
+            gst::Element::link_many([source.upcast_ref(), &parser, &decoder, sink.upcast_ref()])
+                .unwrap();
+            let stream_error = std::sync::Arc::new(std::sync::Mutex::new(None));
+            install_compressed_jpeg_limit(&parser, &stream_error, maximum_bytes).unwrap();
+            pipeline.set_state(gst::State::Playing).unwrap();
+            Self {
+                pipeline,
+                source,
+                sink,
+                stream_error,
+            }
+        }
+    }
+
+    impl Drop for JpegLimitFixture {
+        fn drop(&mut self) {
+            self.pipeline.set_state(gst::State::Null).unwrap();
+        }
+    }
+
+    #[test]
+    fn malformed_fragments_exceeding_the_cumulative_limit_surface_a_terminal_error() {
+        let fixture = JpegLimitFixture::new(64);
+        let mut initial = vec![0_u8; 32];
+        initial[..2].copy_from_slice(&[0xff, 0xd8]);
+        fixture
+            .source
+            .push_buffer(gst::Buffer::from_mut_slice(initial))
+            .unwrap();
+        // Neither fragment exceeds the limit alone. No complete JPEG is
+        // emitted to reset the counter, so their aggregate must be rejected.
+        fixture
+            .source
+            .push_buffer(gst::Buffer::from_mut_slice(vec![0_u8; 40]))
+            .unwrap();
+        fixture.source.end_of_stream().unwrap();
+        let error = pull_http_mjpeg_sample_checked(
+            &fixture.sink,
+            &fixture.pipeline,
+            gst::ClockTime::from_seconds(2),
+            &fixture.stream_error,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("configured limit of 64 bytes"));
+    }
+
+    #[test]
+    fn an_oversized_frame_after_readiness_is_not_treated_as_a_transient_gap() {
+        let mut jpeg = Vec::new();
+        image::codecs::jpeg::JpegEncoder::new(&mut jpeg)
+            .encode(&[127_u8; 8 * 8 * 3], 8, 8, image::ExtendedColorType::Rgb8)
+            .unwrap();
+        let maximum_bytes = jpeg.len() + 8;
+        let fixture = JpegLimitFixture::new(maximum_bytes);
+        fixture
+            .source
+            .push_buffer(gst::Buffer::from_mut_slice(jpeg))
+            .unwrap();
+        assert!(pull_http_mjpeg_sample_checked(
+            &fixture.sink,
+            &fixture.pipeline,
+            gst::ClockTime::from_seconds(2),
+            &fixture.stream_error,
+        )
+        .unwrap()
+        .is_some());
+
+        fixture
+            .source
+            .push_buffer(gst::Buffer::from_mut_slice(vec![0_u8; maximum_bytes + 1]))
+            .unwrap();
+        fixture.source.end_of_stream().unwrap();
+        let error = pull_http_mjpeg_sample_checked(
+            &fixture.sink,
+            &fixture.pipeline,
+            gst::ClockTime::from_seconds(2),
+            &fixture.stream_error,
+        )
+        .unwrap_err();
+        assert!(error
+            .to_string()
+            .contains(&format!("configured limit of {maximum_bytes} bytes")));
+    }
+
+    #[test]
+    fn compressed_queue_is_bounded_to_one_latest_complete_frame() {
+        gst::init().unwrap();
+        let queue = make_latest_compressed_frame_queue().unwrap();
+        assert_eq!(queue.property::<u32>("max-size-buffers"), 1);
+        assert_eq!(queue.property::<u32>("max-size-bytes"), 0);
+        assert_eq!(queue.property::<u64>("max-size-time"), 0);
+        let leaky = queue.property_value("leaky");
+        let (_, leaky_value) = gst::glib::EnumValue::from_value(&leaky).unwrap();
+        assert_eq!(leaky_value.nick(), "downstream");
+    }
+
+    #[test]
+    fn slow_decoder_discards_old_compressed_frames_before_the_decoder() {
+        use std::sync::{
+            atomic::{AtomicBool, Ordering},
+            mpsc, Arc, Condvar, Mutex,
+        };
+        use std::time::Duration;
+
+        gst::init().unwrap();
+        let pipeline = gst::Pipeline::new();
+        let source = gst::ElementFactory::make("appsrc")
+            .build()
+            .unwrap()
+            .downcast::<AppSrc>()
+            .unwrap();
+        let queue = make_latest_compressed_frame_queue().unwrap();
+        // An identity with a blocked sink emulates a slow hardware decoder.
+        let decoder = gst::ElementFactory::make("identity").build().unwrap();
+        let sink = gst::ElementFactory::make("appsink")
+            .build()
+            .unwrap()
+            .downcast::<AppSink>()
+            .unwrap();
+        source.set_caps(Some(
+            &gst::Caps::builder("application/octet-stream").build(),
+        ));
+        sink.set_sync(false);
+        sink.set_wait_on_eos(false);
+        pipeline
+            .add_many([
+                source.upcast_ref::<gst::Element>(),
+                &queue,
+                &decoder,
+                sink.upcast_ref::<gst::Element>(),
+            ])
+            .unwrap();
+        gst::Element::link_many([source.upcast_ref(), &queue, &decoder, sink.upcast_ref()])
+            .unwrap();
+
+        let release = Arc::new((Mutex::new(false), Condvar::new()));
+        let gate = Arc::clone(&release);
+        let (first_started, first_started_rx) = mpsc::sync_channel(1);
+        let is_first = AtomicBool::new(true);
+        decoder
+            .static_pad("sink")
+            .unwrap()
+            .add_probe(gst::PadProbeType::BUFFER, move |_, _| {
+                if is_first.swap(false, Ordering::Relaxed) {
+                    first_started.send(()).unwrap();
+                    let (lock, condition) = &*gate;
+                    let guard = lock.lock().unwrap();
+                    let _ = condition
+                        .wait_timeout_while(guard, Duration::from_secs(3), |released| !*released)
+                        .unwrap();
+                }
+                gst::PadProbeReturn::Ok
+            });
+        let (eos_seen, eos_seen_rx) = mpsc::sync_channel(1);
+        queue.static_pad("sink").unwrap().add_probe(
+            gst::PadProbeType::EVENT_DOWNSTREAM,
+            move |_, info| {
+                if info
+                    .event()
+                    .is_some_and(|event| matches!(event.view(), gst::EventView::Eos(..)))
+                {
+                    eos_seen.send(()).unwrap();
+                }
+                gst::PadProbeReturn::Ok
+            },
+        );
+
+        pipeline.set_state(gst::State::Playing).unwrap();
+        source
+            .push_buffer(gst::Buffer::from_mut_slice(vec![0_u8]))
+            .unwrap();
+        first_started_rx
+            .recv_timeout(Duration::from_secs(2))
+            .unwrap();
+        for byte in 1_u8..=3 {
+            source
+                .push_buffer(gst::Buffer::from_mut_slice(vec![byte]))
+                .unwrap();
+        }
+        source.end_of_stream().unwrap();
+        // EOS reaches the queue only after every preceding compressed buffer
+        // has been admitted or discarded. This avoids timing-based sleeps.
+        eos_seen_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        let (lock, condition) = &*release;
+        *lock.lock().unwrap() = true;
+        condition.notify_one();
+
+        let timeout = gst::ClockTime::from_seconds(2);
+        let first = sink.try_pull_sample(timeout).unwrap();
+        let latest = sink.try_pull_sample(timeout).unwrap();
+        assert_eq!(
+            first.buffer().unwrap().map_readable().unwrap().as_slice(),
+            &[0]
+        );
+        assert_eq!(
+            latest.buffer().unwrap().map_readable().unwrap().as_slice(),
+            &[3]
+        );
+        assert!(sink
+            .try_pull_sample(gst::ClockTime::from_mseconds(10))
+            .is_none());
+        pipeline.set_state(gst::State::Null).unwrap();
+    }
+
+    #[test]
+    fn multipart_jpeg_is_dynamically_linked_and_parsed_before_decoding() {
+        gst::init().unwrap();
+        let pipeline = gst::Pipeline::new();
+        let source = gst::ElementFactory::make("appsrc")
+            .build()
+            .unwrap()
+            .downcast::<AppSrc>()
+            .unwrap();
+        let demux = gst::ElementFactory::make("multipartdemux").build().unwrap();
+        let input_filter = make_mjpeg_rate_filter(20, 1).unwrap();
+        let parser = gst::ElementFactory::make("jpegparse").build().unwrap();
+        let queue = make_latest_compressed_frame_queue().unwrap();
+        // Hardware availability is tested on the target. The test-only
+        // software decoder proves multipart linking and JPEG framing without
+        // adding a selectable production decoder or a fallback path.
+        let decoder = gst::ElementFactory::make("jpegdec").build().unwrap();
+        let sink = gst::ElementFactory::make("appsink")
+            .build()
+            .unwrap()
+            .downcast::<AppSink>()
+            .unwrap();
+        source.set_caps(Some(
+            &gst::Caps::builder("multipart/x-mixed-replace")
+                .field("boundary", "frame")
+                .build(),
+        ));
+        sink.set_wait_on_eos(false);
+        sink.set_sync(false);
+        pipeline
+            .add_many([
+                source.upcast_ref::<gst::Element>(),
+                &demux,
+                &input_filter,
+                &parser,
+                &queue,
+                &decoder,
+                sink.upcast_ref::<gst::Element>(),
+            ])
+            .unwrap();
+        source.link(&demux).unwrap();
+        gst::Element::link_many([&input_filter, &parser, &queue, &decoder, sink.upcast_ref()])
+            .unwrap();
+        let link_error = connect_multipart_jpeg_input(&demux, &input_filter).unwrap();
+        pipeline.set_state(gst::State::Playing).unwrap();
+
+        let mut jpeg = Vec::new();
+        let pixels = vec![127_u8; 8 * 8 * 3];
+        image::codecs::jpeg::JpegEncoder::new(&mut jpeg)
+            .encode(&pixels, 8, 8, image::ExtendedColorType::Rgb8)
+            .unwrap();
+        let mut multipart = format!(
+            "--frame\r\nContent-Type: image/jpeg\r\nContent-Length: {}\r\n\r\n",
+            jpeg.len()
+        )
+        .into_bytes();
+        multipart.extend_from_slice(&jpeg);
+        multipart.extend_from_slice(b"\r\n--frame--\r\n");
+        let split = multipart.len() / 2;
+        source
+            .push_buffer(gst::Buffer::from_mut_slice(multipart[..split].to_vec()))
+            .unwrap();
+        source
+            .push_buffer(gst::Buffer::from_mut_slice(multipart[split..].to_vec()))
+            .unwrap();
+        source.end_of_stream().unwrap();
+
+        let sample = sink
+            .try_pull_sample(gst::ClockTime::from_seconds(2))
+            .expect("a fragmented multipart JPEG must decode into a frame");
+        let video = gstreamer_video::VideoInfo::from_caps(sample.caps().unwrap()).unwrap();
+        assert_eq!((video.width(), video.height()), (8, 8));
+        assert_eq!(video.fps(), gst::Fraction::new(20, 1));
+        assert!(link_error.lock().unwrap().is_none());
+        pipeline.set_state(gst::State::Null).unwrap();
+    }
 
     #[test]
     fn transient_empty_pull_waits_for_a_later_frame_and_eos_is_terminal() {
