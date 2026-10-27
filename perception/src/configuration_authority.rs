@@ -1376,6 +1376,29 @@ fn validate_runtime_rules(document: &Value, errors: &mut Vec<ValidationError>) {
             )),
         }
     }
+    let localization_path = "perception.rust_live.ball_localization";
+    if let Some(value) = value_at_path(document, localization_path) {
+        match serde_json::from_value::<crate::ball_localization_profile::BallLocalizationSettings>(
+            value.clone(),
+        ) {
+            Ok(settings) => {
+                if let Err(error) = settings.validate() {
+                    errors.push(validation_error(
+                        localization_path,
+                        format!("Invalid ball localization settings: {error:#}"),
+                        value,
+                        "valid bounded ball-localization settings",
+                    ));
+                }
+            }
+            Err(error) => errors.push(validation_error(
+                localization_path,
+                format!("Invalid ball localization settings: {error}"),
+                value,
+                "ball-localization settings object",
+            )),
+        }
+    }
     let control_enabled = value_at_path(
         document,
         "perception.rust_live.frame_preview_calibration_control_enabled",

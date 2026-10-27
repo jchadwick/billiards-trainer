@@ -14,6 +14,7 @@ use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
+use crate::ball_localization::BallRefinementIdentity;
 use crate::capture::OwnedCaptureFrame;
 use crate::capture_pipeline::Rgb8FrameDetector;
 use crate::inference::FrameInferenceOutput;
@@ -416,7 +417,18 @@ fn worker_loop<D: Rgb8FrameDetector>(detector: &mut D, shared: &Arc<Shared>) {
         }));
         let inference_completed = Instant::now();
         let result = match inference {
-            Ok(Ok(output)) => Ok(output),
+            Ok(Ok(mut output)) => {
+                if let Some(refinements) = output.ball_refinements.as_mut() {
+                    refinements.identity = Some(BallRefinementIdentity {
+                        source_session_id: job.tag.source_session_id.clone(),
+                        frame_id: job.tag.frame_id.clone(),
+                        configuration_revision: job.tag.configuration_revision,
+                        calibration_revision: job.tag.calibration_revision,
+                        motion_generation: job.tag.motion_generation,
+                    });
+                }
+                Ok(output)
+            }
             Ok(Err(error)) => Err(DetectorWorkerFailure {
                 kind: DetectorWorkerFailureKind::Inference,
                 message: format!("{error:#}"),

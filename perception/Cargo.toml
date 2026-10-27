@@ -23,6 +23,10 @@ name = "billiards-perception-video-replay"
 path = "src/bin/video_replay.rs"
 
 [[bin]]
+name = "billiards-perception-ball-center-calibrate"
+path = "src/bin/ball_center_calibrate.rs"
+
+[[bin]]
 name = "billiards-perception-live"
 path = "src/live_main.rs"
 

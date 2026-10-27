@@ -11,14 +11,11 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::time::Duration;
 
-use crate::calibration::ValidatedTableCalibrationV1;
+use crate::ball_localization::ResolvedBallMeasurementBatch;
 use crate::detection_batch::{
     BatchOutcome, BatchTimestamp, ClockKind as BatchClockKind, DetectionBatchV1,
     ImageSpace as BatchImageSpace, TimeUnit as BatchTimeUnit,
     TimestampStage as BatchTimestampStage,
-};
-use crate::geometry::{
-    calibrate_detection_batch, AppliedCalibrationContext, CalibratedDetectionBatch,
 };
 use crate::{
     BallIdentity, BallState, BallStatus, CalibrationState, CueState, CueStatus, ImageSpace,
@@ -167,8 +164,7 @@ pub enum TrackingError {
     DuplicateSourceFrame,
     MissingBallClass,
     MissingCueClass,
-    AppliedCalibrationContextMismatch,
-    PrecalibratedBatchMismatch(&'static str),
+    ResolvedMeasurementMismatch(&'static str),
     ActiveTrackCapacityExceeded,
     CounterExhausted,
     InvalidSnapshot(String),
@@ -200,13 +196,6 @@ struct Track {
     last_observation: crate::LastObservation,
     measurement: Measurement,
     calibration_revision: Option<u64>,
-}
-
-/// Calibration acknowledged by the replay/runtime boundary for one source frame.
-#[derive(Clone, Copy)]
-pub struct AppliedTrackingCalibration<'a> {
-    pub calibration: &'a ValidatedTableCalibrationV1,
-    pub context: AppliedCalibrationContext<'a>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -273,70 +262,30 @@ impl SceneTrackerV1 {
         batch: &DetectionBatchV1,
         published_at: Timestamp,
     ) -> Result<SceneSnapshotV1, TrackingError> {
-        self.process_with_calibration(batch, published_at, None)
-    }
-
-    /// Process one observation and, when configured, attach physical table
-    /// coordinates only when the complete frame passes calibration checks.
-    /// Invalid calibration degrades the scene without discarding image-space
-    /// detections or advancing stale physical coordinates.
-    pub fn process_with_calibration(
-        &mut self,
-        batch: &DetectionBatchV1,
-        published_at: Timestamp,
-        calibration: Option<AppliedTrackingCalibration<'_>>,
-    ) -> Result<SceneSnapshotV1, TrackingError> {
-        if calibration.is_some_and(|applied| {
-            applied.context.camera_profile_id != self.config.camera_profile_id
-                || applied.context.rectification_revision != self.config.rectification_revision
-        }) {
-            return Err(TrackingError::AppliedCalibrationContextMismatch);
-        }
-        let calibrated = calibration.map(|applied| {
-            let result = calibrate_detection_batch(batch, applied.calibration, applied.context);
-            (applied.context.calibration_revision, result)
-        });
-        self.process_with_precalibrated_batch(batch, published_at, calibrated)
-    }
-
-    /// Apply an already computed frame calibration result. This lets replay
-    /// report calibration and build a scene from one geometry pass.
-    pub fn process_with_precalibrated_batch(
-        &mut self,
-        batch: &DetectionBatchV1,
-        published_at: Timestamp,
-        calibrated: Option<(
-            u64,
-            Result<CalibratedDetectionBatch, crate::geometry::GeometryError>,
-        )>,
-    ) -> Result<SceneSnapshotV1, TrackingError> {
-        self.process_with_precalibrated_batch_report(batch, published_at, calibrated)
+        let resolved = ResolvedBallMeasurementBatch::from_detection_batch_midpoints(
+            batch,
+            self.config.ball_class_id,
+            self.config.camera_profile_id.clone(),
+            self.config.configuration_revision,
+            self.config.rectification_revision,
+        );
+        self.process_with_resolved_ball_measurements(batch, published_at, &resolved)
             .map(|result| result.snapshot)
     }
 
-    /// Process one observation and report old associations evicted to keep all
-    /// eligible current detections in the emitted scene.
-    pub fn process_with_precalibrated_batch_report(
+    /// Process a complete source batch using one separately resolved center
+    /// per ball. The original detector midpoint remains in DetectionBatchV1;
+    /// this validated sidecar drives both association and physical XY output.
+    pub fn process_with_resolved_ball_measurements(
         &mut self,
         batch: &DetectionBatchV1,
         published_at: Timestamp,
-        calibrated: Option<(
-            u64,
-            Result<CalibratedDetectionBatch, crate::geometry::GeometryError>,
-        )>,
+        resolved: &ResolvedBallMeasurementBatch,
     ) -> Result<SceneTrackingResult, TrackingError> {
-        if let Some((revision, Ok(calibrated_batch))) = calibrated.as_ref() {
-            validate_precalibrated_batch(
-                batch,
-                *revision,
-                calibrated_batch,
-                &self.config.camera_profile_id,
-                self.config.rectification_revision,
-            )?;
-        }
+        validate_resolved_ball_measurements(batch, resolved, &self.config)?;
         let mut next = self.clone();
         let (snapshot, association_capacity_evictions) =
-            next.process_inner(batch, published_at, calibrated)?;
+            next.process_inner(batch, published_at, resolved)?;
         *self = next;
         Ok(SceneTrackingResult {
             snapshot,
@@ -348,10 +297,7 @@ impl SceneTrackerV1 {
         &mut self,
         batch: &DetectionBatchV1,
         published_at: Timestamp,
-        calibrated: Option<(
-            u64,
-            Result<CalibratedDetectionBatch, crate::geometry::GeometryError>,
-        )>,
+        resolved: &ResolvedBallMeasurementBatch,
     ) -> Result<(SceneSnapshotV1, usize), TrackingError> {
         batch
             .validate()
@@ -463,7 +409,18 @@ impl SceneTrackerV1 {
             .iter()
             .filter(|detection| detection.class_id == self.config.ball_class_id)
             .collect::<Vec<_>>();
-        let mut assignments = self.assign_detections(&ball_detections, now_ns)?;
+        let selected_centers = ball_detections
+            .iter()
+            .enumerate()
+            .map(|(index, _detection)| {
+                let measurement = &resolved.measurements[index];
+                Point2d {
+                    x: measurement.center_image_px[0],
+                    y: measurement.center_image_px[1],
+                }
+            })
+            .collect::<Vec<_>>();
+        let mut assignments = self.assign_detections(&selected_centers, now_ns)?;
         let unmatched_count = ball_detections.len().saturating_sub(assignments.len());
         let projected_track_count = self
             .tracks
@@ -525,40 +482,35 @@ impl SceneTrackerV1 {
             timestamp: mapped_source_timestamp.clone(),
         };
 
-        let (calibration_state, calibration_revision, calibrated_centers, calibration_reason) =
-            match calibrated {
-                None => (CalibrationState::Unavailable, None, HashMap::new(), None),
-                Some((revision, Ok(calibrated_batch))) => (
-                    CalibrationState::Valid,
-                    Some(revision),
-                    calibrated_batch
-                        .detections
-                        .into_iter()
-                        .map(|detection| {
-                            (
-                                detection.detection_index,
-                                Point2d {
-                                    x: detection.center_table_mm.x_mm,
-                                    y: detection.center_table_mm.y_mm,
-                                },
-                            )
-                        })
-                        .collect(),
-                    None,
-                ),
-                Some((revision, Err(error))) => (
-                    CalibrationState::Invalid,
-                    Some(revision),
-                    HashMap::new(),
-                    Some(error.to_string()),
-                ),
-            };
-        let detection_table_centers = calibrated_centers;
+        let detection_table_centers = resolved
+            .measurements
+            .iter()
+            .filter_map(|measurement| {
+                measurement.table_center_mm.map(|center| {
+                    (
+                        measurement.detection_index,
+                        Point2d {
+                            x: center[0],
+                            y: center[1],
+                        },
+                    )
+                })
+            })
+            .collect::<HashMap<_, _>>();
+        let calibration_revision = resolved.calibration_revision;
+        let calibration_state = if calibration_revision.is_some() {
+            CalibrationState::Valid
+        } else {
+            CalibrationState::Unavailable
+        };
+        let calibration_reason = None;
 
         for (track_index, detection_index) in assignments {
             let detection = ball_detections[detection_index];
+            let center = selected_centers[detection_index];
             let measurement = image_measurement(
                 detection,
+                center,
                 source_image_space,
                 batch.source.width_px,
                 batch.source.height_px,
@@ -569,10 +521,7 @@ impl SceneTrackerV1 {
             let track = &mut self.tracks[track_index];
             track.previous_center = Some(track.center);
             track.previous_timestamp_ns = Some(track.last_timestamp_ns);
-            track.center = Point2d {
-                x: detection.center_image_px.x,
-                y: detection.center_image_px.y,
-            };
+            track.center = center;
             track.last_timestamp_ns = now_ns;
             track.last_observation = last_observation.clone();
             track.measurement = measurement;
@@ -589,10 +538,7 @@ impl SceneTrackerV1 {
                 continue;
             }
             let id = self.allocate_track_id()?;
-            let center = Point2d {
-                x: detection.center_image_px.x,
-                y: detection.center_image_px.y,
-            };
+            let center = selected_centers[detection_index];
             self.tracks.push(Track {
                 id,
                 previous_center: None,
@@ -602,6 +548,7 @@ impl SceneTrackerV1 {
                 last_observation: last_observation.clone(),
                 measurement: image_measurement(
                     detection,
+                    center,
                     source_image_space,
                     batch.source.width_px,
                     batch.source.height_px,
@@ -720,7 +667,7 @@ impl SceneTrackerV1 {
 
     fn assign_detections(
         &self,
-        detections: &[&crate::detection_batch::Detection],
+        detections: &[Point2d],
         now_ns: u128,
     ) -> Result<Vec<(usize, usize)>, TrackingError> {
         if self.tracks.is_empty() || detections.is_empty() {
@@ -741,13 +688,7 @@ impl SceneTrackerV1 {
         for (track_index, track) in self.tracks.iter().enumerate() {
             let predicted = self.predicted_association_center(track, now_ns);
             for (detection_index, detection) in detections.iter().enumerate() {
-                let distance = euclidean_distance(
-                    predicted,
-                    Point2d {
-                        x: detection.center_image_px.x,
-                        y: detection.center_image_px.y,
-                    },
-                );
+                let distance = euclidean_distance(predicted, *detection);
                 costs[track_index][detection_index] = if distance <= gate {
                     distance
                 } else {
@@ -840,54 +781,72 @@ impl SceneTrackerV1 {
 /// this exact observation and applied camera/calibration context. Without this
 /// check a valid-looking image detection could be paired with a stale physical
 /// coordinate and silently put a ball in the wrong place on the table.
-fn validate_precalibrated_batch(
+fn validate_resolved_ball_measurements(
     batch: &DetectionBatchV1,
-    calibration_revision: u64,
-    calibrated: &CalibratedDetectionBatch,
-    camera_profile_id: &str,
-    rectification_revision: u64,
+    resolved: &ResolvedBallMeasurementBatch,
+    config: &TrackingConfigV1,
 ) -> Result<(), TrackingError> {
-    if calibrated.engine_instance_id != batch.engine_instance_id {
-        return Err(TrackingError::PrecalibratedBatchMismatch(
-            "engine_instance_id",
-        ));
+    if resolved.engine_instance_id != batch.engine_instance_id
+        || resolved.batch_sequence != batch.batch_sequence
+        || resolved.source_session_id != batch.source.session_id
+        || resolved.frame_id != batch.source.frame_id
+        || resolved.source_width_px != batch.source.width_px
+        || resolved.source_height_px != batch.source.height_px
+        || resolved.image_space != batch.image_space
+    {
+        return Err(TrackingError::ResolvedMeasurementMismatch("source_frame"));
     }
-    if calibrated.batch_sequence != batch.batch_sequence {
-        return Err(TrackingError::PrecalibratedBatchMismatch("batch_sequence"));
-    }
-    if calibrated.source != batch.source {
-        return Err(TrackingError::PrecalibratedBatchMismatch("source_frame"));
-    }
-    if calibrated.image_space != batch.image_space {
-        return Err(TrackingError::PrecalibratedBatchMismatch("image_space"));
-    }
-    if calibrated.camera_profile_id != camera_profile_id {
-        return Err(TrackingError::PrecalibratedBatchMismatch(
+    if resolved.camera_profile_id != config.camera_profile_id {
+        return Err(TrackingError::ResolvedMeasurementMismatch(
             "camera_profile_id",
         ));
     }
-    if calibrated.calibration_revision != calibration_revision {
-        return Err(TrackingError::PrecalibratedBatchMismatch(
-            "calibration_revision",
+    if resolved.configuration_revision != config.configuration_revision {
+        return Err(TrackingError::ResolvedMeasurementMismatch(
+            "configuration_revision",
         ));
     }
-    if calibrated.rectification_revision != rectification_revision {
-        return Err(TrackingError::PrecalibratedBatchMismatch(
+    if resolved.rectification_revision != config.rectification_revision {
+        return Err(TrackingError::ResolvedMeasurementMismatch(
             "rectification_revision",
         ));
     }
-    if calibrated.detections.len() != batch.detections.len() {
-        return Err(TrackingError::PrecalibratedBatchMismatch("detection_count"));
+    let balls = batch
+        .detections
+        .iter()
+        .filter(|detection| detection.class_id == config.ball_class_id)
+        .collect::<Vec<_>>();
+    if resolved.measurements.len() != balls.len() {
+        return Err(TrackingError::ResolvedMeasurementMismatch(
+            "detection_count",
+        ));
     }
-
-    for (source, transformed) in batch.detections.iter().zip(&calibrated.detections) {
-        if transformed.detection_index != source.detection_index
-            || transformed.class_id != source.class_id
-            || transformed.class_name != source.class_name
-            || transformed.confidence != source.confidence
-            || transformed.center_image_px != source.center_image_px
+    for (detection, measurement) in balls.iter().zip(&resolved.measurements) {
+        let has_table_position = measurement.table_center_mm.is_some();
+        let valid_table_position = measurement
+            .table_center_mm
+            .is_none_or(|point| point.iter().all(|coordinate| coordinate.is_finite()));
+        let status_allows_table_position = measurement.refinement_status
+            == Some(crate::ball_localization::RefinementStatus::Accepted);
+        if measurement.detection_index != detection.detection_index
+            || !measurement
+                .center_image_px
+                .iter()
+                .all(|coordinate| coordinate.is_finite())
+            || measurement.center_image_px[0] < 0.0
+            || measurement.center_image_px[1] < 0.0
+            || measurement.center_image_px[0] >= f64::from(batch.source.width_px)
+            || measurement.center_image_px[1] >= f64::from(batch.source.height_px)
+            || !valid_table_position
+            || (has_table_position && !status_allows_table_position)
+            || (has_table_position && resolved.calibration_revision.is_none())
+            || (measurement.refinement_status
+                == Some(crate::ball_localization::RefinementStatus::Accepted)
+                && (resolved.optics_profile_id.is_none()
+                    || resolved.optics_revision.is_none()
+                    || resolved.refiner_revision.is_none()))
         {
-            return Err(TrackingError::PrecalibratedBatchMismatch(
+            return Err(TrackingError::ResolvedMeasurementMismatch(
                 "detection_identity_or_measurement",
             ));
         }
@@ -897,6 +856,7 @@ fn validate_precalibrated_batch(
 
 fn image_measurement(
     detection: &crate::detection_batch::Detection,
+    selected_center: Point2d,
     image_space: ImageSpace,
     width_px: u32,
     height_px: u32,
@@ -904,8 +864,8 @@ fn image_measurement(
 ) -> Measurement {
     Measurement {
         image_center_px: Point2d {
-            x: detection.center_image_px.x,
-            y: detection.center_image_px.y,
+            x: selected_center.x,
+            y: selected_center.y,
         },
         image_radius_px: bbox_half_extent(detection),
         image_space,

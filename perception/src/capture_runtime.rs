@@ -81,7 +81,6 @@ pub struct LiveCaptureRuntime<D: Rgb8FrameDetector> {
     cue_worker: Option<CueGeometryWorker>,
     phase_scheduler: Option<PhaseScheduler>,
     phase_schedule_config: Option<SchedulerConfig>,
-    ball_class_id: u32,
     motion_monitor: Option<MotionMonitor>,
     /// Read once at runtime construction so normal frame processing only pays
     /// one predictable branch and never formats or serializes diagnostics.
@@ -98,6 +97,9 @@ pub struct LiveCaptureRuntime<D: Rgb8FrameDetector> {
     table_visibility_config: Option<TableVisibilityConfig>,
     table_visibility_reference: Option<TableVisibilityReference>,
     visible_reacquisition_samples: usize,
+    /// True only after the most recent accepted ball layout supplied a table
+    /// position for every visible ball through the same refiner/calibration.
+    latest_precision_ready: bool,
     latest_visibility: Option<(String, TableVisibilityAssessment)>,
     latest_visibility_observed_at: Option<Duration>,
     decision_frame_id: Option<String>,
@@ -354,7 +356,6 @@ impl<D: Rgb8FrameDetector + Send + 'static> LiveCaptureRuntime<D> {
         source_factory: F,
     ) -> Result<Self> {
         let scheduler_config = pipeline_config.phase_schedule.clone();
-        let ball_class_id = tracking.ball_class_id();
         let session_clock_origin = Instant::now();
         let motion_diagnostics_enabled =
             std::env::var_os("BILLIARDS_MOTION_DIAGNOSTICS").is_some_and(|value| value == "1");
@@ -460,7 +461,6 @@ impl<D: Rgb8FrameDetector + Send + 'static> LiveCaptureRuntime<D> {
             cue_worker,
             phase_scheduler,
             phase_schedule_config,
-            ball_class_id,
             motion_monitor,
             motion_diagnostics_enabled,
             cue_config,
@@ -475,6 +475,7 @@ impl<D: Rgb8FrameDetector + Send + 'static> LiveCaptureRuntime<D> {
             table_visibility_config,
             table_visibility_reference,
             visible_reacquisition_samples: 0,
+            latest_precision_ready: false,
             latest_visibility: None,
             latest_visibility_observed_at: None,
             decision_frame_id: None,
@@ -845,6 +846,9 @@ impl<D: Rgb8FrameDetector + Send + 'static> LiveCaptureRuntime<D> {
                 .observe_motion(now, evidence)
                 .context("phase scheduler rejected motion evidence")?;
             if evidence != MotionEvidence::Quiet {
+                self.latest_precision_ready = false;
+            }
+            if evidence != MotionEvidence::Quiet {
                 self.recovery_started_at.get_or_insert(now);
             }
 
@@ -1150,6 +1154,7 @@ impl<D: Rgb8FrameDetector + Send + 'static> LiveCaptureRuntime<D> {
             || completion.tag.calibration_revision != self.settings.expected.calibration_revision()
             || completion.tag.motion_generation != evidence.motion_generation
         {
+            self.latest_precision_ready = false;
             self.phase_stats.obsolete_results = self.phase_stats.obsolete_results.saturating_add(1);
             return Ok(Some(CapturePipelineOutcome::Skipped(
                 CaptureSkipReason::ObsoleteInference,
@@ -1164,6 +1169,7 @@ impl<D: Rgb8FrameDetector + Send + 'static> LiveCaptureRuntime<D> {
         let inference = match completion.result {
             Ok(inference) => inference,
             Err(_) => {
+                self.latest_precision_ready = false;
                 self.phase_stats.detector_failures =
                     self.phase_stats.detector_failures.saturating_add(1);
                 self.phase_scheduler
@@ -1190,15 +1196,26 @@ impl<D: Rgb8FrameDetector + Send + 'static> LiveCaptureRuntime<D> {
                     unreachable!();
                 };
                 let positions = result
-                    .batch
-                    .detections
+                    .resolved_ball_measurements
+                    .measurements
                     .iter()
-                    .filter(|detection| detection.class_id == self.ball_class_id)
-                    .map(|detection| ImagePoint {
-                        x: detection.center_image_px.x,
-                        y: detection.center_image_px.y,
+                    .map(|measurement| ImagePoint {
+                        x: measurement.center_image_px[0],
+                        y: measurement.center_image_px[1],
                     })
                     .collect();
+                self.latest_precision_ready =
+                    result
+                        .resolved_ball_measurements
+                        .calibration_revision
+                        .is_some()
+                        && result.resolved_ball_measurements.measurements.iter().all(
+                            |measurement| {
+                                measurement.refinement_status
+                                    == Some(crate::ball_localization::RefinementStatus::Accepted)
+                                    && measurement.table_center_mm.is_some()
+                            },
+                        );
                 let was_trusted = evidence.map_trusted;
                 self.phase_scheduler
                     .as_mut()
@@ -1231,6 +1248,7 @@ impl<D: Rgb8FrameDetector + Send + 'static> LiveCaptureRuntime<D> {
                 Ok(Some(outcome))
             }
             Ok(outcome) => {
+                self.latest_precision_ready = false;
                 self.phase_scheduler
                     .as_mut()
                     .expect("scheduler was checked above")
@@ -1336,9 +1354,14 @@ impl<D: Rgb8FrameDetector + Send + 'static> LiveCaptureRuntime<D> {
             empty_layout_verified: evidence.empty_layout_verified,
             guidance_valid: evidence.guidance_valid
                 && visibility_is_current
+                && self.latest_precision_ready
                 && self.decision_frame_id.is_some()
                 && self.cue_observation_frame_id.as_deref() == self.decision_frame_id.as_deref(),
-            trust_reason: trust_reason_name(evidence.trust_reason).to_owned(),
+            trust_reason: if evidence.guidance_valid && !self.latest_precision_ready {
+                "precise_ball_positions_unavailable".to_owned()
+            } else {
+                trust_reason_name(evidence.trust_reason).to_owned()
+            },
             last_ball_observation_age_ms: age_ms(evidence.layout_at),
             latest_motion_check_age_ms: age_ms(evidence.motion_at),
             cue_evidence_age_ms: age_ms(evidence.cue_at),

@@ -22,6 +22,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
+use crate::ball_localization::{
+    refine_ball_batch, resolve_ball_measurements_for_batch, BallProposal, BallRefinementBatch,
+};
+use crate::ball_localization_profile::{BallLocalizationSettings, LoadedBallLocalizationProfile};
 use crate::calibration::CalibrationContext;
 use crate::cue_geometry::{
     estimate_cue_geometry, orient_cue_geometry_from_playing_surface, CueGeometry,
@@ -121,6 +125,9 @@ pub struct FrameInferenceOutput {
     pub source_height_px: u32,
     pub detections: Vec<Detection>,
     pub timings: FrameInferenceTimings,
+    /// Present on the live wrapper only after native-resolution refinement.
+    /// The DetectionBatchV1 boxes and their exact raw midpoint remain intact.
+    pub ball_refinements: Option<BallRefinementBatch>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -516,6 +523,7 @@ impl FrameInferenceEngine {
                 decode_and_nms_ms,
                 engine_total_ms: elapsed_ms(engine_start),
             },
+            ball_refinements: None,
         })
     }
 
@@ -557,8 +565,11 @@ pub struct AuditOptions {
     /// Optional JSONL artifact; write time is tracked separately from inference.
     pub detection_batch_output: Option<BatchOutputOptions>,
     /// Optional diagnostic geometry pass. It requires detection-batch output
-    /// so the calibrated measurements are reproducible from retained input.
+    /// so the raw-box midpoint geometry diagnostic is reproducible from retained input.
     pub calibration: Option<CalibrationAuditOptions>,
+    /// Immutable camera optics and ball-center calibration settings used by
+    /// replay scene output. Missing assets preserve visibility only.
+    pub ball_localization_settings: BallLocalizationSettings,
     /// Optional paced scene-snapshot replay. It requires detection-batch
     /// output so tracks can always be reconstructed from raw observations.
     pub scene_snapshot_output: Option<SceneSnapshotOutputOptions>,
@@ -915,9 +926,10 @@ pub struct FrameCalibrationReport {
     pub status: CalibrationStatus,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
-    /// Null means the frame could not be projected; an empty array means a
-    /// successful complete observation contained no detections.
-    pub measurements: Option<Vec<CalibratedMeasurement>>,
+    /// Number of raw detector-box midpoints the table homography accepted for
+    /// geometry diagnostics. These are not refined ball centers and are never
+    /// emitted as physical ball positions.
+    pub projected_box_midpoint_count: Option<usize>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize)]
@@ -925,13 +937,6 @@ pub struct FrameCalibrationReport {
 pub enum CalibrationStatus {
     Valid,
     Unavailable,
-}
-
-#[derive(Debug, PartialEq, Serialize)]
-pub struct CalibratedMeasurement {
-    pub detection_index: u64,
-    pub center_image_px: Point,
-    pub center_table_mm: crate::calibration::TablePointMm,
 }
 
 type DetectionBatchSink = BufWriter<fs::File>;
@@ -950,6 +955,8 @@ struct FrameTimings {
     pub inference_ms: f64,
     pub decode_and_nms_ms: f64,
     pub end_to_end_ms: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ball_refinement_ms: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub calibration_ms: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1114,6 +1121,7 @@ struct FrameProcessContext<'a> {
     inference_engine: &'a mut FrameInferenceEngine,
     class_names: &'a [String],
     options: &'a AuditOptions,
+    localization_profile: Option<&'a LoadedBallLocalizationProfile>,
     onnx_sha256: &'a str,
     source_checkpoint_sha256: &'a str,
     batch_sink: &'a mut Option<DetectionBatchSink>,
@@ -1123,6 +1131,7 @@ struct FrameProcessContext<'a> {
 
 struct SceneSnapshotOutputRuntime {
     tracker: SceneTrackerV1,
+    tracking: TrackingConfigV1,
     sink: SceneSnapshotSink,
     snapshot_count: usize,
     total_tracking_ms: f64,
@@ -1338,6 +1347,41 @@ pub fn run_video_audit_with_schedule(
         .as_ref()
         .map(open_scene_snapshot_output)
         .transpose()?;
+    let localization_profile = if let Some(scene_settings) = audit.scene_snapshot_output.as_ref() {
+        let mut settings = audit.ball_localization_settings.clone();
+        settings.validate()?;
+        let project_root =
+            std::env::current_dir().context("could not resolve replay localization asset paths")?;
+        settings.resolve_paths(&project_root);
+        match LoadedBallLocalizationProfile::load_for_frame(
+            settings,
+            scene_settings.tracking.camera_profile_id(),
+            match audit.source_image_space {
+                ImageSpace::Raw => crate::ImageSpace::Raw,
+                ImageSpace::Rectified => crate::ImageSpace::Rectified,
+            },
+            timeline.width,
+            timeline.height,
+            scene_settings.tracking.rectification_revision(),
+        ) {
+            Ok(profile) => {
+                if let Some(error) = profile.calibration_error.as_deref() {
+                    eprintln!(
+                        "replay ball-center calibration unavailable; precise table positions are suppressed: {error}"
+                    );
+                }
+                Some(profile)
+            }
+            Err(error) => {
+                eprintln!(
+                    "replay ball-localization profile unavailable; precise table positions are suppressed: {error:#}"
+                );
+                None
+            }
+        }
+    } else {
+        None
+    };
     let mut detail_writer = options
         .details_jsonl_path
         .as_ref()
@@ -1361,6 +1405,7 @@ pub fn run_video_audit_with_schedule(
         inference_engine: &mut inference_engine,
         class_names: &manifest.class_names,
         options: audit,
+        localization_profile: localization_profile.as_ref(),
         onnx_sha256: &manifest.artifact_sha256,
         source_checkpoint_sha256: &manifest.source_checkpoint_sha256,
         batch_sink: &mut batch_sink,
@@ -1684,7 +1729,8 @@ pub fn run_video_audit_with_schedule(
         if let Some(calibration) = &result.calibration {
             if matches!(calibration.status, CalibrationStatus::Valid) {
                 calibrated_frame_count += 1;
-                calibrated_detection_count += calibration.measurements.as_ref().map_or(0, Vec::len);
+                calibrated_detection_count +=
+                    calibration.projected_box_midpoint_count.unwrap_or_default();
             }
         }
         preprocess_total_ms += result.timings.preprocess_ms;
@@ -2636,10 +2682,10 @@ fn process_frame(
 
     let mut batch_export_ms = 0.0;
     let mut calibration_ms = None;
+    let mut ball_refinement_ms = None;
     let mut calibration_report = None;
     let mut scene_tracking_ms = None;
     let mut scene_encode_enqueue_ms = None;
-    let mut calibrated_for_scene = None;
     if let (Some(sink), Some(output_options)) = (
         context.batch_sink.as_mut(),
         context.options.detection_batch_output.as_ref(),
@@ -2664,6 +2710,40 @@ fn process_frame(
         write_detection_batch(sink, &batch)?;
         batch_export_ms = elapsed_ms(export_start);
 
+        let replay_tracking_context = context.scene_output.as_ref().map(|scene| {
+            (
+                scene.tracking.ball_class_id(),
+                scene.tracking.camera_profile_id().to_owned(),
+                scene.tracking.configuration_revision(),
+            )
+        });
+        let mut replay_refinements = None;
+        if let (Some(profile), Some((ball_class_id, camera_profile_id, configuration_revision))) =
+            (context.localization_profile, replay_tracking_context)
+        {
+            if profile.optics.is_some() {
+                let refinement_started = Instant::now();
+                replay_refinements = match refine_replay_ball_batch(
+                    &batch,
+                    frame.timed_input.image.as_raw(),
+                    profile,
+                    ball_class_id,
+                    &camera_profile_id,
+                    configuration_revision,
+                ) {
+                    Ok(refinements) => Some(refinements),
+                    Err(error) => {
+                        eprintln!(
+                            "replay ball refinement unavailable for {}: {error:#}",
+                            batch.source.frame_id
+                        );
+                        None
+                    }
+                };
+                ball_refinement_ms = Some(elapsed_ms(refinement_started));
+            }
+        }
+
         if let Some(calibration_options) = &context.options.calibration {
             let calibration_start = Instant::now();
             let applied_context = AppliedCalibrationContext {
@@ -2677,12 +2757,6 @@ fn process_frame(
                 applied_context,
             );
             calibration_report = Some(calibration_report_from_geometry_result(&geometry_result)?);
-            if context.scene_output.is_some() {
-                calibrated_for_scene = Some((
-                    calibration_options.applied_calibration_revision,
-                    geometry_result,
-                ));
-            }
             calibration_ms = Some(elapsed_ms(calibration_start));
             source_to_calibration_complete_ms = paced_source_to_calibration_latency_ms(
                 frame.scheduled_at,
@@ -2697,10 +2771,31 @@ fn process_frame(
                 &output_options.engine_instance_id,
             )?;
             let tracking_start = Instant::now();
-            let mut snapshot = scene_runtime
+            // Replay and live tracking use the same frame-bound selection and
+            // table-mapping helper. Missing or mismatched fits retain only the
+            // raw midpoint for visibility.
+            let selected_measurements = resolve_ball_measurements_for_batch(
+                &batch,
+                crate::ball_localization::BallMeasurementResolutionContext {
+                    ball_class_id: scene_runtime.tracking.ball_class_id(),
+                    camera_profile_id: scene_runtime.tracking.camera_profile_id(),
+                    configuration_revision: scene_runtime.tracking.configuration_revision(),
+                    rectification_revision: scene_runtime.tracking.rectification_revision(),
+                    profile: context.localization_profile,
+                    refinements: replay_refinements.as_ref(),
+                    expected_identity: None,
+                    require_identity: false,
+                },
+            );
+            let tracked_scene = scene_runtime
                 .tracker
-                .process_with_precalibrated_batch(&batch, published_at, calibrated_for_scene)
+                .process_with_resolved_ball_measurements(
+                    &batch,
+                    published_at,
+                    &selected_measurements,
+                )
                 .context("failed to produce tracked scene snapshot")?;
+            let mut snapshot = tracked_scene.snapshot;
             scene_tracking_ms = Some(elapsed_ms(tracking_start));
             snapshot.published_at = scene_publication_timestamp(
                 context.batch_clock_origin,
@@ -2722,6 +2817,7 @@ fn process_frame(
                 inference_ms,
                 decode_and_nms_ms,
                 end_to_end_ms,
+                ball_refinement_ms,
                 calibration_ms,
                 scene_tracking_ms,
                 scene_encode_enqueue_ms,
@@ -2735,6 +2831,63 @@ fn process_frame(
         batch_export_ms,
         inference_completed,
     ))
+}
+
+fn refine_replay_ball_batch(
+    batch: &DetectionBatchV1,
+    rgb: &[u8],
+    profile: &LoadedBallLocalizationProfile,
+    ball_class_id: u32,
+    camera_profile_id: &str,
+    configuration_revision: u64,
+) -> Result<BallRefinementBatch> {
+    let optics = profile
+        .optics
+        .as_ref()
+        .context("camera optics profile is unavailable")?;
+    ensure!(
+        (
+            optics.intrinsics.source_width_px,
+            optics.intrinsics.source_height_px
+        ) == (batch.source.width_px, batch.source.height_px),
+        "source frame dimensions differ from the loaded camera optics profile"
+    );
+    let proposals = batch
+        .detections
+        .iter()
+        .filter(|detection| detection.class_id == ball_class_id)
+        .map(|detection| BallProposal {
+            detection_index: detection.detection_index,
+            bbox: [
+                detection.bbox_image_px.left,
+                detection.bbox_image_px.top,
+                detection.bbox_image_px.right,
+                detection.bbox_image_px.bottom,
+            ],
+        })
+        .collect::<Vec<_>>();
+    let started = Instant::now();
+    let observations = refine_ball_batch(
+        rgb,
+        &optics.intrinsics,
+        &proposals,
+        &profile.settings.parameters,
+    )
+    .map_err(|error| anyhow::anyhow!("native-resolution refinement failed: {error}"))?;
+    Ok(BallRefinementBatch {
+        source_width_px: batch.source.width_px,
+        source_height_px: batch.source.height_px,
+        camera_profile_id: camera_profile_id.to_owned(),
+        image_space: batch.image_space,
+        configuration_revision,
+        optics_profile_id: optics.optics_profile_id.clone(),
+        optics_revision: optics.optics_revision,
+        refiner_revision: optics.refiner_revision,
+        table_revision: profile.settings.table_revision,
+        refinement_elapsed_ms: started.elapsed().as_secs_f64() * 1_000.0,
+        identity: None,
+        observations,
+    })
 }
 
 #[cfg(test)]
@@ -2758,23 +2911,13 @@ fn calibration_report_from_geometry_result(
         Ok(calibrated) => Ok(FrameCalibrationReport {
             status: CalibrationStatus::Valid,
             reason: None,
-            measurements: Some(
-                calibrated
-                    .detections
-                    .iter()
-                    .map(|detection| CalibratedMeasurement {
-                        detection_index: detection.detection_index,
-                        center_image_px: detection.center_image_px,
-                        center_table_mm: detection.center_table_mm,
-                    })
-                    .collect(),
-            ),
+            projected_box_midpoint_count: Some(calibrated.detections.len()),
         }),
         Err(error @ GeometryError::IncompatibleFrameCalibration(_))
         | Err(error @ GeometryError::DetectionProjection { .. }) => Ok(FrameCalibrationReport {
             status: CalibrationStatus::Unavailable,
             reason: Some(error.to_string()),
-            measurements: None,
+            projected_box_midpoint_count: None,
         }),
         Err(error) => {
             bail!("audit-created detection batch violated geometry input contract: {error}")
@@ -3035,6 +3178,7 @@ fn open_scene_snapshot_output(
         })?;
     Ok(SceneSnapshotOutputRuntime {
         tracker: SceneTrackerV1::new(options.tracking.clone()),
+        tracking: options.tracking.clone(),
         sink: SceneSnapshotSink::Jsonl(BufWriter::new(file)),
         snapshot_count: 0,
         total_tracking_ms: 0.0,
@@ -4433,6 +4577,7 @@ mod tests {
         ProviderSelection, SceneSnapshotOutputDestination, SceneSnapshotOutputOptions,
         VideoReplayMode, VideoTimeline,
     };
+    use crate::ball_localization_profile::BallLocalizationSettings;
     use crate::detection_batch::{decode_detection_batch_v1, DetectionBatchV1, ImageSpace};
     use crate::inference::Detection;
     use crate::live_timing_spans::FrameTimingContext;
@@ -4471,6 +4616,7 @@ mod tests {
                 source_image_space: ImageSpace::Raw,
                 detection_batch_output: None,
                 calibration: None,
+                ball_localization_settings: BallLocalizationSettings::default(),
                 scene_snapshot_output: None,
             },
             BatchOutputOptions {
@@ -4509,19 +4655,14 @@ mod tests {
     }
 
     #[test]
-    fn calibration_report_distinguishes_valid_mismatch_and_successful_empty_frames() {
+    fn cloth_geometry_report_never_emits_ball_center_table_coordinates() {
         let populated_batch = calibrated_batch(SUCCESS_BATCH_FIXTURE);
         let valid =
             calibration_report_for_batch(&populated_batch, &calibration_options(3)).unwrap();
         assert!(matches!(valid.status, CalibrationStatus::Valid));
-        assert_eq!(valid.measurements.as_ref().unwrap().len(), 1);
         assert_eq!(
-            valid.measurements.as_ref().unwrap()[0].center_table_mm.x_mm,
-            0.0
-        );
-        assert_eq!(
-            valid.measurements.as_ref().unwrap()[0].center_table_mm.y_mm,
-            0.0
+            valid.projected_box_midpoint_count,
+            Some(populated_batch.detections.len())
         );
 
         let unavailable =
@@ -4532,12 +4673,12 @@ mod tests {
             .as_deref()
             .unwrap()
             .contains("CalibrationRevisionMismatch"));
-        assert!(unavailable.measurements.is_none());
+        assert!(unavailable.projected_box_midpoint_count.is_none());
 
         let empty_batch = calibrated_batch(EMPTY_BATCH_FIXTURE);
         let empty = calibration_report_for_batch(&empty_batch, &calibration_options(3)).unwrap();
         assert!(matches!(empty.status, CalibrationStatus::Valid));
-        assert_eq!(empty.measurements, Some(Vec::new()));
+        assert_eq!(empty.projected_box_midpoint_count, Some(0));
     }
 
     #[test]

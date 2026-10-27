@@ -7,11 +7,17 @@
 //! completed scenes enter the existing newest-only loopback writer.
 
 use std::collections::{HashSet, VecDeque};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use anyhow::{ensure, Context, Result};
 use serde::Serialize;
 
+use crate::ball_localization::{
+    refine_ball_batch, resolve_ball_measurements_for_batch, BallProposal, BallRefinementBatch,
+    BallRefinementIdentity, ResolvedBallMeasurementBatch,
+};
+use crate::ball_localization_profile::LoadedBallLocalizationProfile;
 use crate::calibration::ValidatedTableCalibrationV1;
 use crate::capture::{
     CaptureFrameReceiver, CaptureFrameTiming, CaptureReceiveOutcome, CaptureTimestampSemantics,
@@ -23,7 +29,6 @@ use crate::detection_batch::{
     ImageSpace as BatchImageSpace, ModelIdentity, Point, SourceFrame as BatchSourceFrame,
     TimeUnit as BatchTimeUnit, TimestampStage as BatchTimestampStage,
 };
-use crate::geometry::{calibrate_detection_batch, AppliedCalibrationContext};
 use crate::inference::{FrameInferenceEngine, FrameInferenceOutput, FrameInferenceTimings};
 use crate::live_audit::{
     LiveAuditFrame, LiveAuditInferenceTimings, LiveAuditObservationOutcome, LiveAuditRecorder,
@@ -111,6 +116,153 @@ impl Rgb8FrameDetector for FrameInferenceEngine {
     }
 }
 
+/// Production live detector wrapper. It owns the same Coral/ONNX engine and
+/// runs native-pixel crop fitting immediately after inference on that same
+/// worker thread. The borrowed source buffer is never cloned or resized for
+/// ball measurement.
+pub struct LocalizedFrameDetector<D: Rgb8FrameDetector> {
+    inner: D,
+    profile: Option<Arc<LoadedBallLocalizationProfile>>,
+    ball_class_id: u32,
+    image_space: BatchImageSpace,
+    configuration_revision: u64,
+    camera_profile_id: String,
+}
+
+impl<D: Rgb8FrameDetector> LocalizedFrameDetector<D> {
+    pub fn new(
+        inner: D,
+        profile: Option<Arc<LoadedBallLocalizationProfile>>,
+        ball_class_id: u32,
+        image_space: BatchImageSpace,
+        configuration_revision: u64,
+        camera_profile_id: impl Into<String>,
+    ) -> Result<Self> {
+        if let Some(profile) = profile.as_ref() {
+            profile.settings.validate()?;
+        }
+        Ok(Self {
+            inner,
+            profile,
+            ball_class_id,
+            image_space,
+            configuration_revision,
+            camera_profile_id: camera_profile_id.into(),
+        })
+    }
+
+    fn refine(
+        &self,
+        output: &mut FrameInferenceOutput,
+        width_px: u32,
+        height_px: u32,
+        pixels: &[u8],
+        timing: Option<(&FrameTimingContext, SpanId)>,
+    ) -> Result<()> {
+        let Some(profile) = self.profile.as_ref() else {
+            output.ball_refinements = None;
+            return Ok(());
+        };
+        let Some(optics) = profile.optics.as_ref() else {
+            output.ball_refinements = None;
+            return Ok(());
+        };
+        if (width_px, height_px)
+            != (
+                optics.intrinsics.source_width_px,
+                optics.intrinsics.source_height_px,
+            )
+        {
+            eprintln!(
+                "ball refinement unavailable: source geometry {width_px}x{height_px} differs from the loaded optics profile"
+            );
+            output.ball_refinements = None;
+            return Ok(());
+        }
+        let _refinement_span = timing
+            .and_then(|(context, parent)| context.start_child_span("ball_refinement", parent).ok());
+        let proposals = output
+            .detections
+            .iter()
+            .enumerate()
+            .filter(|(_, detection)| detection.class_id == self.ball_class_id as usize)
+            .map(|(index, detection)| {
+                Ok(BallProposal {
+                    detection_index: u64::try_from(index)
+                        .context("detector index exceeds the supported identity range")?,
+                    bbox: detection.bbox_xyxy_px.map(f64::from),
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
+        let started = Instant::now();
+        let observations = match refine_ball_batch(
+            pixels,
+            &optics.intrinsics,
+            &proposals,
+            &profile.settings.parameters,
+        ) {
+            Ok(observations) => observations,
+            Err(error) => {
+                eprintln!(
+                    "ball refinement unavailable for this frame; coarse detections remain visible: {error}"
+                );
+                output.ball_refinements = None;
+                return Ok(());
+            }
+        };
+        output.ball_refinements = Some(BallRefinementBatch {
+            source_width_px: width_px,
+            source_height_px: height_px,
+            camera_profile_id: self.camera_profile_id.clone(),
+            image_space: self.image_space,
+            configuration_revision: self.configuration_revision,
+            optics_profile_id: optics.optics_profile_id.clone(),
+            optics_revision: optics.optics_revision,
+            refiner_revision: optics.refiner_revision,
+            table_revision: profile.settings.table_revision,
+            refinement_elapsed_ms: started.elapsed().as_secs_f64() * 1_000.0,
+            identity: None,
+            observations,
+        });
+        Ok(())
+    }
+}
+
+impl<D: Rgb8FrameDetector> Rgb8FrameDetector for LocalizedFrameDetector<D> {
+    fn infer_rgb8(
+        &mut self,
+        width_px: u32,
+        height_px: u32,
+        pixels: &[u8],
+    ) -> Result<FrameInferenceOutput> {
+        let mut output = self.inner.infer_rgb8(width_px, height_px, pixels)?;
+        self.refine(&mut output, width_px, height_px, pixels, None)?;
+        Ok(output)
+    }
+
+    fn infer_rgb8_with_timing(
+        &mut self,
+        width_px: u32,
+        height_px: u32,
+        pixels: &[u8],
+        timing: Option<(&FrameTimingContext, SpanId)>,
+    ) -> Result<FrameInferenceOutput> {
+        let mut output = self
+            .inner
+            .infer_rgb8_with_timing(width_px, height_px, pixels, timing)?;
+        self.refine(&mut output, width_px, height_px, pixels, timing)?;
+        Ok(output)
+    }
+
+    fn model_identity(&self) -> &ModelIdentity {
+        self.inner.model_identity()
+    }
+
+    fn inference_settings(&self) -> &crate::detection_batch::InferenceSettings {
+        self.inner.inference_settings()
+    }
+}
+
 /// Validated runtime choices for one capture-to-scene stream.
 #[derive(Debug, Clone)]
 pub struct CapturePipelineConfig {
@@ -120,6 +272,10 @@ pub struct CapturePipelineConfig {
     /// expected settings when the pipeline is preflight-bound. This is
     /// distinct from the tracking subsystem's own configuration revision.
     pub capture_configuration_revision: u64,
+    /// Capture-request table/visibility calibration revision copied into the
+    /// worker's frame identity. The independent ball-center revision is stored
+    /// in its own calibration asset.
+    pub capture_calibration_revision: u64,
     /// Must describe the bytes supplied by the selected capture adapter.
     pub image_space: BatchImageSpace,
     /// Maximum allowed host read-completion-to-publication age.
@@ -128,6 +284,9 @@ pub struct CapturePipelineConfig {
     /// deterministic one-shot callers can omit it and retain synchronous
     /// processing semantics.
     pub phase_schedule: Option<SchedulerConfig>,
+    /// Immutable optics and ball-center assets validated for the current
+    /// capture geometry. Missing assets preserve coarse visibility only.
+    pub localization_profile: Option<Arc<LoadedBallLocalizationProfile>>,
     /// Calibration acknowledged by the runtime for this image geometry.
     /// When absent, scenes explicitly report table coordinates as unavailable.
     pub calibration: Option<AppliedCaptureCalibration>,
@@ -182,12 +341,16 @@ impl AppliedCaptureCalibration {
 #[derive(Debug, Clone, PartialEq)]
 pub struct CapturePipelineResult {
     pub batch: DetectionBatchV1,
+    pub resolved_ball_measurements: ResolvedBallMeasurementBatch,
     pub scene: SceneSnapshotV1,
     pub association_capacity_evictions: usize,
     pub inference_timings: FrameInferenceTimings,
     /// Geometry time for an explicitly configured calibration. `None` means
-    /// no table transform was configured for this runtime.
+    /// no legacy cloth-corner transform is used for ball coordinates.
     pub calibration_ms: Option<f64>,
+    /// Time to validate the refinement sidecar and select/map one center per
+    /// ball. The value is present even when no physical calibration is loaded.
+    pub ball_measurement_resolution_ms: Option<f64>,
     /// Parent completion of the full frame-record read through inference start,
     /// including receiver queue wait. This is not sensor exposure latency.
     pub parent_record_read_complete_to_inference_start_ms: f64,
@@ -322,6 +485,7 @@ pub struct CaptureScenePipeline<D: Rgb8FrameDetector> {
     /// handshake before any frame can enter inference.
     live_startup_required: bool,
     tracking_camera_profile_id: String,
+    tracking_ball_class_id: u32,
     tracking_rectification_revision: u64,
     tracking_configuration_revision: u64,
     clock_origin: Instant,
@@ -370,6 +534,7 @@ impl<D: Rgb8FrameDetector> CaptureScenePipeline<D> {
         let detector_model = detector.model_identity().clone();
         let detector_settings = detector.inference_settings().clone();
         let tracking_camera_profile_id = tracking.camera_profile_id().to_owned();
+        let tracking_ball_class_id = tracking.ball_class_id();
         let tracking_configuration_revision = tracking.configuration_revision();
         let tracking_rectification_revision = tracking.rectification_revision();
         let state_lifecycle = config
@@ -391,6 +556,7 @@ impl<D: Rgb8FrameDetector> CaptureScenePipeline<D> {
             preflight_binding: None,
             live_startup_required: false,
             tracking_camera_profile_id,
+            tracking_ball_class_id,
             tracking_configuration_revision,
             tracking_rectification_revision,
             clock_origin: Instant::now(),
@@ -759,6 +925,10 @@ impl<D: Rgb8FrameDetector> CaptureScenePipeline<D> {
                 frame,
                 capture_timing,
                 inference.timings,
+                inference
+                    .ball_refinements
+                    .as_ref()
+                    .map(|refinements| refinements.refinement_elapsed_ms),
                 parent_record_read_complete_to_inference_start_ms,
                 age,
             );
@@ -801,26 +971,19 @@ impl<D: Rgb8FrameDetector> CaptureScenePipeline<D> {
                 return Err(error).context("failed to timestamp captured scene publication");
             }
         };
-        let calibration_started = Instant::now();
-        let calibration_span =
-            start_timing_child_span(timing_context.as_ref(), "calibration", frame_span_id);
-        let calibrated = self.config.calibration.as_ref().map(|applied| {
-            let context = AppliedCalibrationContext {
-                calibration_revision: applied.calibration_revision,
-                camera_profile_id: &applied.camera_profile_id,
-                rectification_revision: applied.rectification_revision,
-            };
-            (
-                applied.calibration_revision,
-                calibrate_detection_batch(&batch, &applied.calibration, context),
-            )
-        });
-        drop(calibration_span);
-        let calibration_ms = self
-            .config
-            .calibration
-            .as_ref()
-            .map(|_| calibration_started.elapsed().as_secs_f64() * 1_000.0);
+        let mapping_started = Instant::now();
+        let mapping_span = start_timing_child_span(
+            timing_context.as_ref(),
+            "ball_measurement_resolution",
+            frame_span_id,
+        );
+        let resolved_ball_measurements = self.build_resolved_ball_measurements(&batch, &inference);
+        drop(mapping_span);
+        let ball_measurement_resolution_ms =
+            Some(mapping_started.elapsed().as_secs_f64() * 1_000.0);
+        // The older cloth-corner homography remains a visibility reference.
+        // Ball centers use only the independent ball-center calibration.
+        let calibration_ms = None;
         let tracking_started = self.audit.as_ref().map(|_| Instant::now());
         let tracking_span = start_timing_child_span(
             timing_context.as_ref(),
@@ -828,10 +991,10 @@ impl<D: Rgb8FrameDetector> CaptureScenePipeline<D> {
             frame_span_id,
         );
         let mut candidate_tracker = self.tracker.clone();
-        let tracked_scene = match candidate_tracker.process_with_precalibrated_batch_report(
+        let tracked_scene = match candidate_tracker.process_with_resolved_ball_measurements(
             &batch,
             published_at,
-            calibrated,
+            &resolved_ball_measurements,
         ) {
             Ok(tracked_scene) => tracked_scene,
             Err(error) => {
@@ -1121,6 +1284,11 @@ impl<D: Rgb8FrameDetector> CaptureScenePipeline<D> {
                 inference_ms: inference.timings.inference_ms,
                 decode_and_nms_ms: inference.timings.decode_and_nms_ms,
                 engine_total_ms: inference.timings.engine_total_ms,
+                ball_refinement_ms: inference
+                    .ball_refinements
+                    .as_ref()
+                    .map(|refinements| refinements.refinement_elapsed_ms),
+                ball_measurement_resolution_ms,
                 calibration_ms,
                 tracking_state_ms,
                 scene_serialization_ms,
@@ -1132,10 +1300,12 @@ impl<D: Rgb8FrameDetector> CaptureScenePipeline<D> {
         Ok(CapturePipelineOutcome::Published(Box::new(
             CapturePipelineResult {
                 batch,
+                resolved_ball_measurements,
                 scene,
                 association_capacity_evictions,
                 inference_timings: inference.timings,
                 calibration_ms,
+                ball_measurement_resolution_ms,
                 parent_record_read_complete_to_inference_start_ms,
                 parent_record_read_complete_to_scene_queue_ms,
             },
@@ -1295,6 +1465,7 @@ impl<D: Rgb8FrameDetector> CaptureScenePipeline<D> {
         frame: &RgbFrameEnvelope,
         capture_timing: CaptureFrameTiming,
         inference: FrameInferenceTimings,
+        ball_refinement_ms: Option<f64>,
         parent_record_read_complete_to_inference_start_ms: f64,
         age: Duration,
     ) {
@@ -1308,6 +1479,7 @@ impl<D: Rgb8FrameDetector> CaptureScenePipeline<D> {
                 capture_timing,
                 parent_record_read_complete_to_inference_start_ms,
                 inference,
+                ball_refinement_ms,
                 parent_record_read_complete_to_inference_complete_ms: age.as_secs_f64() * 1_000.0,
                 maximum_frame_age_ms: self.config.maximum_frame_age.as_secs_f64() * 1_000.0,
             }),
@@ -1559,6 +1731,38 @@ impl<D: Rgb8FrameDetector> CaptureScenePipeline<D> {
             .context("captured detection batch violates the v1 contract")?;
         Ok(batch)
     }
+
+    /// Resolve each ball exactly once from its detector midpoint and, only
+    /// when frame-bound refinement succeeds, its native-pixel center. This
+    /// sidecar never rewrites DetectionBatchV1.
+    fn build_resolved_ball_measurements(
+        &self,
+        batch: &DetectionBatchV1,
+        inference: &FrameInferenceOutput,
+    ) -> ResolvedBallMeasurementBatch {
+        let expected_identity = BallRefinementIdentity {
+            source_session_id: batch.source.session_id.clone(),
+            frame_id: batch.source.frame_id.clone(),
+            configuration_revision: self.config.capture_configuration_revision,
+            calibration_revision: self.config.capture_calibration_revision,
+            // Motion generation is already checked by CaptureRuntimeCoordinator
+            // before this frame-scoped sidecar reaches the pipeline.
+            motion_generation: 0,
+        };
+        resolve_ball_measurements_for_batch(
+            batch,
+            crate::ball_localization::BallMeasurementResolutionContext {
+                ball_class_id: self.tracking_ball_class_id,
+                camera_profile_id: &self.tracking_camera_profile_id,
+                configuration_revision: self.config.capture_configuration_revision,
+                rectification_revision: self.tracking_rectification_revision,
+                profile: self.config.localization_profile.as_deref(),
+                refinements: inference.ball_refinements.as_ref(),
+                expected_identity: Some(&expected_identity),
+                require_identity: self.live_startup_required,
+            },
+        )
+    }
 }
 
 fn monotonic_elapsed_ns(origin: Instant, at: Instant) -> Result<u128> {
@@ -1703,6 +1907,11 @@ mod tests {
     use std::thread;
     use std::time::{Duration, Instant};
 
+    use crate::ball_localization::CameraIntrinsics;
+    use crate::ball_localization_profile::{
+        BallLocalizationSettings, CameraOpticsProfileV1, LoadedBallLocalizationProfile,
+        CAMERA_OPTICS_PROFILE_VERSION,
+    };
     use crate::calibration::{TableCalibrationV1, ValidatedTableCalibrationV1};
     use crate::capture::{
         CaptureAggregateFrameLimit, CaptureFrameBudget, CaptureFrameLimit, RgbFrameEnvelope,
@@ -1716,6 +1925,7 @@ mod tests {
     use crate::live_audit::{
         LiveAuditConfig, LiveAuditExporter, LiveAuditRecorder, LiveAuditShutdownSummary,
     };
+    use crate::live_timing_spans::FrameTimingContext;
     use crate::scene_transport::SceneTransportConfig;
     use crate::tracking::TrackingConfigV1;
     use crate::{Outcome, UpdateKind};
@@ -1723,7 +1933,7 @@ mod tests {
 
     use super::{
         AppliedCaptureCalibration, CapturePipelineConfig, CapturePipelineOutcome,
-        CaptureScenePipeline, CaptureSkipReason, Rgb8FrameDetector,
+        CaptureScenePipeline, CaptureSkipReason, LocalizedFrameDetector, Rgb8FrameDetector,
     };
 
     struct FakeDetector {
@@ -1765,6 +1975,7 @@ mod tests {
                     decode_and_nms_ms: 0.5,
                     engine_total_ms: 3.5,
                 },
+                ball_refinements: None,
             })
         }
 
@@ -1826,6 +2037,37 @@ mod tests {
         }
     }
 
+    fn localized_test_profile() -> Arc<LoadedBallLocalizationProfile> {
+        let mut settings = BallLocalizationSettings::default();
+        settings.parameters.reference_width_px = 320;
+        settings.parameters.max_roi_side_px = 128;
+        settings.parameters.patch_size_px = 97;
+        settings.parameters.batch_budget_ms = 200;
+        settings.parameters.proposal_budget_ms = 200;
+        Arc::new(LoadedBallLocalizationProfile {
+            settings,
+            optics: Some(CameraOpticsProfileV1 {
+                schema_version: CAMERA_OPTICS_PROFILE_VERSION,
+                optics_profile_id: "test-optics".to_owned(),
+                camera_profile_id: "test-camera".to_owned(),
+                optics_revision: 1,
+                refiner_revision: 1,
+                image_space: crate::ImageSpace::Raw,
+                intrinsics: CameraIntrinsics {
+                    source_width_px: 320,
+                    source_height_px: 200,
+                    fx: 180.0,
+                    fy: 180.0,
+                    cx: 160.0,
+                    cy: 100.0,
+                },
+                provenance: "capture pipeline unit test".to_owned(),
+            }),
+            calibration: None,
+            calibration_error: None,
+        })
+    }
+
     fn slow_detector(calls: Arc<AtomicU64>, delay: Duration) -> FakeDetector {
         let mut detector = detector(calls, false, vec![detection()]);
         detector.delay = delay;
@@ -1882,9 +2124,11 @@ mod tests {
             CapturePipelineConfig {
                 engine_instance_id: "capture-run-1".to_owned(),
                 capture_configuration_revision: 1,
+                capture_calibration_revision: 0,
                 image_space: BatchImageSpace::Raw,
                 maximum_frame_age,
                 phase_schedule: None,
+                localization_profile: None,
                 calibration: None,
                 scene_transport: SceneTransportConfig {
                     address,
@@ -1925,9 +2169,11 @@ mod tests {
             CapturePipelineConfig {
                 engine_instance_id: "capture-run-outcomes".to_owned(),
                 capture_configuration_revision: 7,
+                capture_calibration_revision: 0,
                 image_space: BatchImageSpace::Raw,
                 maximum_frame_age,
                 phase_schedule: None,
+                localization_profile: None,
                 calibration: None,
                 scene_transport: SceneTransportConfig {
                     address: SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 9),
@@ -1980,6 +2226,68 @@ mod tests {
         let mut payload = vec![0; u32::from_be_bytes(header) as usize];
         stream.read_exact(&mut payload).unwrap();
         payload
+    }
+
+    #[test]
+    fn localized_detector_refines_borrowed_native_pixels_and_records_a_separate_span() {
+        let mut ball = detection();
+        ball.bbox_xyxy_px = [135.0, 75.0, 185.0, 125.0];
+        ball.center_xy_px = [160.0, 100.0];
+        let calls = Arc::new(AtomicU64::new(0));
+        let inner = detector(Arc::clone(&calls), false, vec![ball.clone()]);
+        let mut localized = LocalizedFrameDetector::new(
+            inner,
+            Some(localized_test_profile()),
+            1,
+            BatchImageSpace::Raw,
+            7,
+            "test-camera",
+        )
+        .unwrap();
+
+        let mut rgb = vec![0; 320 * 200 * 3];
+        for y in 0..200 {
+            for x in 0..320 {
+                let color = if (x as i32 - 160).pow(2) + (y as i32 - 100).pow(2) <= 400 {
+                    [225, 62, 35]
+                } else {
+                    [24, 145, 118]
+                };
+                let offset = (y * 320 + x) * 3;
+                rgb[offset..offset + 3].copy_from_slice(&color);
+            }
+        }
+
+        let timing = FrameTimingContext::new(Instant::now());
+        let detector_span = timing.start_span("detector").unwrap();
+        let output = localized
+            .infer_rgb8_with_timing(320, 200, &rgb, Some((&timing, detector_span.id())))
+            .unwrap();
+        detector_span.finish().unwrap();
+        let snapshot = timing.snapshot().unwrap();
+
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            (output.source_width_px, output.source_height_px),
+            (320, 200)
+        );
+        assert_eq!(output.detections[0].bbox_xyxy_px, ball.bbox_xyxy_px);
+        assert_eq!(output.timings.inference_ms, 2.0);
+        let refinements = output.ball_refinements.unwrap();
+        assert_eq!(refinements.source_width_px, 320);
+        assert_eq!(refinements.source_height_px, 200);
+        assert_eq!(refinements.observations.len(), 1);
+        assert_eq!(
+            refinements.observations[0].status,
+            crate::ball_localization::RefinementStatus::Accepted,
+            "refinement result: {:?}",
+            refinements.observations[0]
+        );
+        assert!(refinements.refinement_elapsed_ms.is_finite());
+        assert!(snapshot
+            .spans
+            .iter()
+            .any(|span| { span.name == "ball_refinement" && span.inclusive_elapsed_ns.is_some() }));
     }
 
     #[test]
@@ -2114,9 +2422,11 @@ mod tests {
             CapturePipelineConfig {
                 engine_instance_id: "capture-run-capacity-pressure".to_owned(),
                 capture_configuration_revision: 1,
+                capture_calibration_revision: 0,
                 image_space: BatchImageSpace::Raw,
                 maximum_frame_age: Duration::from_secs(1),
                 phase_schedule: None,
+                localization_profile: None,
                 calibration: None,
                 scene_transport: SceneTransportConfig {
                     address: SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 9),
@@ -2223,9 +2533,11 @@ mod tests {
             CapturePipelineConfig {
                 engine_instance_id: "capture-run-invalid-capacity".to_owned(),
                 capture_configuration_revision: 1,
+                capture_calibration_revision: 0,
                 image_space: BatchImageSpace::Raw,
                 maximum_frame_age: Duration::from_secs(1),
                 phase_schedule: None,
+                localization_profile: None,
                 calibration: None,
                 scene_transport: SceneTransportConfig {
                     address: SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 9),
@@ -2284,9 +2596,11 @@ mod tests {
             CapturePipelineConfig {
                 engine_instance_id: "capture-run-audit".to_owned(),
                 capture_configuration_revision: 1,
+                capture_calibration_revision: 0,
                 image_space: BatchImageSpace::Raw,
                 maximum_frame_age: Duration::from_secs(1),
                 phase_schedule: None,
+                localization_profile: None,
                 calibration: None,
                 scene_transport: SceneTransportConfig {
                     address: SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 9),
@@ -2564,9 +2878,11 @@ mod tests {
         let invalid_config = CapturePipelineConfig {
             engine_instance_id: "capture-run-invalid-calibration".to_owned(),
             capture_configuration_revision: 1,
+            capture_calibration_revision: 0,
             image_space: BatchImageSpace::Rectified,
             maximum_frame_age: Duration::from_secs(1),
             phase_schedule: None,
+            localization_profile: None,
             calibration: Some(applied),
             scene_transport: SceneTransportConfig {
                 address: SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 9),

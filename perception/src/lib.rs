@@ -4,6 +4,9 @@
 //! adds cross-field invariants that JSON Schema cannot express, such as checking
 //! image coordinates against the dimensions carried by that measurement.
 
+pub mod ball_center_calibration;
+pub mod ball_localization;
+pub mod ball_localization_profile;
 pub mod calibration;
 pub mod calibration_control;
 pub mod calibration_store;

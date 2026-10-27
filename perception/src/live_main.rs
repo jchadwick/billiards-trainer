@@ -16,8 +16,8 @@ use billiards_perception::gstreamer_capture_source::{
 };
 use billiards_perception::inference::ProviderSelection;
 use billiards_perception::live_application::{
-    parse_phase_schedule_json, read_capture_settings, run_live_application_with_audit,
-    scene_transport_config, LiveApplicationSettings,
+    parse_ball_localization_settings_json, parse_phase_schedule_json, read_capture_settings,
+    run_live_application_with_audit, scene_transport_config, LiveApplicationSettings,
 };
 use billiards_perception::live_audit::LiveAuditConfig;
 use billiards_perception::table_visibility::TableVisibilityConfig;
@@ -147,6 +147,10 @@ struct Arguments {
     /// Compact, validated calibrated-table visibility policy.
     #[arg(long)]
     table_visibility_config_json: Option<String>,
+
+    /// Bounded optics, crop-refinement, and ball-center calibration settings.
+    #[arg(long)]
+    ball_localization_json: Option<String>,
 
     /// Physical capture remains unavailable unless explicitly selected.
     #[arg(long, value_enum, default_value_t = CaptureSourceArgument::Unavailable)]
@@ -416,6 +420,9 @@ fn main() -> Result<()> {
             .context("invalid live phase schedule")?,
         table_visibility: parse_table_visibility_config(
             arguments.table_visibility_config_json.as_deref(),
+        )?,
+        ball_localization: parse_ball_localization_settings_json(
+            arguments.ball_localization_json.as_deref(),
         )?,
         scene_transport: scene_transport_config(
             arguments.scene_snapshots_tcp,

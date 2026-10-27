@@ -73,6 +73,7 @@ impl Rgb8FrameDetector for TestDetector {
                 decode_and_nms_ms: 0.1,
                 engine_total_ms: 0.4,
             },
+            ball_refinements: None,
         })
     }
 
@@ -390,9 +391,11 @@ fn pipeline_config(
     CapturePipelineConfig {
         engine_instance_id: "capture-preflight-test-run".to_owned(),
         capture_configuration_revision: 1,
+        capture_calibration_revision: 0,
         image_space,
         maximum_frame_age,
         phase_schedule: None,
+        localization_profile: None,
         calibration,
         scene_transport: SceneTransportConfig {
             address: SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 9),
@@ -501,9 +504,11 @@ fn fake_capture_to_anonymous_loopback_scene_delivery_runs_end_to_end() {
         CapturePipelineConfig {
             engine_instance_id: "capture-pipeline-integration-run".to_owned(),
             capture_configuration_revision: 1,
+            capture_calibration_revision: 0,
             image_space: ImageSpace::Raw,
             maximum_frame_age: Duration::from_secs(2),
             phase_schedule: None,
+            localization_profile: None,
             calibration: Some(applied_calibration()),
             scene_transport: SceneTransportConfig {
                 address,
@@ -560,18 +565,21 @@ fn fake_capture_to_anonymous_loopback_scene_delivery_runs_end_to_end() {
         TimestampStage::CameraReadComplete
     );
     assert_eq!(result.scene.balls.len(), 1);
-    assert_eq!(result.scene.revisions.calibration, Some(3));
+    // The legacy cloth-corner calibration remains attached to preflight for
+    // visibility, but it is not valid evidence for a ball-center coordinate.
+    assert_eq!(result.scene.revisions.calibration, None);
     assert_eq!(
         result.scene.revisions.calibration_state,
-        billiards_perception::CalibrationState::Valid
+        billiards_perception::CalibrationState::Unavailable
     );
     let measurement = result.scene.balls[0].measurement.as_ref().unwrap();
     assert_eq!(measurement.image_center_px.x, 6.0);
     assert_eq!(measurement.image_center_px.y, 7.0);
-    let table_position = measurement.table_center_mm.as_ref().unwrap();
-    assert_eq!(table_position.x, -2.0);
-    assert_eq!(table_position.y, -1.0);
-    assert!(result.calibration_ms.is_some_and(f64::is_finite));
+    assert!(measurement.table_center_mm.is_none());
+    assert!(result.calibration_ms.is_none());
+    assert!(result
+        .ball_measurement_resolution_ms
+        .is_some_and(f64::is_finite));
 
     assert!(matches!(
         pipeline.receive_one(&mut frame_receiver, Duration::from_secs(2)),
@@ -593,16 +601,12 @@ fn fake_capture_to_anonymous_loopback_scene_delivery_runs_end_to_end() {
     assert_eq!(received_scene["source"]["session_id"], session_id);
     assert_eq!(received_scene["source"]["frame_id"], "synthetic-frame-1");
     assert_eq!(received_scene["outcome"], "success");
-    assert_eq!(received_scene["revisions"]["calibration"], 3);
-    assert_eq!(received_scene["revisions"]["calibration_state"], "valid");
+    assert!(received_scene["revisions"]["calibration"].is_null());
     assert_eq!(
-        received_scene["balls"][0]["measurement"]["table_center_mm"]["x"],
-        -2.0
+        received_scene["revisions"]["calibration_state"],
+        "unavailable"
     );
-    assert_eq!(
-        received_scene["balls"][0]["measurement"]["table_center_mm"]["y"],
-        -1.0
-    );
+    assert!(received_scene["balls"][0]["measurement"]["table_center_mm"].is_null());
 }
 
 #[test]

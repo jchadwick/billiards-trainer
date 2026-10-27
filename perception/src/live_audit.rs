@@ -29,7 +29,7 @@ pub const MAX_LIVE_AUDIT_QUEUE_CAPACITY: usize = 4_096;
 /// and is capped so a malformed or future record cannot monopolize the writer.
 pub const MIN_LIVE_AUDIT_RECORD_BYTES: usize = 1_024;
 pub const MAX_LIVE_AUDIT_RECORD_BYTES: usize = 1_048_576;
-pub const LIVE_AUDIT_SCHEMA_VERSION: u8 = 5;
+pub const LIVE_AUDIT_SCHEMA_VERSION: u8 = 6;
 
 /// Explicit settings for the opt-in side channel. There are no implicit
 /// address, queue, framing, or deadline defaults.
@@ -91,6 +91,8 @@ pub(crate) struct LiveAuditFrame<'a> {
     pub inference_ms: f64,
     pub decode_and_nms_ms: f64,
     pub engine_total_ms: f64,
+    pub ball_refinement_ms: Option<f64>,
+    pub ball_measurement_resolution_ms: Option<f64>,
     pub calibration_ms: Option<f64>,
     pub tracking_state_ms: Option<f64>,
     pub scene_serialization_ms: Option<f64>,
@@ -125,6 +127,7 @@ pub(crate) struct LiveAuditInferenceTimings {
     pub capture_timing: CaptureFrameTiming,
     pub parent_record_read_complete_to_inference_start_ms: f64,
     pub inference: FrameInferenceTimings,
+    pub ball_refinement_ms: Option<f64>,
     pub parent_record_read_complete_to_inference_complete_ms: f64,
     pub maximum_frame_age_ms: f64,
 }
@@ -269,6 +272,8 @@ impl LiveAuditRecorder {
                 inference: frame.inference_ms,
                 decode_and_nms: frame.decode_and_nms_ms,
                 engine_total: frame.engine_total_ms,
+                ball_refinement: frame.ball_refinement_ms,
+                ball_measurement_resolution: frame.ball_measurement_resolution_ms,
                 calibration: frame.calibration_ms,
                 tracking_and_state_assembly: frame.tracking_state_ms,
                 scene_json_serialization: frame.scene_serialization_ms,
@@ -371,6 +376,7 @@ impl LiveAuditRecorder {
                     inference: timings.inference.inference_ms,
                     decode_and_nms: timings.inference.decode_and_nms_ms,
                     engine_total: timings.inference.engine_total_ms,
+                    ball_refinement: timings.ball_refinement_ms,
                     parent_record_read_complete_to_inference_complete: timings
                         .parent_record_read_complete_to_inference_complete_ms,
                     maximum_frame_age: timings.maximum_frame_age_ms,
@@ -593,6 +599,10 @@ struct FrameDurationsMs {
     inference: f64,
     decode_and_nms: f64,
     engine_total: f64,
+    /// Null when no native crop pass ran for this frame.
+    ball_refinement: Option<f64>,
+    /// Null means the frame was rejected before ball-center resolution.
+    ball_measurement_resolution: Option<f64>,
     /// Null means the runtime had no valid table calibration.
     calibration: Option<f64>,
     tracking_and_state_assembly: Option<f64>,
@@ -618,6 +628,8 @@ struct InferenceOutcomeDurationsMs {
     inference: f64,
     decode_and_nms: f64,
     engine_total: f64,
+    /// Null when no native crop pass ran for this frame.
+    ball_refinement: Option<f64>,
     /// Freshness age measured in the parent process's monotonic clock domain.
     parent_record_read_complete_to_inference_complete: f64,
     maximum_frame_age: f64,
@@ -1020,6 +1032,8 @@ mod tests {
             inference_ms: 3.4,
             decode_and_nms_ms: 0.6,
             engine_total_ms: 5.7,
+            ball_refinement_ms: Some(0.14),
+            ball_measurement_resolution_ms: Some(0.02),
             calibration_ms: None,
             tracking_state_ms: Some(0.2),
             scene_serialization_ms: Some(0.1),
@@ -1071,6 +1085,8 @@ mod tests {
         assert_eq!(frame["durations_ms"]["parent_framed_record_read"], 0.04);
         assert_eq!(frame["durations_ms"]["capture_receiver_queue_wait"], 0.05);
         assert_eq!(frame["durations_ms"]["engine_total"], 5.7);
+        assert_eq!(frame["durations_ms"]["ball_refinement"], 0.14);
+        assert_eq!(frame["durations_ms"]["ball_measurement_resolution"], 0.02);
         assert_eq!(
             frame["durations_ms"]["calibration"],
             serde_json::Value::Null
@@ -1212,6 +1228,8 @@ mod tests {
             inference_ms: 0.0,
             decode_and_nms_ms: 0.0,
             engine_total_ms: 0.0,
+            ball_refinement_ms: None,
+            ball_measurement_resolution_ms: None,
             calibration_ms: None,
             tracking_state_ms: None,
             scene_serialization_ms: None,

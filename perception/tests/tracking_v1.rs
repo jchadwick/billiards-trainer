@@ -1,22 +1,16 @@
 use std::time::Duration;
 
-use billiards_perception::calibration::{TableCalibrationV1, ValidatedTableCalibrationV1};
+use billiards_perception::ball_localization::{RefinementStatus, ResolvedBallMeasurementBatch};
 use billiards_perception::detection_batch::{decode_detection_batch_v1, DetectionBatchV1};
-use billiards_perception::geometry::{calibrate_detection_batch, AppliedCalibrationContext};
-use billiards_perception::tracking::{
-    AppliedTrackingCalibration, SceneTrackerV1, TrackingConfigV1, TrackingError,
-};
+use billiards_perception::tracking::{SceneTrackerV1, TrackingConfigV1, TrackingError};
 use billiards_perception::{
-    BallStatus, CalibrationState, ClockKind, CueStatus, ImageSpace, Outcome, TimeUnit, Timestamp,
-    TimestampStage,
+    BallStatus, ClockKind, CueStatus, ImageSpace, Outcome, TimeUnit, Timestamp, TimestampStage,
 };
 use serde_json::{json, Value};
 
 const SUCCESS_BATCH: &str =
     include_str!("../contracts/detection-batch/v1/detection-batch-success.json");
 const TRACKED_SCENE_FIXTURE: &str = include_str!("../contracts/v1/scene-rust-tracked-success.json");
-const TABLE_CALIBRATION: &str =
-    include_str!("../contracts/calibration/v1/table-calibration-center-origin.json");
 
 fn config() -> TrackingConfigV1 {
     TrackingConfigV1::new(
@@ -71,39 +65,6 @@ fn frame(
 
 fn ball(x: f64, y: f64) -> (u32, f64, f64, f64) {
     (1, x, y, 0.97)
-}
-
-fn table_calibration() -> ValidatedTableCalibrationV1 {
-    serde_json::from_str::<TableCalibrationV1>(TABLE_CALIBRATION)
-        .unwrap()
-        .into_validated()
-        .unwrap()
-}
-
-fn calibrated_frame(
-    batch_sequence: u64,
-    source_ticks: u128,
-    detections: &[(u32, f64, f64, f64)],
-) -> DetectionBatchV1 {
-    let mut value = serde_json::to_value(frame(batch_sequence, source_ticks, detections)).unwrap();
-    value["source"]["width_px"] = json!(1000);
-    value["source"]["height_px"] = json!(500);
-    value["image_space"] = json!("rectified");
-    value["detections"] = json!(detections
-        .iter()
-        .enumerate()
-        .map(|(index, (class_id, x, y, confidence))| {
-            json!({
-                "detection_index": index,
-                "class_id": class_id,
-                "class_name": if *class_id == 0 { "cue" } else { "ball" },
-                "confidence": confidence,
-                "bbox_image_px": { "left": x - 1.0, "top": y - 1.0, "right": x + 1.0, "bottom": y + 1.0 },
-                "center_image_px": { "x": x, "y": y }
-            })
-        })
-        .collect::<Vec<_>>());
-    decode_detection_batch_v1(&serde_json::to_vec(&value).unwrap()).unwrap()
 }
 
 fn process(
@@ -624,9 +585,17 @@ fn capacity_pressure_evicts_oldest_unmatched_track_and_publishes_all_current_mea
         ["track-1", "track-2"]
     );
 
+    let pressure_batch = frame(2, 1_010_000_000, &[ball(201.0, 100.0), ball(400.0, 100.0)]);
+    let pressure_measurements = ResolvedBallMeasurementBatch::from_detection_batch_midpoints(
+        &pressure_batch,
+        1,
+        "camera-profile-test",
+        7,
+        3,
+    );
     let pressure = tracker
-        .process_with_precalibrated_batch_report(
-            &frame(2, 1_010_000_000, &[ball(201.0, 100.0), ball(400.0, 100.0)]),
+        .process_with_resolved_ball_measurements(
+            &pressure_batch,
             Timestamp {
                 ticks: "2000000002".to_owned(),
                 unit: TimeUnit::Nanoseconds,
@@ -634,7 +603,7 @@ fn capacity_pressure_evicts_oldest_unmatched_track_and_publishes_all_current_mea
                 domain_id: "scene-writer-clock-a".to_owned(),
                 stage: TimestampStage::SnapshotPublication,
             },
-            None,
+            &pressure_measurements,
         )
         .unwrap();
     assert_eq!(pressure.association_capacity_evictions, 1);
@@ -686,248 +655,116 @@ fn capacity_pressure_evicts_oldest_unmatched_track_and_publishes_all_current_mea
 }
 
 #[test]
-fn applied_calibration_adds_table_coordinates_and_revision_to_scene_measurements() {
-    let mut tracker = SceneTrackerV1::new(
-        TrackingConfigV1::new(
-            1,
-            Some(0),
-            "test-camera-profile",
-            10.0,
-            Duration::from_millis(50),
-            Duration::from_millis(100),
-            Duration::from_millis(500),
-            16,
-            4,
-            7,
-            2,
-        )
-        .unwrap(),
+fn resolved_center_drives_tracking_and_xy_while_raw_batch_midpoint_stays_unchanged() {
+    let batch = frame(1, 1_000_000_000, &[ball(200.0, 100.0)]);
+    let raw_midpoint = batch.detections[0].center_image_px;
+    let mut resolved = ResolvedBallMeasurementBatch::from_detection_batch_midpoints(
+        &batch,
+        1,
+        "camera-profile-test",
+        7,
+        3,
     );
-    let calibration = table_calibration();
-    let snapshot = tracker
-        .process_with_calibration(
-            &calibrated_frame(1, 1_000_000_000, &[ball(500.0, 250.0)]),
-            Timestamp {
-                ticks: "2000000000".to_owned(),
-                unit: TimeUnit::Nanoseconds,
-                clock: ClockKind::Monotonic,
-                domain_id: "scene-writer-clock-a".to_owned(),
-                stage: TimestampStage::SnapshotPublication,
-            },
-            Some(AppliedTrackingCalibration {
-                calibration: &calibration,
-                context: AppliedCalibrationContext {
-                    calibration_revision: 3,
-                    camera_profile_id: "test-camera-profile",
-                    rectification_revision: 2,
-                },
-            }),
-        )
-        .unwrap();
+    resolved.optics_profile_id = Some("optics-test".to_owned());
+    resolved.optics_revision = Some(4);
+    resolved.refiner_revision = Some(2);
+    resolved.table_revision = 1;
+    resolved.calibration_revision = Some(11);
+    resolved.measurements[0].center_image_px = [202.0, 101.0];
+    resolved.measurements[0].table_center_mm = Some([123.5, -456.25]);
+    resolved.measurements[0].refinement_status = Some(RefinementStatus::Accepted);
 
-    assert_eq!(
-        snapshot.revisions.calibration_state,
-        CalibrationState::Valid
-    );
-    assert_eq!(snapshot.revisions.calibration, Some(3));
-    assert_eq!(snapshot.outcome, Outcome::Success);
-    assert_eq!(
-        snapshot.balls[0]
-            .measurement
-            .as_ref()
-            .unwrap()
-            .table_center_mm,
-        Some(billiards_perception::Point2d { x: 0.0, y: 0.0 })
-    );
-    snapshot.validate().unwrap();
-}
-
-#[test]
-fn failed_or_removed_calibration_clears_physical_positions_without_losing_tracks() {
-    let mut tracker = SceneTrackerV1::new(
-        TrackingConfigV1::new(
-            1,
-            Some(0),
-            "test-camera-profile",
-            10.0,
-            Duration::from_millis(50),
-            Duration::from_millis(100),
-            Duration::from_millis(500),
-            16,
-            4,
-            7,
-            2,
-        )
-        .unwrap(),
-    );
-    let calibration = table_calibration();
-    let first = tracker
-        .process_with_calibration(
-            &calibrated_frame(1, 1_000_000_000, &[ball(500.0, 250.0)]),
-            Timestamp {
-                ticks: "2000000000".to_owned(),
-                unit: TimeUnit::Nanoseconds,
-                clock: ClockKind::Monotonic,
-                domain_id: "scene-writer-clock-a".to_owned(),
-                stage: TimestampStage::SnapshotPublication,
-            },
-            Some(AppliedTrackingCalibration {
-                calibration: &calibration,
-                context: AppliedCalibrationContext {
-                    calibration_revision: 4,
-                    camera_profile_id: "test-camera-profile",
-                    rectification_revision: 2,
-                },
-            }),
-        )
-        .unwrap();
-    assert_eq!(first.revisions.calibration_state, CalibrationState::Invalid);
-    assert_eq!(first.outcome, Outcome::Degraded);
-    assert_eq!(
-        first.balls[0].measurement.as_ref().unwrap().table_center_mm,
-        None
-    );
-
-    let second = tracker
-        .process_with_calibration(
-            &calibrated_frame(2, 1_020_000_000, &[]),
-            Timestamp {
-                ticks: "2020000000".to_owned(),
-                unit: TimeUnit::Nanoseconds,
-                clock: ClockKind::Monotonic,
-                domain_id: "scene-writer-clock-a".to_owned(),
-                stage: TimestampStage::SnapshotPublication,
-            },
-            None,
-        )
-        .unwrap();
-    assert_eq!(
-        second.revisions.calibration_state,
-        CalibrationState::Unavailable
-    );
-    assert_eq!(second.balls.len(), 1);
-    assert_eq!(second.balls[0].track_id, first.balls[0].track_id);
-    assert_eq!(
-        second.balls[0]
-            .measurement
-            .as_ref()
-            .unwrap()
-            .table_center_mm,
-        None
-    );
-    second.validate().unwrap();
-}
-
-#[test]
-fn tracking_rejects_applied_camera_geometry_that_disagrees_with_its_revision_identity() {
     let mut tracker = SceneTrackerV1::new(config());
-    let batch = frame(1, 1_000_000_000, &[ball(100.0, 100.0)]);
-    let calibration = table_calibration();
-    let publication = Timestamp {
-        ticks: "2000000000".to_owned(),
-        unit: TimeUnit::Nanoseconds,
-        clock: ClockKind::Monotonic,
-        domain_id: "scene-writer-clock-a".to_owned(),
-        stage: TimestampStage::SnapshotPublication,
-    };
-
-    let error = tracker
-        .process_with_calibration(
+    let result = tracker
+        .process_with_resolved_ball_measurements(
             &batch,
-            publication.clone(),
-            Some(AppliedTrackingCalibration {
-                calibration: &calibration,
-                context: AppliedCalibrationContext {
-                    calibration_revision: 3,
-                    camera_profile_id: "different-camera-profile",
-                    rectification_revision: 3,
-                },
-            }),
+            Timestamp {
+                ticks: "2000000000".to_owned(),
+                unit: TimeUnit::Nanoseconds,
+                clock: ClockKind::Monotonic,
+                domain_id: "scene-writer-clock-a".to_owned(),
+                stage: TimestampStage::SnapshotPublication,
+            },
+            &resolved,
+        )
+        .unwrap();
+
+    assert_eq!(batch.detections[0].center_image_px, raw_midpoint);
+    let measurement = result.snapshot.balls[0].measurement.as_ref().unwrap();
+    assert_eq!(measurement.image_center_px.x, 202.0);
+    assert_eq!(measurement.image_center_px.y, 101.0);
+    assert_eq!(measurement.table_center_mm.unwrap().x, 123.5);
+    assert_eq!(measurement.table_center_mm.unwrap().y, -456.25);
+    assert_eq!(result.snapshot.revisions.calibration, Some(11));
+    result.snapshot.validate().unwrap();
+}
+
+#[test]
+fn resolved_center_sidecar_rejects_a_different_frame_before_state_changes() {
+    let batch = frame(1, 1_000_000_000, &[ball(200.0, 100.0)]);
+    let mut resolved = ResolvedBallMeasurementBatch::from_detection_batch_midpoints(
+        &batch,
+        1,
+        "camera-profile-test",
+        7,
+        3,
+    );
+    resolved.frame_id = "another-frame".to_owned();
+
+    let mut tracker = SceneTrackerV1::new(config());
+    let error = tracker
+        .process_with_resolved_ball_measurements(
+            &batch,
+            Timestamp {
+                ticks: "2000000000".to_owned(),
+                unit: TimeUnit::Nanoseconds,
+                clock: ClockKind::Monotonic,
+                domain_id: "scene-writer-clock-a".to_owned(),
+                stage: TimestampStage::SnapshotPublication,
+            },
+            &resolved,
         )
         .unwrap_err();
-    assert_eq!(error, TrackingError::AppliedCalibrationContextMismatch);
+    assert!(matches!(
+        error,
+        TrackingError::ResolvedMeasurementMismatch("source_frame")
+    ));
 
-    // The rejected configuration did not consume the observation or mutate IDs.
-    let snapshot = tracker.process(&batch, publication).unwrap();
-    assert_eq!(snapshot.balls[0].track_id, "track-1");
+    let scene = process(&mut tracker, &batch).unwrap();
+    assert_eq!(scene.snapshot_revision, 1);
+    assert_eq!(
+        scene.balls[0]
+            .measurement
+            .as_ref()
+            .unwrap()
+            .image_center_px
+            .x,
+        200.0
+    );
 }
 
 #[test]
-fn precalibrated_results_must_match_the_exact_detection_frame_and_camera_revisions() {
-    let batch = calibrated_frame(1, 1_000_000_000, &[ball(500.0, 250.0)]);
-    let calibration = table_calibration();
-    let context = AppliedCalibrationContext {
-        calibration_revision: 3,
-        camera_profile_id: "test-camera-profile",
-        rectification_revision: 2,
-    };
-    let calibrated =
-        calibrate_detection_batch(&batch, &calibration, context).expect("fixture calibrates");
+fn resolved_center_sidecar_rejects_stale_configuration_and_reordered_detections() {
+    let batch = frame(1, 1_000_000_000, &[ball(200.0, 100.0), ball(400.0, 120.0)]);
+    let base = ResolvedBallMeasurementBatch::from_detection_batch_midpoints(
+        &batch,
+        1,
+        "camera-profile-test",
+        7,
+        3,
+    );
+    let mut stale = base.clone();
+    stale.configuration_revision += 1;
+    let mut reordered = base;
+    reordered.measurements.swap(0, 1);
 
-    #[derive(Clone, Copy)]
-    enum Mismatch {
-        SourceFrame,
-        DetectionMeasurement,
-        CameraProfile,
-        CalibrationRevision,
-        RectificationRevision,
-        ImageSpace,
-    }
-
-    for mismatch in [
-        Mismatch::SourceFrame,
-        Mismatch::DetectionMeasurement,
-        Mismatch::CameraProfile,
-        Mismatch::CalibrationRevision,
-        Mismatch::RectificationRevision,
-        Mismatch::ImageSpace,
+    for (resolved, expected_field) in [
+        (stale, "configuration_revision"),
+        (reordered, "detection_identity_or_measurement"),
     ] {
-        let mut corrupted = calibrated.clone();
-        let expected_field = match mismatch {
-            Mismatch::SourceFrame => {
-                corrupted.source.frame_id = "stale-frame".to_owned();
-                "source_frame"
-            }
-            Mismatch::DetectionMeasurement => {
-                corrupted.detections[0].center_image_px.x += 1.0;
-                "detection_identity_or_measurement"
-            }
-            Mismatch::CameraProfile => {
-                corrupted.camera_profile_id = "other-camera".to_owned();
-                "camera_profile_id"
-            }
-            Mismatch::CalibrationRevision => {
-                corrupted.calibration_revision += 1;
-                "calibration_revision"
-            }
-            Mismatch::RectificationRevision => {
-                corrupted.rectification_revision += 1;
-                "rectification_revision"
-            }
-            Mismatch::ImageSpace => {
-                corrupted.image_space = billiards_perception::detection_batch::ImageSpace::Raw;
-                "image_space"
-            }
-        };
-        let mut tracker = SceneTrackerV1::new(
-            TrackingConfigV1::new(
-                1,
-                Some(0),
-                "test-camera-profile",
-                10.0,
-                Duration::from_millis(50),
-                Duration::from_millis(100),
-                Duration::from_millis(500),
-                16,
-                4,
-                7,
-                2,
-            )
-            .unwrap(),
-        );
-
+        let mut tracker = SceneTrackerV1::new(config());
         let error = tracker
-            .process_with_precalibrated_batch(
+            .process_with_resolved_ball_measurements(
                 &batch,
                 Timestamp {
                     ticks: "2000000000".to_owned(),
@@ -936,19 +773,100 @@ fn precalibrated_results_must_match_the_exact_detection_frame_and_camera_revisio
                     domain_id: "scene-writer-clock-a".to_owned(),
                     stage: TimestampStage::SnapshotPublication,
                 },
-                Some((3, Ok(corrupted))),
+                &resolved,
             )
-            .expect_err("mismatched physical coordinates must fail closed");
+            .unwrap_err();
         assert_eq!(
             error,
-            TrackingError::PrecalibratedBatchMismatch(expected_field)
+            TrackingError::ResolvedMeasurementMismatch(expected_field)
         );
-
-        // A rejected transform must not consume the source observation or
-        // change the track-ID epoch.
         let snapshot = process(&mut tracker, &batch).unwrap();
         assert_eq!(snapshot.balls[0].track_id, "track-1");
     }
+}
+
+#[test]
+fn rejected_refinement_keeps_the_ball_visible_and_clears_its_precise_position() {
+    let mut tracker = SceneTrackerV1::new(config());
+    let first_batch = frame(1, 1_000_000_000, &[ball(200.0, 100.0)]);
+    let mut first_measurement = ResolvedBallMeasurementBatch::from_detection_batch_midpoints(
+        &first_batch,
+        1,
+        "camera-profile-test",
+        7,
+        3,
+    );
+    first_measurement.optics_profile_id = Some("optics-test".to_owned());
+    first_measurement.optics_revision = Some(4);
+    first_measurement.refiner_revision = Some(2);
+    first_measurement.table_revision = 1;
+    first_measurement.calibration_revision = Some(11);
+    first_measurement.measurements[0].center_image_px = [202.0, 101.0];
+    first_measurement.measurements[0].table_center_mm = Some([123.5, -456.25]);
+    first_measurement.measurements[0].refinement_status = Some(RefinementStatus::Accepted);
+    let first = tracker
+        .process_with_resolved_ball_measurements(
+            &first_batch,
+            Timestamp {
+                ticks: "2000000000".to_owned(),
+                unit: TimeUnit::Nanoseconds,
+                clock: ClockKind::Monotonic,
+                domain_id: "scene-writer-clock-a".to_owned(),
+                stage: TimestampStage::SnapshotPublication,
+            },
+            &first_measurement,
+        )
+        .unwrap()
+        .snapshot;
+    let track_id = first.balls[0].track_id.clone();
+
+    let second_batch = frame(2, 1_020_000_000, &[ball(201.0, 100.0)]);
+    let mut second_measurement = ResolvedBallMeasurementBatch::from_detection_batch_midpoints(
+        &second_batch,
+        1,
+        "camera-profile-test",
+        7,
+        3,
+    );
+    second_measurement.optics_profile_id = Some("optics-test".to_owned());
+    second_measurement.optics_revision = Some(4);
+    second_measurement.refiner_revision = Some(2);
+    second_measurement.table_revision = 1;
+    second_measurement.calibration_revision = Some(11);
+    second_measurement.measurements[0].refinement_status = Some(RefinementStatus::Rejected);
+    let second = tracker
+        .process_with_resolved_ball_measurements(
+            &second_batch,
+            Timestamp {
+                ticks: "2020000000".to_owned(),
+                unit: TimeUnit::Nanoseconds,
+                clock: ClockKind::Monotonic,
+                domain_id: "scene-writer-clock-a".to_owned(),
+                stage: TimestampStage::SnapshotPublication,
+            },
+            &second_measurement,
+        )
+        .unwrap()
+        .snapshot;
+
+    assert_eq!(second.balls[0].track_id, track_id);
+    assert_eq!(second.balls[0].status, BallStatus::Observed);
+    assert_eq!(
+        second.balls[0]
+            .measurement
+            .as_ref()
+            .unwrap()
+            .image_center_px
+            .x,
+        201.0
+    );
+    assert!(second.balls[0]
+        .measurement
+        .as_ref()
+        .unwrap()
+        .table_center_mm
+        .is_none());
+    second.validate().unwrap();
 }
 
 #[test]

@@ -182,6 +182,7 @@ fn live_settings(
         )
         .unwrap(),
         table_visibility: billiards_perception::table_visibility::TableVisibilityConfig::default(),
+        ball_localization: billiards_perception::ball_localization_profile::BallLocalizationSettings::default(),
         scene_transport: SceneTransportConfig {
             address,
             maximum_message_bytes: MAXIMUM_SCENE_BYTES,
