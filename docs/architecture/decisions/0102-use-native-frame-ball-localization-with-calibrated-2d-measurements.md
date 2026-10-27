@@ -117,6 +117,35 @@ from sustained fresh precise availability, latency, memory, and motion response.
 The short source-only 5 FPS check is not a selected production rate. Preserve
 the independently verified Intel GPU decoding result throughout this work.
 
+## Follow-up — 2026-10-27: candidate ambiguity blocks saved-image calibration
+
+The detection-identity defect is corrected: with sufficient budget, the
+revision-2 estimator returns semantically identical results for all 15 frozen
+manual proposals under detection identities 0–15 and reversed proposal order.
+This establishes repeatability for those fixed inputs, not physical accuracy.
+
+The version-2 candidate audit at
+`thoughts/calibration/converged-candidate-audit-20261027/` shows 0/15 precise
+centers accepted, including 0/9 proposals with matching physical references.
+Fourteen proposals reject for `ambiguous_boundary`; one pocket proposal
+rejects for `insufficient_boundary`. Thirteen observations have multiple
+individually qualified but geometrically distinct converged fits. Another
+ambiguous observation has no qualified fit after bounded reselection. Search
+was not truncated and no trace events were dropped. At this image width, the
+configured center and same-boundary outline tolerances scale to 0.5 source px.
+These settings remain conservative algorithm limits, not measured accuracy.
+
+Therefore the current nine physical references cannot produce a ball-center
+map through the selected estimator: none of their observations resolves to a
+center. Do not generate an asset from rejected candidates, annotation-derived
+box centers, or coordinates from an older estimator. Keep Task F report-only
+unless a later, separately justified estimator revision accepts reproducible
+centers and its correspondence/uncertainty limits are documented. Continue
+saved-image sensitivity work with proposal perturbations, fitting seeds, and
+reserved scenes; preserve every rejection and do not weaken gates merely to
+raise the accepted count. No jig, new user measurements, camera access, or
+physical-accuracy claim is needed for this diagnostic continuation.
+
 ## Consequences
 
 ### Positive

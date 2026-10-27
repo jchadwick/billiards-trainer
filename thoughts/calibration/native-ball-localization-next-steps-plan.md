@@ -39,6 +39,75 @@ Deliverables for the saved-input milestone:
 - A nine-position diagnostic mapping report with per-point and held-out errors.
 - A clear list of remaining spatial, temporal, and physical-reference limits.
 
+## Execution ledger — 2026-10-27
+
+Continue implementation on `codex/native-ball-localization`. The following
+experiment checkpoints are committed locally and remain unmerged:
+
+| Commit | Scope | Verification / result |
+|---|---|---|
+| `191f9ac` | Per-iteration quality attribution and bounded audit-trace API. | Focused localization tests, strict Clippy, formatting, and the perception crate's full all-target suite passed. |
+| `cb71d5f` | Detection index no longer changes the sampling seed; added identity and reversed-batch regression. | The same complete checks passed; the regression compares centers, statuses, reasons, quality, and outlines for IDs 0–15. |
+| `df93696` | Frozen-image identity audit source, JSON results, and review summary. | All 15 saved manual proposals are semantically identical across IDs 0–15. Three of nine measured proposals accept; six reject. |
+| `99f6918` | Bounded, fixed-seed, converged candidate search and source-space qualification; synchronized schema/defaults and refiner revision 2. | 383 library tests and all perception targets passed serially; strict Clippy, formatting, and `make config-check` passed. The frozen audit at the final 96 radial samples accepts 0/15; this is a conservative rejection result, not accuracy proof. |
+
+The audit is repeatability evidence only. The boxes are annotation-derived, not
+YOLO output, and the physical reference uncertainty remains unknown. Current
+acceptance is not evidence of correct image centers or millimeter accuracy.
+
+Open work at this checkpoint (before the Task D audit below):
+
+- Task B has stage-aware audit events and bounded trace memory, but exported
+  multi-case traces and visual overlays still need to be produced after the
+  converged-candidate event format is settled.
+- Task D is the active implementation: compare geometrically diverse,
+  independently qualified converged boundaries, correct center-shift units,
+  synchronize settings/schema/revisions, and diagnose the six measured
+  rejections without loosening qualification gates.
+- Saved-image perturbation, nine-reference mapping, and streaming qualification
+  remain later tasks; no physical accuracy or live responsiveness is claimed.
+
+## Execution update — 2026-10-27
+
+Task D implementation is committed locally as `99f6918` and has passed the
+perception crate's complete single-threaded all-target suite, strict Clippy,
+format checks, and `make config-check`. Its final implementation audit is saved at
+`thoughts/calibration/converged-candidate-audit-20261027/` and reproduced by
+`thoughts/calibration/offline-refiner-converged-candidate-audit-20261027.rs`.
+
+Task D's current result differs from the earlier Task C identity audit:
+
+- The Task C run on the pre-Task D selection behavior accepted 3/9 measured
+  proposals but changed acceptance for 7/9 when only detection identity
+  changed. The regression now checks identities 0–15 and reversed proposal
+  order with fixed geometry; the frozen rerun was semantically identical.
+- Task D revision 2 has bounded, traceable candidate comparison in common
+  source-image coordinates. On the frozen 15 manual proposals, 0/15 precise
+  centers are accepted, including 0/9 with matching physical references.
+  Fourteen are `ambiguous_boundary`; one pocket proposal is
+  `insufficient_boundary`. Thirteen have at least two individually qualified
+  fits, with at least one alternative distinct from the top-ranked candidate;
+  the bottom-right pocket proposal has no qualified fit after bounded
+  reselection. There is no candidate-cap truncation or trace
+  loss. This is evidence for conservative rejection, not a claim that the
+  candidates or annotations reveal the true center.
+- The radial-sampling default was checked against the approved plan and
+  corrected from 48 to 96 in both typed Rust defaults and checked-in JSON.
+  The saved-image audit was rerun with that final value; its 15 traces and
+  overlays are the version recorded in the report.
+- Standalone full-source and enlarged per-ball SVG overlays were rendered and
+  visually inspected. Complete per-case JSON traces retain every candidate
+  evaluation, quality record, and rejection stage.
+- The nine-reference mapping is currently report-only and cannot use any
+  accepted refiner centers. Do not build or emit a ball-center asset from
+  these rejected observations or from bbox midpoints.
+
+Next: complete Task E's independent proposal-center, proposal-size, fitting
+seed, and reserved-scene audits on saved inputs; then write the Task F result
+as explicitly ineligible if no observations accept. No new user measurements,
+jig, camera snapshots, target-device pipeline qualification, physical
+accuracy, or live FPS result are implied by the saved-image work.
+
 ## 2. Fixed requirements and working rules
 
 - Table output is X/Y only. Playing area is 2336.8 × 1155.7 mm; all balls have
