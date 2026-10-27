@@ -95,8 +95,8 @@ rejections only.
 | 25 ms | 10 ms | 15 | 25.0 ms |
 | 50 ms | 25 ms | 12 | 50.0 ms |
 | 100 ms | 50 ms | 10 | 100.0 ms |
-| 1000 ms | 1000 ms | 0 | 293.4 ms |
-| 10000 ms | 10000 ms | 0 | 289.5 ms |
+| 1000 ms | 1000 ms | 0 | 287.6 ms |
+| 10000 ms | 10000 ms | 0 | 289.4 ms |
 
 At the current initial 25/10 ms configuration, this 15-proposal development
 host batch finished no observations before the batch limit. A complete batch

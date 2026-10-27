@@ -11,7 +11,7 @@ are in [interpretation.md](interpretation.md) and [summary.json](summary.json).
 | RANSAC seeds on the 15 measured-scene boxes | 240 | 5 accepted observations across 4 of 16 seeds; production seed 716 accepted 0/15. |
 | Alternate 720p scene | 15 | 0 accepted; 13 ambiguous, 1 inadequate coverage, 1 insufficient boundary. |
 | Native 4K three-ball scene | 3 | 0 accepted; all 3 ambiguous. |
-| Batch/proposal budget settings | 7 batches | The 25/10 ms defaults timed out all 15 proposals in the development-host run; 1000/1000 ms completed all 15 in about 293 ms. |
+| Batch/proposal budget settings | 7 batches | The 25/10 ms defaults timed out all 15 proposals in the development-host run; 1000/1000 and 10000/10000 ms completed them in 287.6 and 289.4 ms. |
 
 The two reserved-scene JPEGs now have manually reviewed approximate crop
 regions in

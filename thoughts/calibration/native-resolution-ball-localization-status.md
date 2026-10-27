@@ -2,10 +2,47 @@
 
 Last updated: 2026-10-27
 
-Review and immediate next action: `review-and-next-step-20261027.md`.
-The controlled saved-image audit demonstrates acceptance dependence on
-detection index for seven of nine measured balls. Stabilize the estimator
-before further FPS tuning or calibration activation.
+Current execution plan and latest next step:
+`native-ball-localization-next-steps-plan.md`. The initial review in
+`review-and-next-step-20261027.md` is historical. Detection-index and
+proposal-order invariance is fixed; the current revision-2 estimator still
+rejects the nine measured positions at production seed 716, so no calibration
+fit or FPS selection has been made.
+
+## Current executed state — 2026-10-27
+
+- The final revision-2 audit on 15 manual proposals from the measured 720p
+  frame accepts **0/15** centers at production seed 716. Fourteen reject as
+  `ambiguous_boundary`; one pocket proposal has insufficient boundary
+  evidence. The nine proposals with physical references all reject, so no
+  report-only homography was fit and no calibration asset was emitted.
+- Controlled saved-image sensitivity work found 1 accepted result across 150
+  proposal-center perturbations, 0/150 size perturbations, and 5 accepted
+  results across 240 seed/proposal runs. The selected production seed accepted
+  0/15; alternate-seed acceptance is not evidence of accuracy. The 15-box
+  batch timed out all proposals at the initial 25/10 ms limits on the Darwin
+  development host, while relaxed limits took about 0.29 s. These timings do
+  not qualify the Intel target.
+- All 18 manually proposed crops on the reserved 720p and 4K scenes reject.
+  These images lack qualified optics profiles and physical X/Y references.
+- Audit schema 3 records the sampled boundary-candidate indices and rays for
+  each valid RANSAC hypothesis. The first-iteration and normal-aiming saved
+  audits show RANSAC acceptance is non-monotonic: seed 716 accepts at 512
+  iterations for one isolated pass, but the normal aiming flow rejects with
+  no center. Do not change the production seed, count, candidate cap, or
+  gates to increase acceptance.
+- The independently verified Intel GPU JPEG-decoding result remains
+  independently adoptable. Complete pipeline accuracy, target FPS, latency,
+  memory trend, and sustained precise availability remain unqualified.
+
+The per-ray candidate-cap question is now tested. All 18 cap/proposal runs
+reject as ambiguous; at the production cap of 16 the candidate search is
+untruncated for all three crops and still finds multiple qualified boundary
+fits. Do not spend more effort raising the cap or changing the RANSAC count,
+seed, or acceptance gates to make these crops pass. The next useful saved-image
+work is to inspect what visual evidence, if any, distinguishes the competing
+boundaries, then test one evidence-based selector against the frozen and
+reserved scenes before considering a production change.
 
 ## Project requirements
 
@@ -58,18 +95,19 @@ to a verified camera profile and qualifying its effect.
   and bounds app-sink buffering. It does not silently use software decode.
 - The Rust local-view refiner works on borrowed native RGB, returns explicit
   fit/reject evidence per proposal, and has bounded sample counts, work time,
-  ROI size, and scratch allocation. Its ambiguity check now requires a spatial
-  cluster of plausible competing RANSAC fits; one alternate sample no longer
-  causes rejection by itself. Offline checks accepted 4/9
-  manually seeded crops from the 720p measured scene and 3/3 crops from a
-  separate saved 4K scene. These are not physical accuracy or live-availability
-  results; details and limitations are in
-  `offline-refiner-nine-position-check.md`. A later, differently constructed
-  all-ball proposal set accepts 5/9 measured balls. Holding its boxes fixed and
-  varying only detection index changes acceptance for 7/9. Raw hypothesis
-  ambiguity, mixed diagnostic iterations, and inconsistent center-distance
-  coordinate spaces need correction; the three-vote change is not a qualified
-  solution. Exact audit results are in `offline-refiner-identity-check.json`.
+  ROI size, and scratch allocation. Its revision-2 selection is invariant to
+  detection identity and proposal order for the frozen audit inputs, but it
+  currently accepts 0/15 final measured-scene proposals at production seed
+  716 (14 ambiguous, one insufficient) and 0/9 proposals with physical
+  references. The 18-run cap audit found that cap 16 is untruncated on all
+  three tested crops and still leaves 4, 2, and 8 individually qualified
+  boundary fits for the purple, orange, and striped balls respectively; every
+  cap/proposal run remains ambiguous. Earlier 4/9, 3/3, and 5/9 acceptance
+  counts are historical results from prior estimator or proposal constructions
+  and must not be presented as current qualification. Details are in
+  `report-only-nine-reference-evaluation-20261027.md`,
+  `robustness-audit-20261027/`, the sampling audit folders, and
+  `candidate-cap-audit-20261027/`.
 - The separate ball-center calibration solver fits normalized homographies
   from at least 12 distributed correspondences, reports every residual, and
   validates the asset against runtime context.
@@ -96,9 +134,10 @@ The user declined building a positioning jig. Do not ask for one or request
 measurements of the pocket-adjacent balls. The project already contains nine
 user-confirmed ball-center positions, including rail contacts, in
 `table-grid-20261026-114241-measurements.json`; those coordinates apply only to
-the matching `table-grid-20261026-114241.jpg` arrangement. Use them with the
-new refiner for a provisional ball-center map, and use the precisely measured
-table dots and rail geometry where their physical coordinates are known.
+the matching `table-grid-20261026-114241.jpg` arrangement. The current refiner
+rejects all nine matching image observations, so they cannot yet be used to
+fit even a diagnostic ball-center map. Use the precisely measured table dots
+and rail geometry only for the physical references they actually represent.
 
 Known table reference marks help establish table geometry. Verify the exact
 physical reference represented by each mark; do not assume all marks are
@@ -123,9 +162,12 @@ requiring a fixture or claiming the desired accuracy.
 
 ## Remaining qualification
 
-The ordered immediate estimator task is recorded in
-`review-and-next-step-20261027.md`; complete that task before target-device
-benchmarking below.
+The ordered next estimator investigation is recorded in
+`native-ball-localization-next-steps-plan.md`. Identity, sensitivity,
+nine-reference, sample-provenance, and candidate-cap audits are complete.
+Inspect competing boundaries for a repeatable visual discriminator using the
+saved corpus before making a production estimator change or resuming target
+FPS benchmarking.
 
 1. Verify and select the native source geometry in the live capture request
    without changing the Coral input tensor shape. The repository default has

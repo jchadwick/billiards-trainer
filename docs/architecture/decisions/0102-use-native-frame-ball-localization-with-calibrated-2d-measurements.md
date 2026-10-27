@@ -170,10 +170,11 @@ generalization.
 
 The same 15-proposal batch on a Darwin arm64 development host timed out all
 observations at the initial 25 ms batch / 10 ms per-proposal budget; a
-1000/1000 ms run completed in about 293 ms. This result is not target-device
-performance, but it shows the initial bound cannot be treated as a release
-readiness claim. Optimize or qualify the selected schedule while preserving
-freshness semantics; do not reuse stale positions to hide missed work.
+1000/1000 ms run completed in 287.6 ms and a 10000/10000 ms run completed in
+289.4 ms. This result is not target-device performance, but it shows the
+initial bound cannot be treated as a release readiness claim. Optimize or
+qualify the selected schedule while preserving freshness semantics; do not
+reuse stale positions to hide missed work.
 
 For the unchanged production seed and original nine measured proposals, zero
 image centers are accepted. The nine-reference mapping remains ineligible;
@@ -202,6 +203,57 @@ remain tradeoffs; fresh consistent measurements at a lower rate are preferred
 to a higher rate with repeated drops or unavailable positions. The separately
 verified Intel GPU decoder result remains independently adoptable regardless
 of whether the localization experiment branch is retained.
+
+## Follow-up — 2026-10-27: sampling audit confirms non-monotonic RANSAC outcomes
+
+To identify the seed effect, audit schema 3 now records the three candidate
+indices and rays that generated each valid RANSAC hypothesis. This trace-only
+addition does not change refiner revision 2 or production selection.
+
+The first-iteration audit is in
+`thoughts/calibration/sampling-audit-20261027/`; the normal three-step aiming
+audit is in `thoughts/calibration/full-aiming-sampling-audit-20261027/`. With
+seed 716 on the saved measured-purple proposal, the isolated first iteration
+rejects as ambiguous at 128 and 256 RANSAC iterations, accepts at 512, then
+rejects at 1024. The 512 case does not survive normal aiming: its first pass
+accepts and moves the patch axis; its second pass yields four individually
+qualified, distinct fits and rejects with no center. At 128, 256, and 1024 the
+normal flow rejects in its first pass. This rules out “increase the iteration
+count” as a stable correction on this image.
+
+The seed 716 first-pass 128-iteration trace has four qualified fits with
+supports 95, 92, 92, and 90, low source residuals, and pairwise outline
+disagreements of 0.76–1.38 source px. They use different mixes of the three
+retained per-ray gradient-strength ranks. A rank is not an outer-silhouette
+label. Seed 11 also accepts despite an individually qualified 90-support
+alternative because 90/95 falls just below the configured 95% competing-fit
+support threshold. Alternate-seed accepted centers differ; no independent
+evidence selects one as correct. Keep the production seed, iteration count,
+candidate cap, and gates unchanged. These are saved-image diagnostics, not
+accuracy or target-performance evidence.
+
+## Follow-up — 2026-10-27: candidate-cap audit leaves ambiguity unresolved
+
+The saved-image cap audit is recorded in
+`thoughts/calibration/candidate-cap-audit-20261027/`. It varies only the
+per-ray candidate cap across 1, 2, 4, 6, 8, and production 16 for purple,
+orange-solid, and red-striped proposals from the measured 720p scene. All 18
+runs reject as `ambiguous_boundary`. At cap 16 each search is untruncated and
+contains 4, 2, and 8 individually qualified distinct fits respectively. Thus,
+for these crops, increasing the cap does not reveal a unique fit or explain
+the rejection as cap truncation. This does not establish which fit follows the
+true ball silhouette.
+
+Keep production cap, RANSAC seed/count, and quality gates unchanged. Stop
+parameter sweeps aimed at increasing acceptance. The next justified estimator
+investigation is to inspect actual source-pixel appearance and candidate traces
+for one repeatable cue that separates the outer ball/background boundary from
+internal, stripe, highlight, or shadow transitions, then test that hypothesis
+on the measured scene and reserved 720p/4K scenes. If those pixels do not
+support a stable distinction, preserve fail-closed localization and identify
+what independent evidence would be needed. No calibration activation or
+camera/FPS tuning is justified yet. The separately verified GPU decoder
+remains independently adoptable.
 
 
 ## Consequences

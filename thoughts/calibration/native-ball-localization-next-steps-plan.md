@@ -117,10 +117,54 @@ emitted. Alternate-seed centers, box midpoints, and older-estimator centers
 were excluded. The current twelve-correspondence production contract is
 unchanged; no new measurement, jig, or camera capture was added.
 
-Next: diagnose the multiple-qualified-boundary families and seed sensitivity
-on saved pixels and traces without changing production gates or seed. Current
-saved-image work does not establish physical accuracy, a selected camera FPS,
-or live pipeline performance.
+### Follow-up — RANSAC sample provenance and non-monotonic search
+
+Added sampled candidate indices and their rays to the bounded estimator audit
+trace (audit schema 3); the production estimator and refiner revision 2 did
+not change. The integration test confirms each recorded triplet maps back to
+the exact previously traced boundary candidates.
+
+The first-iteration sampling audit and its second, normal-aiming phase are in
+`thoughts/calibration/sampling-audit-20261027/` and
+`thoughts/calibration/full-aiming-sampling-audit-20261027/`. On the measured
+purple proposal, seed 716 produces four individually qualified fits at 128
+iterations and rejects as ambiguous. At 512, one isolated aiming iteration
+accepts; 1024 rejects again. With the normal three-step aiming flow, 512
+reaches a second pass, finds four further qualified, distinct fits, and
+rejects with no center. Counts 128, 256, and 1024 also reject in the normal
+flow. Alternate seeds 2, 10, and 11 accept different first-iteration centers;
+the seed-11 alternative at 90/95 support falls just below the configured 95%
+plausibility gate. These outputs do not establish which center is correct.
+
+The recorded inliers for each production-seed fit use a different mix of the
+three retained per-ray gradient-strength ranks. That is consistent with the
+current RGB edge evidence presenting several nearby transitions; rank is not
+a semantic outer-edge label. Keep the production seed, 128-iteration setting,
+per-ray candidate cap, and all quality gates unchanged. Do not select a
+seed/count because it accepts. The sampling timings include diagnostic traces
+on the Darwin host and do not qualify the Intel target.
+
+The per-ray candidate-cap audit is complete in
+`thoughts/calibration/candidate-cap-audit-20261027/`. Across caps 1, 2, 4, 6,
+8, and 16 on purple, orange-solid, and red-striped measured-ball proposals,
+all 18 runs reject as `ambiguous_boundary`. At production cap 16 all three
+searches are untruncated and retain 4, 2, and 8 fully qualified distinct fits
+respectively. This rules out a too-small representative cap as the explanation
+for these three rejections; it does not establish that every generated fit is
+a true ball boundary. Do not continue sweeping cap values, RANSAC counts, or
+seeds, and do not loosen quality gates to raise acceptance.
+
+Next step: inspect the saved candidate and source-pixel traces for a visual
+feature that distinguishes the outer ball/background contour from nearby
+internal, stripe, highlight, or shadow transitions. State one falsifiable
+selection hypothesis, then test it offline on the measured image and the
+reserved 720p/4K scenes, reporting accepted and rejected cases. Keep production
+behavior unchanged until one cue is repeatable across those scenes and can be
+checked against available references without using the same image evidence
+both to choose and validate the center. If no stable cue is supported, preserve
+fail-closed behavior and document what evidence is missing. No saved-image
+work to date establishes physical accuracy, a selected camera FPS, or live
+pipeline availability.
 
 ## 2. Fixed requirements and working rules
 
