@@ -243,35 +243,50 @@ spacing was inferred. Raised-rail sights and cloth markers are on different
 planes. Keep this audit pixel-only and do not transfer ball positions between
 arrangements.
 
-### Next investigation — metric mapping from the playing-area rectangle
+### Follow-up — playing-area rectangle map is too sensitive
 
-The playing-area dimensions are recorded as 2336.8 × 1155.7 mm. Use the
-existing saved cushion-nose samples and the matching measured 720p scene to
-test whether the playing rectangle itself provides an independent image-to-
-table mapping, without fitting to the nine ball positions. This requires no
-new physical measurement, camera access, or jig.
+The report-only audit is reproducible from
+`offline-playing-area-homography-audit-20261027.py`; full line candidates,
+corner intersections, residuals, and input hashes are in
+`playing-area-homography-audit-20261027/`. The synthetic known-rectangle and
+fixed-center-plane round trips pass to below 0.0002 mm.
 
-1. Review the existing cushion-edge samples and manually identify the four
-playing-area boundary lines, excluding pocket jaws, shadows, and movable balls.
-2. Fit each line over multiple visible rail sections, then compute its
-intersections with the adjacent boundary lines. Explicitly distinguish the
-cloth/nose transition from other nearby rail or shadow transitions.
-3. Use the known rectangle dimensions to build a report-only X/Y homography.
-Do not assume the four image corners are directly visible; preserve the
-extrapolation and line-fit uncertainty.
-4. Apply the frozen mapping to the nine measured-scene ball-center proposals
-only after the map is fixed. Report per-point discrepancies against the
-user-confirmed positions and compare with the segmentation-center homography.
-These references have unknown uncertainty and remain diagnostic, not
-independent accuracy truth.
-5. Perturb line selection, edge bands, and corner extrapolation within the
-observed pixel evidence. Report the resulting table-coordinate spread. If the
-physical nose cannot be identified consistently, stop without fitting a
-production asset or substituting rail-dot spacing.
+On the saved measured scene, the nominal boundary candidate gives 22.039 mm
+X/Y RMS against the nine ball references. The reference coordinates were used
+only after the mapping was formed. All 13,122 combinations of top, bottom,
+left, and right line variants were evaluated, including the weak inner lower
+transition and nearby outer seam. The maximum per-ball coordinate spread
+reaches 23.814 mm. The alternative seam produces 33.758–41.840 mm RMS. The
+existing ball-center homography has 8.706 mm leave-one-out RMS, but it was
+fitted to the same uncertain ball positions and is not independent truth.
 
-This next experiment tests metric table geometry separately from ball
-boundary selection. Physical accuracy, a selected camera FPS, and live
-availability remain unqualified.
+The visible brightness lines are not surveyed physical cushion noses; the
+right-side samples jump between transitions, the lower inner edge is weak,
+and the corners are extrapolated around pockets. The mapping also depends on
+weakly identified frozen intrinsics for the one fixed center-plane offset.
+Reject this rectangle-derived map as a production candidate. This result
+does not establish whether the user measurements or a particular edge line is
+wrong.
+
+### Next required datum — use the table-mark coordinates already measured
+
+The user stated that the table dots were precisely measured. The project now
+contains pixel annotations for 16 raised-rail sights in four saved images and
+two visible cloth spots in the framing pair, but none of their exact physical
+X/Y coordinates. The repository also contains no surveyed cushion-nose
+coordinates. No more saved-image-only method can turn those pixels into a
+verified metric table map without choosing unsupported physical coordinates.
+
+The next step is to add the existing table-mark coordinate record, if
+available. Identify whether its values describe cloth spots or raised-rail
+sights; record the origin, axes, units, measurement source, and uncertainty.
+Do not request new measurements, infer spacing from standard conventions, or
+transfer the nine ball coordinates to the other arrangements. Once the
+existing values are available, solve an X/Y mapping from those independent
+marks plus verified table geometry and evaluate it against the saved balls.
+Until then, keep precise X/Y unavailable and do not deploy a calibration
+asset. The GPU decode result remains independently usable; camera/FPS and
+whole-pipeline qualification stay deferred.
 
 ## 2. Fixed requirements and working rules
 

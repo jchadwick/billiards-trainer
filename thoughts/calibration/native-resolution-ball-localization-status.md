@@ -51,10 +51,10 @@ RMS, compared with 8.71 mm for the existing segmentation-center homography.
 The oracle uses each held-out answer to choose its candidate, so it is not an
 automatic result. Preserve the synthetic math check, but do not activate this
 selector. Static table-feature registration passes relative image-transfer
-checks, but exact physical dot coordinates are not recorded, so it cannot
-produce a metric table map. The next saved-image task tests a mapping from the
-known playing-area rectangle and existing cushion-nose line samples, with the
-nine ball positions held out for diagnostics.
+checks, but exact physical dot coordinates are not recorded. The independent
+playing-area-rectangle map is too sensitive to the ambiguous cushion edge for
+metric localization. The remaining useful input is the exact X/Y coordinates
+already measured for the table marks; no new physical measurement is needed.
 
 ## Project requirements
 
@@ -155,6 +155,15 @@ to a verified camera profile and qualifying its effect.
   transfers are 1.360 px and 0.004 px, too few to infer a plane correction.
   All reported positions are pixels. Exact physical dot XY is absent from the
   inspected records, so this is relative registration evidence only.
+- The report-only playing-area rectangle audit is in
+  `playing-area-homography-audit-20261027/`. Its synthetic homography and fixed
+  center-plane round trips pass, but the nominal X/Y residual against the nine
+  ball references is 22.04 mm RMS. Across 13,122 line/corner variants, the
+  maximum per-ball coordinate spread is about 23.8 mm; using the nearby lower
+  seam instead of the inner nose transition worsens the residual range to
+  33.76–41.84 mm RMS. The sampled brightness edges do not identify the
+  physical nose reliably, and the ball-reference uncertainty is unknown. No
+  metric asset or production change is justified.
 - The separate ball-center calibration solver fits normalized homographies
   from at least 12 distributed correspondences, reports every residual, and
   validates the asset against runtime context.
@@ -212,23 +221,21 @@ requiring a fixture or claiming the desired accuracy.
 The ordered next estimator investigation is recorded in
 `native-ball-localization-next-steps-plan.md`. Identity, sensitivity,
 nine-reference, sample-provenance, candidate-cap, contour-color, fisheye,
-fixed-sphere, and static-feature registration audits are complete. The
-registration audit's held-out rail transfers are subpixel, but its two visible
-cloth-marker cross-plane results are uneven and exact physical dot XY is not
-recorded. This supports relative image registration only.
+fixed-sphere, static-feature registration, and playing-area-rectangle audits
+are complete. Relative frame registration is strong, but the metric rectangle
+mapping is unstable because the visible edge is not known to be the physical
+nose. The repository does not contain the exact physical coordinates for the
+table marks that the user said were measured precisely.
 
-The next saved-input investigation derives a 2D mapping from the known
-2336.8 × 1155.7 mm playing-area rectangle and existing cushion-nose line
-samples. Fit the four boundary lines independently of the nine ball positions,
-extrapolate the physical corners, and report sensitivity to which visible
-cloth/cushion transition is treated as the nose. Then apply that mapping to
-the nine user-measured ball centers as held-out diagnostics and compare with
-the segmentation-center homography. Do not use ball positions to tune the
-boundary lines, transfer them to another arrangement, or treat their unknown
-uncertainty as millimeter truth. If the nose lines or corner intersections
-are too ambiguous, stop with that finding rather than assuming rail-dot
-spacing. No camera/FPS or production changes follow from this saved-image
-geometry check.
+The next step is to use the user's existing table-mark coordinate record, if
+available: identify whether it describes the two cloth spots or raised rail
+sights, and add those already-measured X/Y values with their coordinate
+convention and provenance. Do not ask for new measurements or infer values
+from standard spacing. Once recorded, combine those references with the saved
+images and check the resulting 2D mapping against the nine ball positions,
+keeping their uncertainty explicit. Until then, absolute ball X/Y accuracy
+cannot be qualified from the repository's saved data. No camera/FPS or
+production changes are justified by the completed audits.
 
 1. Verify and select the native source geometry in the live capture request
    without changing the Coral input tensor shape. The repository default has

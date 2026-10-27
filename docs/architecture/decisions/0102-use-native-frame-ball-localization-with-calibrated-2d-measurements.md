@@ -303,12 +303,25 @@ cross-plane correction. All results are pixel registration only. The project
 does not record exact physical coordinates for the dots, so these results do
 not establish a metric mapping.
 
-The next saved-image investigation tests a report-only X/Y homography from the
-known playing-area rectangle and existing cushion-nose line samples, with all
-nine ball positions held out. Keep the boundary choice, line extrapolation,
-and table-coordinate sensitivity explicit. Do not transfer ball positions
-between arrangements, infer dot spacing from standard conventions, or activate
-a calibration from these diagnostics alone.
+The report-only X/Y homography audit used the known playing-area rectangle and
+existing cushion-nose line samples, with all nine ball positions held out.
+Boundary choice, line extrapolation, and table-coordinate sensitivity are
+recorded; it did not produce a usable metric map. Do not transfer ball
+positions between arrangements, infer dot spacing from standard conventions,
+or activate a calibration from these diagnostics alone.
+
+The rectangle-map audit is recorded in
+`thoughts/calibration/playing-area-homography-audit-20261027/`. Its nominal
+X/Y RMS against the nine held-out ball references is 22.039 mm; across 13,122
+line/corner variants the largest per-ball coordinate spread is 23.814 mm.
+Using the nearby lower seam instead of the inner transition yields 33.758 to
+41.840 mm RMS. The sampled visible edges do not establish the physical cushion
+nose, and corners are extrapolated around pockets. Reject this map as a
+production candidate. The remaining independent metric reference mentioned
+by the user is the precisely measured table marks; their exact physical XY
+values are absent from the project records. Add those existing coordinates
+with provenance before attempting another metric map. Do not ask for new
+measurements or infer their spacing.
 
 
 ## Consequences
