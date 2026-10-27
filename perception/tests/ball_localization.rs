@@ -196,6 +196,162 @@ fn exhausted_deadline_retains_one_rejection_per_proposal() {
 }
 
 #[test]
+fn audit_traces_the_same_fitting_results_with_bounded_events() {
+    let (rgb, proposal) = image([240.0, 150.0], true, false);
+    let baseline = refine_ball_batch(
+        &rgb,
+        &intrinsics(),
+        std::slice::from_ref(&proposal),
+        &config(),
+    )
+    .unwrap();
+    let (observations, trace) = refine_ball_batch_with_audit(
+        &rgb,
+        &intrinsics(),
+        std::slice::from_ref(&proposal),
+        &config(),
+        BallLocalizationAuditLimits::default(),
+    )
+    .unwrap();
+    assert_eq!(observations, baseline);
+    assert_eq!(trace.schema_version, BALL_LOCALIZATION_AUDIT_VERSION);
+    assert_eq!(trace.dropped_events, 0);
+    assert!(trace.retained_bytes <= trace.maximum_bytes);
+    assert_eq!(trace.maximum_bytes, MAX_BALL_LOCALIZATION_AUDIT_BYTES);
+    assert!(trace
+        .events
+        .iter()
+        .all(|e| e.detection_index == proposal.detection_index));
+    assert!(trace.events.iter().any(|e| matches!(
+        e.data,
+        BallLocalizationAuditEventData::BoundaryCandidate {
+            point_image_px: Some(_),
+            ..
+        }
+    )));
+    assert!(trace.events.iter().any(|e| matches!(
+        e.data,
+        BallLocalizationAuditEventData::RawHypothesis {
+            center_image_px: Some(_),
+            ..
+        }
+    )));
+    assert!(trace.events.iter().any(|e| matches!(
+        e.data,
+        BallLocalizationAuditEventData::RefinedFit {
+            center_image_px: Some(_),
+            ..
+        }
+    )));
+    assert!(trace.events.iter().any(|e| matches!(
+        e.data,
+        BallLocalizationAuditEventData::SelectedInlier {
+            point_image_px: Some(_),
+            ..
+        }
+    )));
+    let outcome = trace.events.last().unwrap();
+    assert_eq!(outcome.stage, observations[0].quality.stage);
+    assert!(matches!(
+        outcome.data,
+        BallLocalizationAuditEventData::Outcome { .. }
+    ));
+
+    let limits = BallLocalizationAuditLimits {
+        maximum_events: 1,
+        ..BallLocalizationAuditLimits::default()
+    };
+    let (truncated, trace) =
+        refine_ball_batch_with_audit(&rgb, &intrinsics(), &[proposal], &config(), limits).unwrap();
+    assert_eq!(truncated, baseline);
+    assert_eq!(trace.events.len(), 1);
+    assert!(trace.dropped_events > 0);
+}
+
+#[test]
+fn audit_distinguishes_uncomputed_invalid_proposal_and_capacity_rejection() {
+    let (rgb, proposal) = image([240.0, 150.0], false, false);
+    let invalid = BallProposal {
+        detection_index: 12,
+        bbox: [-1.0, 0.0, 10.0, 10.0],
+    };
+    let mut cfg = config();
+    cfg.max_proposals = 1;
+    let limits = BallLocalizationAuditLimits {
+        maximum_events: 20,
+        ..BallLocalizationAuditLimits::default()
+    };
+    let (results, trace) =
+        refine_ball_batch_with_audit(&rgb, &intrinsics(), &[invalid, proposal], &cfg, limits)
+            .unwrap();
+    assert_eq!(results[0].reason, Some(RejectionReason::InvalidProposal));
+    assert_eq!(results[0].quality.stage, BallFitStage::ProposalValidation);
+    assert_eq!(results[0].quality.iterations, 0);
+    assert_eq!(results[0].quality.boundary_candidates, None);
+    assert_eq!(results[0].quality.supported_ray_fraction, None);
+    assert_eq!(
+        results[1].reason,
+        Some(RejectionReason::ProposalLimitExceeded)
+    );
+    assert_eq!(results[1].quality.stage, BallFitStage::ProposalCapacity);
+    assert_eq!(trace.events.len(), 2);
+    assert_eq!(trace.events[0].iteration, None);
+    assert_eq!(trace.events[1].stage, BallFitStage::ProposalCapacity);
+    assert_eq!(
+        refine_ball_batch_with_audit(
+            &rgb,
+            &intrinsics(),
+            &[],
+            &config(),
+            BallLocalizationAuditLimits {
+                maximum_events: 0,
+                ..limits
+            },
+        ),
+        Err(BallLocalizationError::InvalidAuditLimits)
+    );
+    assert_eq!(
+        refine_ball_batch_with_audit(
+            &rgb,
+            &intrinsics(),
+            &[],
+            &config(),
+            BallLocalizationAuditLimits {
+                maximum_events: MAX_BALL_LOCALIZATION_AUDIT_EVENTS + 1,
+                ..limits
+            },
+        ),
+        Err(BallLocalizationError::InvalidAuditLimits)
+    );
+    assert_eq!(
+        refine_ball_batch_with_audit(
+            &rgb,
+            &intrinsics(),
+            &[],
+            &config(),
+            BallLocalizationAuditLimits {
+                maximum_bytes: 1,
+                ..limits
+            },
+        ),
+        Err(BallLocalizationError::InvalidAuditLimits)
+    );
+    assert_eq!(
+        refine_ball_batch_with_audit(
+            &rgb,
+            &intrinsics(),
+            &[],
+            &config(),
+            BallLocalizationAuditLimits {
+                maximum_bytes: MAX_BALL_LOCALIZATION_AUDIT_BYTES + 1,
+                ..limits
+            },
+        ),
+        Err(BallLocalizationError::InvalidAuditLimits)
+    );
+}
+
+#[test]
 fn proposal_capacity_keeps_visible_excess_results_rejected() {
     let (rgb, proposal) = image([240.0, 150.0], false, false);
     let mut second = proposal.clone();

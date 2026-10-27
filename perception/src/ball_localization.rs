@@ -285,17 +285,186 @@ pub enum RejectionReason {
 }
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct BallLocalizationQuality {
-    pub boundary_candidates: usize,
-    pub supported_ray_fraction: f64,
-    pub background_supported_fraction: f64,
-    pub inliers: usize,
-    pub angular_coverage: f64,
-    pub largest_gap_fraction: f64,
+    /// The stage and iteration to which every populated measurement belongs.
+    /// `None` measurements have not been computed in this iteration.
+    pub stage: BallFitStage,
+    pub fit_id: Option<usize>,
+    pub boundary_candidates: Option<usize>,
+    pub supported_ray_fraction: Option<f64>,
+    pub background_sample_fraction: Option<f64>,
+    pub background_supported_fraction: Option<f64>,
+    pub inliers: Option<usize>,
+    pub angular_coverage: Option<f64>,
+    pub largest_gap_fraction: Option<f64>,
     pub residual_rms_px: Option<f64>,
     pub center_shift_px: Option<f64>,
     pub center_spread_px: Option<f64>,
     pub foreground_fraction: Option<f64>,
     pub iterations: usize,
+}
+
+impl BallLocalizationQuality {
+    fn begin_iteration(&mut self, iteration: usize) {
+        // Reset before the deadline check: a timeout at the next iteration
+        // must never inherit the previous iteration's successful measurements.
+        *self = Self {
+            stage: BallFitStage::IterationStart,
+            iterations: iteration,
+            ..Self::default()
+        };
+    }
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BallFitStage {
+    #[default]
+    ProposalValidation,
+    ProposalCapacity,
+    CropSetup,
+    IterationStart,
+    ViewGeometry,
+    BackgroundSampling,
+    BoundarySampling,
+    HypothesisGeneration,
+    AmbiguityAssessment,
+    FitRefinement,
+    Coverage,
+    Residual,
+    CenterProjection,
+    CenterStability,
+    Foreground,
+    OutlineProjection,
+    Complete,
+}
+
+/// Audit events are a bounded research record of the same estimator used by
+/// live and replay. Local coordinates belong to the current virtual patch;
+/// projected points use native source-image pixels and may be unavailable.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BallLocalizationAuditEvent {
+    pub detection_index: u64,
+    pub iteration: Option<usize>,
+    pub stage: BallFitStage,
+    pub data: BallLocalizationAuditEventData,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum BallLocalizationAuditEventData {
+    IterationStarted {
+        axis_image_px: [f64; 2],
+    },
+    BoundaryCandidate {
+        ray: usize,
+        point_local_px: [f64; 2],
+        point_image_px: Option<[f64; 2]>,
+        strength: f64,
+    },
+    RawHypothesis {
+        fit_id: usize,
+        center_local_px: [f64; 2],
+        center_image_px: Option<[f64; 2]>,
+        radius_local_px: f64,
+        support: usize,
+        squared_error_local_px: f64,
+    },
+    SelectedInlier {
+        fit_id: usize,
+        ray: usize,
+        point_local_px: [f64; 2],
+        point_image_px: Option<[f64; 2]>,
+    },
+    RefinedFit {
+        fit_id: usize,
+        center_local_px: [f64; 2],
+        center_image_px: Option<[f64; 2]>,
+        radius_local_px: f64,
+        outline_image_px: Vec<Option<[f64; 2]>>,
+    },
+    Outcome {
+        status: RefinementStatus,
+        reason: Option<RejectionReason>,
+        quality: Box<BallLocalizationQuality>,
+        center_image_px: Option<[f64; 2]>,
+        outline: Option<Box<BallOutline>>,
+    },
+}
+
+/// The cap is a structural safety limit, not a production estimator setting.
+/// Payload sizes are further bounded by the validated sample/outline limits.
+pub const MAX_BALL_LOCALIZATION_AUDIT_EVENTS: usize = 8192;
+/// Trace storage is also bounded by bytes, independently of estimator/sample
+/// limits. This covers reserved event slots and owned variable-length arrays.
+pub const MAX_BALL_LOCALIZATION_AUDIT_BYTES: usize = 8 * 1024 * 1024;
+pub const BALL_LOCALIZATION_AUDIT_VERSION: u32 = 1;
+
+/// Per-audit limits control diagnostics only; they do not select a production
+/// algorithm or change estimator configuration. Both are capped independently.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BallLocalizationAuditLimits {
+    pub maximum_events: usize,
+    pub maximum_bytes: usize,
+}
+
+impl Default for BallLocalizationAuditLimits {
+    fn default() -> Self {
+        Self {
+            maximum_events: MAX_BALL_LOCALIZATION_AUDIT_EVENTS,
+            maximum_bytes: MAX_BALL_LOCALIZATION_AUDIT_BYTES,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BallLocalizationAuditTrace {
+    pub schema_version: u32,
+    pub maximum_events: usize,
+    pub maximum_bytes: usize,
+    pub retained_bytes: usize,
+    pub dropped_events: usize,
+    pub events: Vec<BallLocalizationAuditEvent>,
+}
+
+impl BallLocalizationAuditTrace {
+    fn record(&mut self, event: impl FnOnce() -> BallLocalizationAuditEvent) {
+        if self.events.len() >= self.maximum_events {
+            self.dropped_events = self.dropped_events.saturating_add(1);
+            return;
+        }
+        let event = event();
+        let extra = match &event.data {
+            BallLocalizationAuditEventData::RefinedFit {
+                outline_image_px, ..
+            } => outline_image_px.capacity() * std::mem::size_of::<Option<[f64; 2]>>(),
+            BallLocalizationAuditEventData::Outcome {
+                outline: Some(outline),
+                ..
+            } => {
+                std::mem::size_of::<BallLocalizationQuality>()
+                    + std::mem::size_of::<BallOutline>()
+                    + outline.points_image_px.capacity() * std::mem::size_of::<[f64; 2]>()
+            }
+            BallLocalizationAuditEventData::IterationStarted { .. }
+            | BallLocalizationAuditEventData::BoundaryCandidate { .. }
+            | BallLocalizationAuditEventData::RawHypothesis { .. }
+            | BallLocalizationAuditEventData::SelectedInlier { .. }
+            | BallLocalizationAuditEventData::Outcome { outline: None, .. } => {
+                std::mem::size_of::<BallLocalizationQuality>()
+            }
+        };
+        let Some(retained_bytes) = self.retained_bytes.checked_add(extra) else {
+            self.dropped_events = self.dropped_events.saturating_add(1);
+            return;
+        };
+        if retained_bytes > self.maximum_bytes {
+            self.dropped_events = self.dropped_events.saturating_add(1);
+            return;
+        }
+        self.retained_bytes = retained_bytes;
+        self.events.push(event);
+    }
 }
 /// Projected fitted circle, in original image pixels. These are appearance
 /// measurements only; they must never overwrite the fixed physical radius.
@@ -581,6 +750,7 @@ pub enum BallLocalizationError {
     InvalidRgbBuffer,
     TooManyProposals,
     DuplicateDetectionIndex,
+    InvalidAuditLimits,
 }
 impl Display for BallLocalizationError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -695,6 +865,16 @@ fn deadline(now: Instant, end: Instant) -> Result<(), RejectionReason> {
     } else {
         Ok(())
     }
+}
+
+fn start_iteration(
+    quality: &mut BallLocalizationQuality,
+    iteration: usize,
+    now: Instant,
+    end: Instant,
+) -> Result<(), RejectionReason> {
+    quality.begin_iteration(iteration);
+    deadline(now, end)
 }
 
 #[derive(Clone, Copy)]
@@ -881,6 +1061,81 @@ pub fn refine_ball_batch(
     proposals: &[BallProposal],
     config: &BallLocalizationConfig,
 ) -> Result<Vec<BallRefinement>, BallLocalizationError> {
+    refine_ball_batch_impl(rgb, intrinsics, proposals, config, None)
+}
+
+/// Run the production estimator while retaining a bounded diagnostic trace.
+/// This audit entry point does not select a different fitting algorithm.
+/// Trace generation takes wall time and can therefore consume a real deadline;
+/// callers comparing geometry should supply sufficient diagnostic budgets.
+pub fn refine_ball_batch_with_audit(
+    rgb: &[u8],
+    intrinsics: &CameraIntrinsics,
+    proposals: &[BallProposal],
+    config: &BallLocalizationConfig,
+    limits: BallLocalizationAuditLimits,
+) -> Result<(Vec<BallRefinement>, BallLocalizationAuditTrace), BallLocalizationError> {
+    let Some(reserved_bytes) = limits
+        .maximum_events
+        .checked_mul(std::mem::size_of::<BallLocalizationAuditEvent>())
+    else {
+        return Err(BallLocalizationError::InvalidAuditLimits);
+    };
+    if limits.maximum_events == 0
+        || limits.maximum_events > MAX_BALL_LOCALIZATION_AUDIT_EVENTS
+        || limits.maximum_bytes == 0
+        || limits.maximum_bytes > MAX_BALL_LOCALIZATION_AUDIT_BYTES
+        || reserved_bytes > limits.maximum_bytes
+    {
+        return Err(BallLocalizationError::InvalidAuditLimits);
+    }
+    let events = Vec::<BallLocalizationAuditEvent>::with_capacity(limits.maximum_events);
+    let Some(reserved_bytes) = events
+        .capacity()
+        .checked_mul(std::mem::size_of::<BallLocalizationAuditEvent>())
+    else {
+        return Err(BallLocalizationError::InvalidAuditLimits);
+    };
+    if reserved_bytes > limits.maximum_bytes {
+        return Err(BallLocalizationError::InvalidAuditLimits);
+    }
+    let mut trace = BallLocalizationAuditTrace {
+        schema_version: BALL_LOCALIZATION_AUDIT_VERSION,
+        maximum_events: limits.maximum_events,
+        maximum_bytes: limits.maximum_bytes,
+        retained_bytes: reserved_bytes,
+        dropped_events: 0,
+        // Account for the actual reserved capacity so Vec's growth strategy
+        // cannot add uncharged retained event storage later.
+        events,
+    };
+    let results = refine_ball_batch_impl(rgb, intrinsics, proposals, config, Some(&mut trace))?;
+    Ok((results, trace))
+}
+
+fn record_trace(
+    trace: &mut Option<&mut BallLocalizationAuditTrace>,
+    detection_index: u64,
+    quality: &BallLocalizationQuality,
+    data: impl FnOnce() -> BallLocalizationAuditEventData,
+) {
+    if let Some(trace) = trace.as_deref_mut() {
+        trace.record(|| BallLocalizationAuditEvent {
+            detection_index,
+            iteration: (quality.iterations != 0).then_some(quality.iterations),
+            stage: quality.stage,
+            data: data(),
+        });
+    }
+}
+
+fn refine_ball_batch_impl(
+    rgb: &[u8],
+    intrinsics: &CameraIntrinsics,
+    proposals: &[BallProposal],
+    config: &BallLocalizationConfig,
+    mut trace: Option<&mut BallLocalizationAuditTrace>,
+) -> Result<Vec<BallRefinement>, BallLocalizationError> {
     intrinsics.validate()?;
     config.validate()?;
     let expected = (intrinsics.source_width_px as usize)
@@ -924,7 +1179,15 @@ pub fn refine_ball_batch(
     for proposal in proposals.iter().take(config.max_proposals) {
         let end = batch_end.min(Instant::now() + Duration::from_millis(config.proposal_budget_ms));
         let mut quality = BallLocalizationQuality::default();
-        let result = refine_one(rgb, intrinsics, proposal, &scaled, end, &mut quality);
+        let result = refine_one(
+            rgb,
+            intrinsics,
+            proposal,
+            &scaled,
+            end,
+            &mut quality,
+            &mut trace,
+        );
         let (center, status, reason, outline) = match result {
             Ok((center, outline)) => (
                 Some(center),
@@ -934,6 +1197,15 @@ pub fn refine_ball_batch(
             ),
             Err(reason) => (None, RefinementStatus::Rejected, Some(reason), None),
         };
+        record_trace(&mut trace, proposal.detection_index, &quality, || {
+            BallLocalizationAuditEventData::Outcome {
+                status,
+                reason,
+                quality: Box::new(quality.clone()),
+                center_image_px: center,
+                outline: outline.clone().map(Box::new),
+            }
+        });
         output.push(BallRefinement {
             detection_index: proposal.detection_index,
             center_image_px: center,
@@ -947,19 +1219,29 @@ pub fn refine_ball_batch(
     // the configured physical-ball capacity, but retain an explicit rejected
     // result for every extra visible detection so it cannot acquire a stale or
     // guessed precise center.
-    output.extend(
-        proposals
-            .iter()
-            .skip(config.max_proposals)
-            .map(|proposal| BallRefinement {
-                detection_index: proposal.detection_index,
-                center_image_px: None,
+    for proposal in proposals.iter().skip(config.max_proposals) {
+        let quality = BallLocalizationQuality {
+            stage: BallFitStage::ProposalCapacity,
+            ..BallLocalizationQuality::default()
+        };
+        record_trace(&mut trace, proposal.detection_index, &quality, || {
+            BallLocalizationAuditEventData::Outcome {
                 status: RefinementStatus::Rejected,
                 reason: Some(RejectionReason::ProposalLimitExceeded),
-                quality: BallLocalizationQuality::default(),
+                quality: Box::new(quality.clone()),
+                center_image_px: None,
                 outline: None,
-            }),
-    );
+            }
+        });
+        output.push(BallRefinement {
+            detection_index: proposal.detection_index,
+            center_image_px: None,
+            status: RefinementStatus::Rejected,
+            reason: Some(RejectionReason::ProposalLimitExceeded),
+            quality,
+            outline: None,
+        });
+    }
     Ok(output)
 }
 
@@ -970,6 +1252,7 @@ fn refine_one(
     cfg: &BallLocalizationConfig,
     end: Instant,
     quality: &mut BallLocalizationQuality,
+    trace: &mut Option<&mut BallLocalizationAuditTrace>,
 ) -> Result<([f64; 2], BallOutline), RejectionReason> {
     deadline(Instant::now(), end)?;
     let [left, top, right, bottom] = proposal.bbox;
@@ -983,6 +1266,7 @@ fn refine_one(
     {
         return Err(RejectionReason::InvalidProposal);
     }
+    quality.stage = BallFitStage::CropSetup;
     let initial = [(left + right) / 2.0, (top + bottom) / 2.0];
     let half = (right - left).max(bottom - top) * cfg.roi_padding_factor / 2.0;
     if half * 2.0 > f64::from(cfg.max_roi_side_px) {
@@ -997,8 +1281,13 @@ fn refine_one(
     let mut axis = initial;
     let mut final_fit = None;
     for iteration in 0..cfg.max_iterations {
-        deadline(Instant::now(), end)?;
-        quality.iterations = iteration + 1;
+        start_iteration(quality, iteration + 1, Instant::now(), end)?;
+        record_trace(trace, proposal.detection_index, quality, || {
+            BallLocalizationAuditEventData::IterationStarted {
+                axis_image_px: axis,
+            }
+        });
+        quality.stage = BallFitStage::ViewGeometry;
         let view = View::new(k, axis);
         let edges = [
             [left, initial[1]],
@@ -1026,6 +1315,7 @@ fn refine_one(
             }
             view.source(k, p).and_then(|p| bilinear(rgb, k, p, roi))
         };
+        quality.stage = BallFitStage::BackgroundSampling;
         let mut background = [Vec::new(), Vec::new(), Vec::new()];
         for ray in 0..cfg.angular_samples {
             deadline(Instant::now(), end)?;
@@ -1040,9 +1330,9 @@ fn refine_one(
                 }
             }
         }
-        quality.background_supported_fraction =
-            background[0].len() as f64 / (2 * cfg.angular_samples) as f64;
-        if quality.background_supported_fraction < cfg.minimum_background_supported_fraction {
+        let sampled_fraction = background[0].len() as f64 / (2 * cfg.angular_samples) as f64;
+        quality.background_sample_fraction = Some(sampled_fraction);
+        if sampled_fraction < cfg.minimum_background_supported_fraction {
             return Err(RejectionReason::InsufficientBoundary);
         }
         if background[0].len() < cfg.minimum_inliers {
@@ -1069,11 +1359,12 @@ fn refine_one(
                 ) <= cfg.maximum_outer_background_distance
             })
             .count();
-        quality.background_supported_fraction =
-            supported_background as f64 / (2 * cfg.angular_samples) as f64;
-        if quality.background_supported_fraction < cfg.minimum_background_supported_fraction {
+        let supported_fraction = supported_background as f64 / (2 * cfg.angular_samples) as f64;
+        quality.background_supported_fraction = Some(supported_fraction);
+        if supported_fraction < cfg.minimum_background_supported_fraction {
             return Err(RejectionReason::InsufficientBoundary);
         }
+        quality.stage = BallFitStage::BoundarySampling;
         let mut candidates = Vec::new();
         for ray in 0..cfg.angular_samples {
             deadline(Instant::now(), end)?;
@@ -1124,21 +1415,37 @@ fn refine_one(
             }
             candidates.extend(selected);
         }
-        quality.boundary_candidates = candidates.len();
+        quality.boundary_candidates = Some(candidates.len());
         let mut supported = vec![false; cfg.angular_samples];
         for c in &candidates {
             supported[c.ray] = true;
         }
-        quality.supported_ray_fraction =
+        let supported_fraction =
             supported.iter().filter(|v| **v).count() as f64 / cfg.angular_samples as f64;
-        if quality.supported_ray_fraction < cfg.minimum_supported_ray_fraction {
+        quality.supported_ray_fraction = Some(supported_fraction);
+        if trace.is_some() {
+            for candidate in &candidates {
+                deadline(Instant::now(), end)?;
+                record_trace(trace, proposal.detection_index, quality, || {
+                    BallLocalizationAuditEventData::BoundaryCandidate {
+                        ray: candidate.ray,
+                        point_local_px: candidate.point,
+                        point_image_px: view.source(k, candidate.point),
+                        strength: candidate.strength,
+                    }
+                });
+            }
+        }
+        if supported_fraction < cfg.minimum_supported_ray_fraction {
             return Err(RejectionReason::InsufficientBoundary);
         }
         if candidates.len() < cfg.minimum_inliers {
             return Err(RejectionReason::InsufficientBoundary);
         }
+        quality.stage = BallFitStage::HypothesisGeneration;
         let mut seed = cfg.seed ^ proposal.detection_index;
         let mut best: Option<(Circle, usize, f64)> = None;
+        let mut best_id = 0;
         let mut hypotheses = Vec::new();
         for _ in 0..cfg.ransac_iterations {
             deadline(Instant::now(), end)?;
@@ -1162,15 +1469,29 @@ fn refine_one(
                 .iter()
                 .map(|c| (distance(c.point, fit.center) - fit.radius).powi(2))
                 .sum::<f64>();
+            let fit_id = hypotheses.len();
             hypotheses.push((fit, selected.len(), error));
+            record_trace(trace, proposal.detection_index, quality, || {
+                BallLocalizationAuditEventData::RawHypothesis {
+                    fit_id,
+                    center_local_px: fit.center,
+                    center_image_px: view.source(k, fit.center),
+                    radius_local_px: fit.radius,
+                    support: selected.len(),
+                    squared_error_local_px: error,
+                }
+            });
             if best.is_none_or(|(_, n, e)| selected.len() > n || (selected.len() == n && error < e))
             {
                 best = Some((fit, selected.len(), error));
+                best_id = fit_id;
             }
         }
         let Some((fit, best_support, best_error)) = best else {
             return Err(RejectionReason::AmbiguousBoundary);
         };
+        quality.fit_id = Some(best_id);
+        quality.stage = BallFitStage::AmbiguityAssessment;
         // Competing high-support centers are ambiguity, not extra confidence.
         // Preserve the coarse proposal only when a spatially coherent
         // alternative is repeatedly found. A lone random RANSAC sample can
@@ -1179,23 +1500,61 @@ fn refine_one(
         if has_competing_fit_cluster(&hypotheses, fit, best_support, best_error, cfg, end)? {
             return Err(RejectionReason::AmbiguousBoundary);
         }
+        quality.stage = BallFitStage::FitRefinement;
         let selected = select(&candidates, fit, cfg);
         if selected.len() < cfg.minimum_inliers {
             return Err(RejectionReason::InsufficientBoundary);
         }
         let points: Vec<[f64; 2]> = selected.iter().map(|c| c.point).collect();
         let fit = irls(fit, &points, cfg, end)?;
+        record_trace(trace, proposal.detection_index, quality, || {
+            BallLocalizationAuditEventData::RefinedFit {
+                fit_id: best_id,
+                center_local_px: fit.center,
+                center_image_px: view.source(k, fit.center),
+                radius_local_px: fit.radius,
+                outline_image_px: (0..cfg.outline_samples)
+                    .map(|step| {
+                        let angle =
+                            std::f64::consts::TAU * step as f64 / cfg.outline_samples as f64;
+                        view.source(
+                            k,
+                            [
+                                fit.center[0] + fit.radius * angle.cos(),
+                                fit.center[1] + fit.radius * angle.sin(),
+                            ],
+                        )
+                    })
+                    .collect(),
+            }
+        });
+        deadline(Instant::now(), end)?;
         let selected = select(&candidates, fit, cfg);
-        quality.inliers = selected.len();
+        quality.inliers = Some(selected.len());
+        if trace.is_some() {
+            for candidate in &selected {
+                deadline(Instant::now(), end)?;
+                record_trace(trace, proposal.detection_index, quality, || {
+                    BallLocalizationAuditEventData::SelectedInlier {
+                        fit_id: best_id,
+                        ray: candidate.ray,
+                        point_local_px: candidate.point,
+                        point_image_px: view.source(k, candidate.point),
+                    }
+                });
+            }
+        }
         if selected.len() < cfg.minimum_inliers {
             return Err(RejectionReason::InsufficientBoundary);
         }
+        quality.stage = BallFitStage::Coverage;
         let (coverage, gap) = coverage(&selected, fit.center, cfg);
-        quality.angular_coverage = coverage;
-        quality.largest_gap_fraction = gap;
+        quality.angular_coverage = Some(coverage);
+        quality.largest_gap_fraction = Some(gap);
         if coverage < cfg.minimum_coverage || gap > cfg.maximum_gap_fraction {
             return Err(RejectionReason::InadequateCoverage);
         }
+        quality.stage = BallFitStage::Residual;
         let rms = (selected
             .iter()
             .map(|c| (distance(c.point, fit.center) - fit.radius).powi(2))
@@ -1206,6 +1565,7 @@ fn refine_one(
         if rms > cfg.maximum_residual_px {
             return Err(RejectionReason::ExcessiveResidual);
         }
+        quality.stage = BallFitStage::CenterProjection;
         let source = view
             .source(k, fit.center)
             .ok_or(RejectionReason::NumericalFailure)?;
@@ -1216,6 +1576,7 @@ fn refine_one(
         }
         // Leave-sector-group-out fits expose arc sensitivity without pretending
         // this spread is a calibrated statistical uncertainty or confidence.
+        quality.stage = BallFitStage::CenterStability;
         let mut spread: f64 = 0.0;
         for omit in 0..4 {
             deadline(Instant::now(), end)?;
@@ -1242,6 +1603,7 @@ fn refine_one(
         if spread > cfg.maximum_center_spread_px {
             return Err(RejectionReason::UnstableCenter);
         }
+        quality.stage = BallFitStage::Foreground;
         let mut foreground = 0;
         let mut available = 0;
         // Probe the interior across all ray directions, rather than accepting
@@ -1272,8 +1634,24 @@ fn refine_one(
             break;
         }
     }
+    quality.stage = BallFitStage::OutlineProjection;
     deadline(Instant::now(), end)?;
     let (view, fit, center) = final_fit.ok_or(RejectionReason::NumericalFailure)?;
+    let outline = project_outline(k, view, fit, center, cfg, end, quality)?;
+    Ok((center, outline))
+}
+
+fn project_outline(
+    k: &CameraIntrinsics,
+    view: View,
+    fit: Circle,
+    center: [f64; 2],
+    cfg: &BallLocalizationConfig,
+    end: Instant,
+    quality: &mut BallLocalizationQuality,
+) -> Result<BallOutline, RejectionReason> {
+    quality.stage = BallFitStage::OutlineProjection;
+    deadline(Instant::now(), end)?;
     let mut points = Vec::new();
     let mut extent = [0.0f64; 2];
     for step in 0..cfg.outline_samples {
@@ -1300,14 +1678,115 @@ fn refine_one(
         }
         points.push(p);
     }
-    Ok((
-        center,
-        BallOutline {
-            points_image_px: points,
-            half_extent_image_px: extent,
-            local_radius_px: fit.radius,
-        },
-    ))
+    quality.stage = BallFitStage::Complete;
+    Ok(BallOutline {
+        points_image_px: points,
+        half_extent_image_px: extent,
+        local_radius_px: fit.radius,
+    })
+}
+
+#[cfg(test)]
+mod diagnostic_tests {
+    use super::{
+        project_outline, start_iteration, BallFitStage, BallLocalizationAuditEvent,
+        BallLocalizationAuditEventData, BallLocalizationAuditTrace, BallLocalizationConfig,
+        BallLocalizationQuality, CameraIntrinsics, Circle, RejectionReason, View,
+        BALL_LOCALIZATION_AUDIT_VERSION,
+    };
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn deadline_at_new_iteration_does_not_retain_previous_fit_metrics() {
+        let mut quality = BallLocalizationQuality {
+            stage: BallFitStage::CenterStability,
+            fit_id: Some(9),
+            iterations: 1,
+            boundary_candidates: Some(92),
+            inliers: Some(80),
+            residual_rms_px: Some(0.2),
+            center_spread_px: Some(0.1),
+            ..BallLocalizationQuality::default()
+        };
+        let now = Instant::now();
+        assert_eq!(
+            start_iteration(&mut quality, 2, now, now - Duration::from_millis(1)),
+            Err(RejectionReason::DeadlineExceeded)
+        );
+        assert_eq!(quality.iterations, 2);
+        assert_eq!(quality.stage, BallFitStage::IterationStart);
+        assert_eq!(quality.fit_id, None);
+        assert_eq!(quality.boundary_candidates, None);
+        assert_eq!(quality.inliers, None);
+        assert_eq!(quality.residual_rms_px, None);
+        assert_eq!(quality.center_spread_px, None);
+    }
+
+    #[test]
+    fn outline_failure_is_attributed_to_outline_projection() {
+        let k = CameraIntrinsics {
+            source_width_px: 480,
+            source_height_px: 300,
+            fx: 260.0,
+            fy: 273.0,
+            cx: 240.0,
+            cy: 150.0,
+        };
+        let center = [1.0, 1.0];
+        let view = View::new(&k, center);
+        let fit = Circle {
+            center: [0.0, 0.0],
+            radius: 20.0,
+        };
+        let mut quality = BallLocalizationQuality {
+            stage: BallFitStage::Foreground,
+            iterations: 2,
+            residual_rms_px: Some(0.2),
+            ..BallLocalizationQuality::default()
+        };
+        let result = project_outline(
+            &k,
+            view,
+            fit,
+            center,
+            &BallLocalizationConfig::default(),
+            Instant::now() + Duration::from_secs(1),
+            &mut quality,
+        );
+        assert_eq!(result, Err(RejectionReason::InadequateCoverage));
+        assert_eq!(quality.stage, BallFitStage::OutlineProjection);
+        assert_eq!(quality.iterations, 2);
+        assert_eq!(quality.residual_rms_px, Some(0.2));
+    }
+
+    #[test]
+    fn audit_drops_variable_payload_when_byte_budget_is_exhausted() {
+        let events = Vec::<BallLocalizationAuditEvent>::with_capacity(1);
+        let reserved = events.capacity() * std::mem::size_of::<BallLocalizationAuditEvent>();
+        let mut trace = BallLocalizationAuditTrace {
+            schema_version: BALL_LOCALIZATION_AUDIT_VERSION,
+            maximum_events: 1,
+            maximum_bytes: reserved + 1,
+            retained_bytes: reserved,
+            dropped_events: 0,
+            events,
+        };
+        trace.record(|| BallLocalizationAuditEvent {
+            detection_index: 7,
+            iteration: Some(1),
+            stage: BallFitStage::FitRefinement,
+            data: BallLocalizationAuditEventData::RefinedFit {
+                fit_id: 0,
+                center_local_px: [0.0, 0.0],
+                center_image_px: Some([1.0, 1.0]),
+                radius_local_px: 10.0,
+                outline_image_px: vec![Some([1.0, 1.0]); 3],
+            },
+        });
+        assert!(trace.events.is_empty());
+        assert_eq!(trace.dropped_events, 1);
+        assert_eq!(trace.retained_bytes, reserved);
+    }
 }
 
 #[cfg(test)]
