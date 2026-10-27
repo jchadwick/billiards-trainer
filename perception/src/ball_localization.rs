@@ -389,6 +389,8 @@ pub enum BallLocalizationAuditEventData {
     },
     RawHypothesis {
         fit_id: usize,
+        sampled_candidate_indices: [usize; 3],
+        sampled_candidate_rays: [usize; 3],
         center_local_px: [f64; 2],
         center_image_px: Option<[f64; 2]>,
         radius_local_px: f64,
@@ -433,7 +435,7 @@ pub const MAX_BALL_LOCALIZATION_AUDIT_EVENTS: usize = 8192;
 /// Trace storage is also bounded by bytes, independently of estimator/sample
 /// limits. This covers reserved event slots and owned variable-length arrays.
 pub const MAX_BALL_LOCALIZATION_AUDIT_BYTES: usize = 8 * 1024 * 1024;
-pub const BALL_LOCALIZATION_AUDIT_VERSION: u32 = 2;
+pub const BALL_LOCALIZATION_AUDIT_VERSION: u32 = 3;
 
 /// Per-audit limits control diagnostics only; they do not select a production
 /// algorithm or change estimator configuration. Both are capped independently.
@@ -2041,9 +2043,12 @@ fn refine_one(
         let mut hypotheses = Vec::new();
         for _ in 0..cfg.ransac_iterations {
             deadline(Instant::now(), end)?;
-            let a = candidates[next_random(&mut seed, candidates.len())];
-            let b = candidates[next_random(&mut seed, candidates.len())];
-            let c = candidates[next_random(&mut seed, candidates.len())];
+            let sampled_candidate_indices = [
+                next_random(&mut seed, candidates.len()),
+                next_random(&mut seed, candidates.len()),
+                next_random(&mut seed, candidates.len()),
+            ];
+            let [a, b, c] = sampled_candidate_indices.map(|index| candidates[index]);
             if a.ray == b.ray || a.ray == c.ray || b.ray == c.ray {
                 continue;
             }
@@ -2089,6 +2094,8 @@ fn refine_one(
             record_trace(trace, proposal.detection_index, quality, || {
                 BallLocalizationAuditEventData::RawHypothesis {
                     fit_id,
+                    sampled_candidate_indices,
+                    sampled_candidate_rays: [a.ray, b.ray, c.ray],
                     center_local_px: fit.center,
                     center_image_px: Some(center_image_px),
                     radius_local_px: fit.radius,
@@ -2294,6 +2301,32 @@ mod diagnostic_tests {
         BALL_LOCALIZATION_AUDIT_VERSION,
     };
     use std::time::{Duration, Instant};
+
+    #[test]
+    fn raw_hypothesis_audit_serializes_sampled_triplet_provenance() {
+        let value = serde_json::to_value(BallLocalizationAuditEventData::RawHypothesis {
+            fit_id: 4,
+            sampled_candidate_indices: [11, 29, 47],
+            sampled_candidate_rays: [3, 8, 12],
+            center_local_px: [0.25, -0.5],
+            center_image_px: Some([101.0, 202.0]),
+            radius_local_px: 12.5,
+            support: 90,
+            squared_error_local_px: 2.0,
+        })
+        .unwrap();
+
+        assert_eq!(BALL_LOCALIZATION_AUDIT_VERSION, 3);
+        assert_eq!(value["kind"], "raw_hypothesis");
+        assert_eq!(
+            value["sampled_candidate_indices"],
+            serde_json::json!([11, 29, 47])
+        );
+        assert_eq!(
+            value["sampled_candidate_rays"],
+            serde_json::json!([3, 8, 12])
+        );
+    }
 
     #[test]
     fn deadline_at_new_iteration_does_not_retain_previous_fit_metrics() {

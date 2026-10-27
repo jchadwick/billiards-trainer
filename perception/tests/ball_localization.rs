@@ -232,8 +232,8 @@ fn audit_traces_the_same_fitting_results_with_bounded_events() {
     )
     .unwrap();
     assert_eq!(observations, baseline);
-    assert_eq!(BALL_LOCALIZATION_AUDIT_VERSION, 2);
-    assert_eq!(trace.schema_version, 2);
+    assert_eq!(BALL_LOCALIZATION_AUDIT_VERSION, 3);
+    assert_eq!(trace.schema_version, 3);
     assert_eq!(trace.dropped_events, 0);
     assert!(trace.retained_bytes <= trace.maximum_bytes);
     assert_eq!(trace.maximum_bytes, MAX_BALL_LOCALIZATION_AUDIT_BYTES);
@@ -255,6 +255,31 @@ fn audit_traces_the_same_fitting_results_with_bounded_events() {
             ..
         }
     )));
+    for hypothesis in &trace.events {
+        let BallLocalizationAuditEventData::RawHypothesis {
+            sampled_candidate_indices,
+            sampled_candidate_rays,
+            ..
+        } = &hypothesis.data
+        else {
+            continue;
+        };
+        let candidate_rays = trace
+            .events
+            .iter()
+            .filter(|candidate| candidate.iteration == hypothesis.iteration)
+            .filter_map(|candidate| match &candidate.data {
+                BallLocalizationAuditEventData::BoundaryCandidate { ray, .. } => Some(*ray),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        for slot in 0..3 {
+            assert_eq!(
+                candidate_rays[sampled_candidate_indices[slot]],
+                sampled_candidate_rays[slot]
+            );
+        }
+    }
     assert!(trace.events.iter().any(|e| matches!(
         e.data,
         BallLocalizationAuditEventData::RefinedFit {
