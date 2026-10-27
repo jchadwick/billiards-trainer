@@ -1022,10 +1022,10 @@ fn run_http_mjpeg(args: Args) -> Result<()> {
     let stream_error = connect_multipart_jpeg_input(&demux, &input_rate_filter)?;
     install_compressed_jpeg_limit(&parser, &stream_error, args.max_compressed_jpeg_bytes)?;
 
+    let _pipeline_guard = PipelineStateGuard(&pipeline);
     pipeline
         .set_state(gst::State::Playing)
         .context("start remote HTTP-MJPEG pipeline")?;
-    let _pipeline_guard = PipelineStateGuard(&pipeline);
     let legacy_helper_start = (!args.capture_audit_timing).then(Instant::now);
     let stdout = io::stdout();
     let mut output = io::BufWriter::new(stdout.lock());
@@ -1574,12 +1574,137 @@ mod argument_tests {
 #[cfg(all(test, feature = "camera-gstreamer-source"))]
 mod http_mjpeg_sample_tests {
     use super::{
-        connect_multipart_jpeg_input, make_latest_compressed_frame_queue, make_mjpeg_rate_filter,
-        pull_http_mjpeg_sample,
+        connect_multipart_jpeg_input, install_compressed_jpeg_limit,
+        make_latest_compressed_frame_queue, make_mjpeg_rate_filter, pull_http_mjpeg_sample,
+        pull_http_mjpeg_sample_checked,
     };
     use gst::prelude::*;
     use gstreamer as gst;
     use gstreamer_app::{AppSink, AppSrc};
+
+    struct JpegLimitFixture {
+        pipeline: gst::Pipeline,
+        source: AppSrc,
+        sink: AppSink,
+        stream_error: std::sync::Arc<std::sync::Mutex<Option<String>>>,
+    }
+
+    impl JpegLimitFixture {
+        fn new(maximum_bytes: usize) -> Self {
+            gst::init().unwrap();
+            let pipeline = gst::Pipeline::new();
+            let source = gst::ElementFactory::make("appsrc")
+                .build()
+                .unwrap()
+                .downcast::<AppSrc>()
+                .unwrap();
+            let parser = gst::ElementFactory::make("jpegparse").build().unwrap();
+            // This fixture exercises parser/probe behavior, not GPU decoding.
+            // Software decoding remains test-only and is never a fallback.
+            let decoder = gst::ElementFactory::make("jpegdec").build().unwrap();
+            let sink = gst::ElementFactory::make("appsink")
+                .build()
+                .unwrap()
+                .downcast::<AppSink>()
+                .unwrap();
+            source.set_caps(Some(
+                &gst::Caps::builder("image/jpeg")
+                    .field("framerate", gst::Fraction::new(20, 1))
+                    .build(),
+            ));
+            sink.set_wait_on_eos(false);
+            sink.set_sync(false);
+            pipeline
+                .add_many([
+                    source.upcast_ref::<gst::Element>(),
+                    &parser,
+                    &decoder,
+                    sink.upcast_ref::<gst::Element>(),
+                ])
+                .unwrap();
+            gst::Element::link_many([source.upcast_ref(), &parser, &decoder, sink.upcast_ref()])
+                .unwrap();
+            let stream_error = std::sync::Arc::new(std::sync::Mutex::new(None));
+            install_compressed_jpeg_limit(&parser, &stream_error, maximum_bytes).unwrap();
+            pipeline.set_state(gst::State::Playing).unwrap();
+            Self {
+                pipeline,
+                source,
+                sink,
+                stream_error,
+            }
+        }
+    }
+
+    impl Drop for JpegLimitFixture {
+        fn drop(&mut self) {
+            self.pipeline.set_state(gst::State::Null).unwrap();
+        }
+    }
+
+    #[test]
+    fn malformed_fragments_exceeding_the_cumulative_limit_surface_a_terminal_error() {
+        let fixture = JpegLimitFixture::new(64);
+        let mut initial = vec![0_u8; 32];
+        initial[..2].copy_from_slice(&[0xff, 0xd8]);
+        fixture
+            .source
+            .push_buffer(gst::Buffer::from_mut_slice(initial))
+            .unwrap();
+        // Neither fragment exceeds the limit alone. No complete JPEG is
+        // emitted to reset the counter, so their aggregate must be rejected.
+        fixture
+            .source
+            .push_buffer(gst::Buffer::from_mut_slice(vec![0_u8; 40]))
+            .unwrap();
+        fixture.source.end_of_stream().unwrap();
+        let error = pull_http_mjpeg_sample_checked(
+            &fixture.sink,
+            &fixture.pipeline,
+            gst::ClockTime::from_seconds(2),
+            &fixture.stream_error,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("configured limit of 64 bytes"));
+    }
+
+    #[test]
+    fn an_oversized_frame_after_readiness_is_not_treated_as_a_transient_gap() {
+        let mut jpeg = Vec::new();
+        image::codecs::jpeg::JpegEncoder::new(&mut jpeg)
+            .encode(&[127_u8; 8 * 8 * 3], 8, 8, image::ExtendedColorType::Rgb8)
+            .unwrap();
+        let maximum_bytes = jpeg.len() + 8;
+        let fixture = JpegLimitFixture::new(maximum_bytes);
+        fixture
+            .source
+            .push_buffer(gst::Buffer::from_mut_slice(jpeg))
+            .unwrap();
+        assert!(pull_http_mjpeg_sample_checked(
+            &fixture.sink,
+            &fixture.pipeline,
+            gst::ClockTime::from_seconds(2),
+            &fixture.stream_error,
+        )
+        .unwrap()
+        .is_some());
+
+        fixture
+            .source
+            .push_buffer(gst::Buffer::from_mut_slice(vec![0_u8; maximum_bytes + 1]))
+            .unwrap();
+        fixture.source.end_of_stream().unwrap();
+        let error = pull_http_mjpeg_sample_checked(
+            &fixture.sink,
+            &fixture.pipeline,
+            gst::ClockTime::from_seconds(2),
+            &fixture.stream_error,
+        )
+        .unwrap_err();
+        assert!(error
+            .to_string()
+            .contains(&format!("configured limit of {maximum_bytes} bytes")));
+    }
 
     #[test]
     fn compressed_queue_is_bounded_to_one_latest_complete_frame() {

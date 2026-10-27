@@ -94,6 +94,15 @@ The initial buildable experimental source is now preserved at
 `proven-findings-promotion-record.json` for which preservation/promotion tasks
 were completed during plan preparation; do not repeat completed commits.
 
+Resume estimator implementation on `codex/native-ball-localization`, not on
+main: main intentionally lacks the unqualified estimator modules. Start from
+the checkpoint and preservation commits, verify a clean working tree, and
+bring committed main into the experiment branch before the next code task.
+If the helper conflicts, preserve main's qualified helper and the experimental
+library changes; do not resolve by replacing an entire module from one branch.
+Verify that integration with camera-feature tests. Bringing main into the
+experiment branch does not authorize merging the experiment back into main.
+
 Before each commit inspect the exact staged paths and full staged diff. Avoid
 blanket staging, resets, stashes that hide unrelated work, destructive cleanup,
 or accidentally committing model binaries and machine-local configuration.
@@ -107,16 +116,22 @@ rail diagnostics, local-normalization prototypes, 4K framing evidence, and
 
 Commit groups:
 
-1. **Evidence on main:** `docs(calibration): preserve native-frame experiment findings`.
+The first four groups are completed: main has capture commit `3e67991`,
+evidence commit `1739867`, and architecture commit `5787b56`; the experiment
+branch has checkpoint `e595fe2`. Their actual order differs from the grouping
+below. See the promotion record for exact SHAs and checks; do not re-extract
+or recommit these groups. The following descriptions preserve their scope.
+
+1. **Completed evidence on main:** `docs(calibration): preserve native-frame experiment findings`.
    Include this plan, corrected status/review notes, the frozen identity audit
    JSON and exact harness, short 5 FPS record, and saved-frame GPU qualification.
    Add an evidence index with source hashes, provenance, and limitations.
-2. **Architecture on main:** `docs(architecture): record estimator stability requirements`.
+2. **Completed architecture on main:** `docs(architecture): record estimator stability requirements`.
    Include ADR-0102 and validate records. Accepted architecture does not mean
    the current implementation is qualified. Clarify that geometry/order
    invariance applies with sufficient budget and below capacity; legitimate
    deadline/capacity scheduling effects must be reported separately.
-3. **Independent capture on main:** `perf(capture): decode MJPEG with bounded Intel VA-API`.
+3. **Completed independent capture on main:** `perf(capture): decode MJPEG with bounded Intel VA-API`.
    Extract and verify only the independent helper change in
    `perception/src/bin/gstreamer_capture_probe.rs`, including its tests.
    Do not sweep in `capture_runtime.rs` or `capture_pipeline.rs`; their current
@@ -125,12 +140,13 @@ Commit groups:
    Qualify this group against a clean main checkout and the saved JPEG target
    result. Record separately which behavior was fixture-tested versus tested
    on target hardware.
-4. **Experimental checkpoint on the experiment branch:**
+4. **Completed experimental checkpoint on the experiment branch:**
    `chore(perception): preserve unqualified native-localization checkpoint`.
-   Preserve the remaining coherent dependent Rust/config/test changes after
-   baseline checks. Exclude the already promoted GPU helper hunk or reconcile
-   it deliberately when the branches are brought together. Do not merge this
-   checkpoint into main as a qualified localization feature.
+   The checkpoint preserved the coherent Rust/config/test changes after
+   baseline checks, including the original experimental GPU helper. Reconcile
+   that helper deliberately with the qualified main version when branches are
+   brought together. Do not merge this checkpoint into main as a qualified
+   localization feature.
 5. **Subsequent corrections:** commit diagnostics, identity independence,
    converged-boundary handling, corpus audits, and physical mapping diagnostics
    in the task boundaries below. Each code commit includes its regression
@@ -170,7 +186,9 @@ Use these retained sources:
 
 Freeze the tuning/reserved split before further changes: use the measured
 grid for diagnosis; reserve the alternate grid and native 4K three-ball scene
-from threshold tuning. They are additional contour checks, not independent
+from further threshold tuning. Both scenes have already been inspected, and
+the 4K scene was previously tested; these are not blind or previously unseen
+holdouts. They are additional contour checks, not independent
 physical accuracy references. Do not count upscaled or downscaled copies as
 new independent images. Do not treat annotated overlay PNGs as raw inputs.
 
@@ -360,7 +378,19 @@ Use only the nine coordinates associated with
 accepted centers with the final estimator revision. Preserve rejected cases
 and never substitute bbox midpoints or older-method centers into the new fit.
 
-Fit a normalized diagnostic homography with rank/conditioning checks. Report
+The measurements use an upper-left origin with +X image-right and +Y
+image-down; production numerical coordinates use a table-center origin.
+Verify the selected profile's corner0 and axis orientation before conversion.
+If it matches the measured convention, compute `x_center = x_upper_left - W/2`
+and `y_center = y_upper_left - H/2` using configured physical dimensions. For
+this table the offsets are (1168.4, 577.85) mm. If the profile corner order
+differs, map axes explicitly first. Serialize the origin, directions, units,
+and conversion in the report; do not compare mixed coordinate conventions.
+
+Fit a normalized diagnostic homography using a report-only research solver or
+extracted numerical core, without invoking or weakening the production
+eligibility validator. Never emit a loadable calibration asset from this
+diagnostic. Include rank/conditioning checks and report
 every training residual, every leave-one-position-out prediction where the
 remaining points are sufficient, spatial coverage/extrapolation, and the
 number of accepted points. If too few/spatially degenerate points remain,
@@ -386,10 +416,14 @@ duplicate observations to reach 12.
 Completion: reproducible per-point diagnostic result and explicit activation
 status. Commit: `docs(calibration): evaluate revised estimator against nine references`.
 
-## 11. Task G — Preserve and qualify capture independently
+## 11. Task G — Further qualify capture independently
 
-The independent capture commit may enter main before the estimator tasks;
-spatial-localization failure does not invalidate a qualified GPU discovery.
+Independent capture commit `3e67991` is already on main. Its 15 focused
+helper tests, 709 camera-feature tests, strict camera-feature Clippy, and
+format checks passed; the target separately decoded a saved native JPEG.
+The original 100-frame GPU observation has summary evidence only. Do not
+re-extract or recommit the helper. Spatial-localization failure does not
+invalidate the independently qualified GPU discovery.
 
 Use the saved native JPEG for target hardware checks. Retain source hash,
 exact command, GStreamer/plugin versions, render-device access, decoder and
@@ -398,16 +432,12 @@ output caps, RGB byte count, exit status, and logs. The retained
 frame decode. Process startup time from that run is not camera FPS or sustained
 decode throughput.
 
-For the HTTP helper, verify complete multipart JPEG parsing, latest-only
-compressed buffering before decode, slow consumers, malformed/truncated data,
-encoded-size limits, disconnect/error propagation, reconnect through its
-supervisor, and shutdown. Test-only decoder injection may support host tests;
-it must not become a production backend selector or fallback.
-
-Record the independent commit's test results. A clean checkout of that commit
-must build and test without the localization modules. If extraction needs
-unrelated interfaces, split the code deliberately or defer code promotion while
-preserving the proven hardware evidence. Do not merge the entire branch.
+For subsequent changes, retain regression coverage for multipart JPEG parsing,
+latest-only compressed buffering before decode, slow consumers,
+malformed/truncated data, encoded-size limits, disconnect/error propagation,
+reconnect through the supervisor, and shutdown. Test-only decoder injection
+must not become a production backend selector or fallback. Record new results
+independently and do not merge the entire experimental branch to obtain them.
 
 ## 12. Task H — Later complete-pipeline responsiveness and release
 
