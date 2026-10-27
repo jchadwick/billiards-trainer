@@ -1,0 +1,321 @@
+{
+  "experiment": "identical saved pixels and proposal; detection_index varied from 0 through 15",
+  "date": "2026-10-27",
+  "source_geometry_px": [
+    1280,
+    720
+  ],
+  "proposal_definition": "square centered at segmentation_bbox_midpoint_px with side max(gradient_ellipse.diameters_px) + 4.0",
+  "proposal_provenance": "manual saved annotations; not YOLO output",
+  "inputs": {
+    "source_image": {
+      "path": "thoughts/calibration/table-grid-20261026-114241.jpg",
+      "sha256": "06ef40f52e0f93db17601585c4ed1d014895aaadcaf6b04c6abbd6e986d57e7b"
+    },
+    "annotations": {
+      "path": "thoughts/calibration/ball-outline-consistency.json",
+      "sha256": "50b410fa0b0911b1112bf6816a28558e271d5599701e6bbf5e03fa27e93650eb"
+    },
+    "intrinsics_provenance": {
+      "path": "thoughts/calibration/checkerboard-eight-view-baseline.json",
+      "sha256": "d0bb14b97f87fe13fe296638af726466ee11f4af7e1cd20a964b16f244ccf191"
+    },
+    "refiner_source": {
+      "path": "perception/src/ball_localization.rs",
+      "sha256": "a8a1dc215afa88bacfa31da88434707c5b8b39823adab14e0143ca682f063ef0"
+    },
+    "executed_harness": {
+      "path": "perception/examples/offline_refiner_identity_check.rs",
+      "sha256": "c03e45aff5d8015cfe026d7489bc6b9ef167565eb9004ddfdca36836f89de26c",
+      "archived_path": "thoughts/calibration/offline-refiner-identity-check.rs"
+    }
+  },
+  "intrinsics": {
+    "cx": 644.1755624688407,
+    "cy": 349.67152391690104,
+    "fx": 696.1731580029823,
+    "fy": 695.3611772093032,
+    "source_height_px": 720,
+    "source_width_px": 1280
+  },
+  "runtime_parameters": {
+    "angular_samples": 96,
+    "angular_sectors": 16,
+    "annulus_inner_factor": 1.5,
+    "annulus_outer_factor": 1.8,
+    "background_probe_px": 3.0,
+    "batch_budget_ms": 5000,
+    "candidates_per_ray": 3,
+    "convergence_px": 0.01,
+    "gradient_step_px": 1.0,
+    "inlier_threshold_px": 1.5,
+    "irls_iterations": 10,
+    "irls_scale_floor_px": 0.25,
+    "irls_tuning": 2.5,
+    "max_iterations": 3,
+    "max_proposals": 16,
+    "max_roi_side_px": 512,
+    "maximum_alternative_error_ratio": 1.1,
+    "maximum_center_shift_fraction": 0.2,
+    "maximum_center_spread_px": 1.5,
+    "maximum_gap_fraction": 0.3333333333333333,
+    "maximum_outer_background_distance": 0.25,
+    "maximum_radius_px": 160.0,
+    "maximum_residual_px": 1.5,
+    "minimum_alternative_support_fraction": 0.95,
+    "minimum_background_supported_fraction": 0.6,
+    "minimum_competing_fit_votes": 3,
+    "minimum_coverage": 0.6666666666666666,
+    "minimum_foreground_background_contrast": 0.06,
+    "minimum_foreground_fraction": 0.4,
+    "minimum_gradient": 0.035,
+    "minimum_inliers": 28,
+    "minimum_radius_px": 4.0,
+    "minimum_supported_ray_fraction": 0.5,
+    "numerical_epsilon": 1e-09,
+    "outline_samples": 48,
+    "patch_size_px": 193,
+    "proposal_budget_ms": 400,
+    "radial_samples": 48,
+    "radius_max_fraction": 1.4,
+    "radius_min_fraction": 0.6,
+    "ransac_iterations": 128,
+    "reference_width_px": 3840,
+    "roi_padding_factor": 1.8,
+    "seed": 716
+  },
+  "repetitions": 3,
+  "repeated_outputs_identical": true,
+  "output_sha256": "2d65e7e50d0e46ccf1fb5287a088a05988c906f38befa0dca2d1b37b95327538",
+  "results": [
+    {
+      "accepted_indices": [],
+      "accepted_of_16": 0,
+      "id": "top-left-pocket-ball",
+      "maximum_accepted_center_separation_px": 0.0,
+      "physical_reference": false,
+      "rejections": {
+        "Some(InsufficientBoundary)": 16
+      }
+    },
+    {
+      "accepted_indices": [
+        3,
+        7,
+        14
+      ],
+      "accepted_of_16": 3,
+      "id": "top-orange-solid-second-left-ball",
+      "maximum_accepted_center_separation_px": 0.6778150604910953,
+      "physical_reference": true,
+      "rejections": {
+        "Some(AmbiguousBoundary)": 13
+      }
+    },
+    {
+      "accepted_indices": [],
+      "accepted_of_16": 0,
+      "id": "top-middle-pocket-ball",
+      "maximum_accepted_center_separation_px": 0.0,
+      "physical_reference": false,
+      "rejections": {
+        "Some(ExcessiveCenterShift)": 13,
+        "Some(InsufficientBoundary)": 3
+      }
+    },
+    {
+      "accepted_indices": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15
+      ],
+      "accepted_of_16": 16,
+      "id": "top-red-striped-second-right-ball",
+      "maximum_accepted_center_separation_px": 0.8198496881512649,
+      "physical_reference": true,
+      "rejections": {}
+    },
+    {
+      "accepted_indices": [],
+      "accepted_of_16": 0,
+      "id": "top-right-cue-pocket-ball",
+      "maximum_accepted_center_separation_px": 0.0,
+      "physical_reference": false,
+      "rejections": {
+        "Some(AmbiguousBoundary)": 1,
+        "Some(ExcessiveCenterShift)": 15
+      }
+    },
+    {
+      "accepted_indices": [],
+      "accepted_of_16": 0,
+      "id": "far-left-yellow-middle-row-ball",
+      "maximum_accepted_center_separation_px": 0.0,
+      "physical_reference": true,
+      "rejections": {
+        "Some(AmbiguousBoundary)": 16
+      }
+    },
+    {
+      "accepted_indices": [
+        0,
+        1,
+        2,
+        4,
+        5,
+        6,
+        8,
+        9,
+        10,
+        14,
+        15
+      ],
+      "accepted_of_16": 11,
+      "id": "interior-purple-second-left-middle-row-ball",
+      "maximum_accepted_center_separation_px": 0.6102866645720647,
+      "physical_reference": true,
+      "rejections": {
+        "Some(AmbiguousBoundary)": 5
+      }
+    },
+    {
+      "accepted_indices": [
+        2,
+        4,
+        7,
+        9,
+        10,
+        11,
+        12
+      ],
+      "accepted_of_16": 7,
+      "id": "middle-row-center-ball",
+      "maximum_accepted_center_separation_px": 0.5336025771148942,
+      "physical_reference": true,
+      "rejections": {
+        "Some(AmbiguousBoundary)": 9
+      }
+    },
+    {
+      "accepted_indices": [
+        2,
+        14
+      ],
+      "accepted_of_16": 2,
+      "id": "interior-green-second-right-middle-row-ball",
+      "maximum_accepted_center_separation_px": 0.5212696916549631,
+      "physical_reference": true,
+      "rejections": {
+        "Some(AmbiguousBoundary)": 14
+      }
+    },
+    {
+      "accepted_indices": [
+        2,
+        3,
+        4,
+        5,
+        9
+      ],
+      "accepted_of_16": 5,
+      "id": "far-right-purple-middle-row-ball",
+      "maximum_accepted_center_separation_px": 0.6633675337460218,
+      "physical_reference": true,
+      "rejections": {
+        "Some(AmbiguousBoundary)": 11
+      }
+    },
+    {
+      "accepted_indices": [],
+      "accepted_of_16": 0,
+      "id": "bottom-left-pocket-ball",
+      "maximum_accepted_center_separation_px": 0.0,
+      "physical_reference": false,
+      "rejections": {
+        "Some(AmbiguousBoundary)": 2,
+        "Some(ExcessiveCenterShift)": 12,
+        "Some(InadequateCoverage)": 2
+      }
+    },
+    {
+      "accepted_indices": [
+        7,
+        11,
+        12
+      ],
+      "accepted_of_16": 3,
+      "id": "bottom-black-second-left-ball",
+      "maximum_accepted_center_separation_px": 0.6323521289169739,
+      "physical_reference": true,
+      "rejections": {
+        "Some(AmbiguousBoundary)": 13
+      }
+    },
+    {
+      "accepted_indices": [],
+      "accepted_of_16": 0,
+      "id": "bottom-middle-pocket-ball",
+      "maximum_accepted_center_separation_px": 0.0,
+      "physical_reference": false,
+      "rejections": {
+        "Some(ExcessiveCenterShift)": 10,
+        "Some(InsufficientBoundary)": 6
+      }
+    },
+    {
+      "accepted_indices": [
+        0,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        9,
+        10,
+        11,
+        14,
+        15
+      ],
+      "accepted_of_16": 12,
+      "id": "bottom-yellow-second-right-ball",
+      "maximum_accepted_center_separation_px": 0.4091655016802657,
+      "physical_reference": true,
+      "rejections": {
+        "Some(AmbiguousBoundary)": 4
+      }
+    },
+    {
+      "accepted_indices": [],
+      "accepted_of_16": 0,
+      "id": "bottom-right-pocket-ball",
+      "maximum_accepted_center_separation_px": 0.0,
+      "physical_reference": false,
+      "rejections": {
+        "Some(ExcessiveCenterShift)": 9,
+        "Some(InadequateCoverage)": 6,
+        "Some(InsufficientBoundary)": 1
+      }
+    }
+  ],
+  "measured_ball_cases_with_acceptance_changes": 7,
+  "limitations": [
+    "one static frame; repeated trials are not independent placements",
+    "no physical accuracy or live availability claim",
+    "generous budgets isolate fitting logic",
+    "source manual proposals include known contaminated pocket-center estimates"
+  ]
+}
