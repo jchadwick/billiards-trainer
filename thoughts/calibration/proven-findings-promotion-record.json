@@ -1,9 +1,10 @@
 {
   "schema_version": 1,
-  "recorded_at_utc": "2026-10-27T04:29:38.495893+00:00",
+  "recorded_at_utc": "2026-10-27T17:58:18+00:00",
   "scope": "Preserve established findings and independently verified capture code on local main. Unqualified localization implementation stays on experiment branch.",
   "base_main_sha": "e9fb9a0f8402c1d5dd69657b0273d6fbc46b5e20",
   "main_head_before_this_record_commit": "5787b56eb3064ae7c5718a17b7d3fe6f75341b92",
+  "latest_promoted_main_head": "da6bfce886a441e30610009d3d9bf81ece65b204",
   "main_commits": [
     {
       "sha": "3e6799187a0ac869d2504fc6b9540c960ad34e1c",
@@ -32,6 +33,27 @@
       "subject": "docs(architecture): record estimator stability requirements",
       "files": [
         "docs/architecture/decisions/0102-use-native-frame-ball-localization-with-calibrated-2d-measurements.md"
+      ]
+    },
+    {
+      "sha": "da6bfce886a441e30610009d3d9bf81ece65b204",
+      "subject": "docs(calibration): promote table mark grid findings",
+      "files": [
+        "docs/architecture/decisions/0102-use-native-frame-ball-localization-with-calibrated-2d-measurements.md",
+        "output/pdf/ball-localization-checkerboard-20x14in.pdf",
+        "thoughts/calibration/capture_checkerboard.py",
+        "thoughts/calibration/checkerboard-20x14in-capture.md",
+        "thoughts/calibration/mark-grid-calibration-audit-20261027/README.md",
+        "thoughts/calibration/mark-grid-calibration-audit-20261027/summary.json",
+        "thoughts/calibration/native-ball-localization-next-steps-plan.md",
+        "thoughts/calibration/native-localization-corpus-v1.json",
+        "thoughts/calibration/native-resolution-ball-localization-status.md",
+        "thoughts/calibration/offline-mark-grid-calibration-audit-20261027.py",
+        "thoughts/calibration/offline-table-feature-registration-audit-20261027.py",
+        "thoughts/calibration/proven-findings-index.md",
+        "thoughts/calibration/review-and-next-step-20261027.md",
+        "thoughts/calibration/table-feature-registration-audit-20261027/README.md",
+        "thoughts/calibration/table-feature-registration-audit-20261027/summary.json"
       ]
     }
   ],
@@ -168,6 +190,21 @@
         "16; 0; 0",
         "3; 0; 0"
       ]
+    },
+    {
+      "name": "saved-image table-feature registration audit",
+      "command": "/tmp/billiards-checkerboard-env/bin/python thoughts/calibration/offline-table-feature-registration-audit-20261027.py --self-test; /tmp/billiards-checkerboard-env/bin/python thoughts/calibration/offline-table-feature-registration-audit-20261027.py",
+      "result": "Passed synthetic registration checks and reproduced the saved report. Rail holdout RMS was 0.209 px and side-rail holdout RMS was 0.463 px for the measured-to-alternate frame pair; exact physical dot coordinates remain unavailable in the inspected files."
+    },
+    {
+      "name": "saved-image mark-grid audit",
+      "command": "/tmp/billiards-checkerboard-env/bin/python thoughts/calibration/offline-mark-grid-calibration-audit-20261027.py --output /tmp/mark-grid-reproduction-2",
+      "result": "Passed and exactly matched the committed JSON and report. Common rail-to-cloth separation was 52.830562764 mm with 1.2924 and 1.3877 px spot residuals; held-out one-spot predictions were 2.2961 and 2.4809 px. Nine box-midpoint ball references had 11.2857 mm RMS and are diagnostic only."
+    },
+    {
+      "name": "checkerboard capture utility",
+      "command": "/tmp/billiards-checkerboard-env/bin/python thoughts/calibration/capture_checkerboard.py --self-test",
+      "result": "Passed synthetic full-board detection, native pitch, cropped-board rejection, and 20 x 14 inch scale metadata checks."
     }
   ],
   "additional_checks_passed": [
@@ -175,7 +212,10 @@
     "make format-check",
     "make config-check on experiment checkpoint",
     "git diff --check",
-    "ADR validator: 4 records"
+    "ADR validator: 4 records",
+    "Python py_compile for checkerboard and both offline audits",
+    "PDF info/render check: one 22 x 16 inch page; rendered checkerboard visually inspected",
+    "copied audit outputs and inputs byte-compared against experiment-branch sources"
   ],
   "clean_checkout_prerequisite": "First isolated full camera-feature suite attempt lacked frontend/web/dist. Locked dependencies and ignored generated browser assets were built, then the full suite passed. No frontend source/dependency changes were committed.",
   "target_hardware_evidence": "thoughts/calibration/gpu-saved-frame-qualification-20261027.json",
@@ -183,6 +223,7 @@
   "deployment_performed": false,
   "published_to_origin": false,
   "preexisting_main_ahead_of_origin_tracking_ref": 159,
+  "current_main_ahead_of_origin_tracking_ref": 165,
   "publication_note": "User requested committing to main. Main is advanced locally; no push was requested or performed, and unrelated preexisting unpushed history was not published.",
   "excluded_claims": [
     "native-ball accuracy qualification",
