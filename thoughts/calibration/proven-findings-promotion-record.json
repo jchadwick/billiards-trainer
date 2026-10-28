@@ -1,10 +1,10 @@
 {
   "schema_version": 1,
-  "recorded_at_utc": "2026-10-28T14:48:47+00:00",
+  "recorded_at_utc": "2026-10-28T22:54:20+00:00",
   "scope": "Preserve established findings and independently verified capture code and checkerboard capture evidence on local main. Unqualified localization implementation stays on experiment branch.",
   "base_main_sha": "e9fb9a0f8402c1d5dd69657b0273d6fbc46b5e20",
-  "main_head_before_this_record_commit": "0be449424d41a8ad5b70845c5efdf33b449ecbfb",
-  "latest_promoted_main_head": "0be449424d41a8ad5b70845c5efdf33b449ecbfb",
+  "main_head_before_this_record_commit": "3b9bb55eb62d8f50694b98c9cff644fa0f7c30cf",
+  "latest_promoted_main_head": "3b9bb55eb62d8f50694b98c9cff644fa0f7c30cf",
   "main_commits": [
     {
       "sha": "3e6799187a0ac869d2504fc6b9540c960ad34e1c",
@@ -153,6 +153,70 @@
         "thoughts/calibration/checkerboard-20x14-session/view-008-annotated.png",
         "thoughts/calibration/checkerboard-20x14-session/view-008-corners.json",
         "thoughts/calibration/checkerboard-20x14-session/view-008.jpg"
+      ]
+    },
+    {
+      "sha": "804abdcb08ac46a64f7b7bb903a6d2ac82dae90b",
+      "subject": "docs(calibration): audit eight-view dataset and reconcile experiment status",
+      "files": [
+        "thoughts/calibration/checkerboard-20x14-session/README.md",
+        "thoughts/calibration/large-board-dataset-table-20261028/dataset-audit.json",
+        "thoughts/calibration/large-board-dataset-table-20261028/dataset-audit.md",
+        "thoughts/calibration/large-board-dataset-table-20261028/dataset-montage.jpg",
+        "thoughts/calibration/native-ball-localization-next-steps-plan.md",
+        "thoughts/calibration/native-resolution-ball-localization-status.md",
+        "thoughts/calibration/offline-large-board-dataset-table-20261028.py"
+      ]
+    },
+    {
+      "sha": "7907b4796d30233d8ca8a4fa21daee9700d07298",
+      "subject": "docs(calibration): preserve larger-board optics and corner localization findings",
+      "files": [
+        "thoughts/calibration/large-board-optics-20261028/README.md",
+        "thoughts/calibration/large-board-optics-20261028/k1-board-residuals.png",
+        "thoughts/calibration/large-board-optics-20261028/k1-source-residuals.png",
+        "thoughts/calibration/large-board-optics-20261028/k1k2-board-residuals.png",
+        "thoughts/calibration/large-board-optics-20261028/k1k2-source-residuals.png",
+        "thoughts/calibration/large-board-optics-20261028/relocalized-correspondences.json",
+        "thoughts/calibration/large-board-optics-20261028/relocalized-largest-window/k1-board-residuals.png",
+        "thoughts/calibration/large-board-optics-20261028/relocalized-largest-window/k1-source-residuals.png",
+        "thoughts/calibration/large-board-optics-20261028/relocalized-largest-window/k1k2-board-residuals.png",
+        "thoughts/calibration/large-board-optics-20261028/relocalized-largest-window/k1k2-source-residuals.png",
+        "thoughts/calibration/large-board-optics-20261028/relocalized-largest-window/zero-board-residuals.png",
+        "thoughts/calibration/large-board-optics-20261028/relocalized-largest-window/zero-source-residuals.png",
+        "thoughts/calibration/large-board-optics-20261028/relocalized-models.json",
+        "thoughts/calibration/large-board-optics-20261028/summary.json",
+        "thoughts/calibration/large-board-optics-20261028/view-005-outlier-native-crop.png",
+        "thoughts/calibration/large-board-optics-20261028/view-005-relocalized-native-crop.png",
+        "thoughts/calibration/large-board-optics-20261028/zero-board-residuals.png",
+        "thoughts/calibration/large-board-optics-20261028/zero-source-residuals.png",
+        "thoughts/calibration/offline-large-board-optics-20261028.py"
+      ]
+    },
+    {
+      "sha": "5f7d879c94304d0b03dc3ee87d4508fcf07e6352",
+      "subject": "docs(calibration): compare table-map sensitivity and candidate center ambiguity",
+      "files": [
+        "thoughts/calibration/center-outline-audit-20261028/README.md",
+        "thoughts/calibration/center-outline-audit-20261028/inputs.json",
+        "thoughts/calibration/center-outline-audit-20261028/summary.json",
+        "thoughts/calibration/large-board-dataset-table-20261028/registration-montage.jpg",
+        "thoughts/calibration/large-board-dataset-table-20261028/table-results.json",
+        "thoughts/calibration/large-board-dataset-table-20261028/table-results.md",
+        "thoughts/calibration/offline-center-outline-audit-20261028.py"
+      ]
+    },
+    {
+      "sha": "3b9bb55eb62d8f50694b98c9cff644fa0f7c30cf",
+      "subject": "docs(architecture): select independent target validation before localization redesign",
+      "files": [
+        "docs/architecture/decisions/0102-use-native-frame-ball-localization-with-calibrated-2d-measurements.md",
+        "thoughts/calibration/checkerboard-20x14-session/README.md",
+        "thoughts/calibration/evaluation-verification-20261028.json",
+        "thoughts/calibration/native-ball-localization-next-steps-plan.md",
+        "thoughts/calibration/native-resolution-ball-localization-status.md",
+        "thoughts/calibration/next-localization-decision-20261028.md",
+        "thoughts/calibration/proven-findings-index.md"
       ]
     }
   ],
@@ -349,6 +413,10 @@
       "name": "four-page Letter checkerboard PDF",
       "command": "/tmp/billiards-checkerboard-env/bin/python thoughts/calibration/generate_letter_checkerboard_tiles.py --self-test; pdfinfo output/pdf/ball-localization-checkerboard-letter-tiles.pdf; render pages at 72 dpi and reconstruct the 2 x 2 tile layout",
       "result": "Passed. PDF has four 792 x 612 point Letter landscape pages. The rendered pages reconstruct a pixel-exact 20 x 14 inch 10 x 7 square pattern at 72 points per inch; each square is 2 inches. Pages were rendered and visually inspected."
+    },
+    {
+      "name": "larger-board offline evaluation and independent review",
+      "result": "All three meaningful synthetic self-tests pass; 18 optics, six dataset/table and two center report artifacts reproduce. Cross-checkout optical JSON location metadata is explicitly excluded from numerical equality. ADR validation passes; 47 dataset/table input hashes and 44 preexisting raster images checked. Runtime/configuration unchanged. Independent review caught and fixed compact-input replay dependency and CLI workload mismatch."
     }
   ],
   "additional_checks_passed": [
@@ -371,7 +439,7 @@
   "deployment_performed": false,
   "published_to_origin": false,
   "preexisting_main_ahead_of_origin_tracking_ref": 159,
-  "current_main_ahead_of_origin_tracking_ref": 183,
+  "current_main_ahead_of_origin_tracking_ref": 188,
   "publication_note": "User requested committing to main. Main is advanced locally; no push was requested or performed, and unrelated preexisting unpushed history was not published.",
   "excluded_claims": [
     "native-ball accuracy qualification",
@@ -379,5 +447,31 @@
     "selected final camera FPS",
     "whole-pipeline sustained availability or latency",
     "GPU scaling or zero-copy RGB"
-  ]
+  ],
+  "evaluation_20261028": {
+    "experiment_baseline": "6f3404a",
+    "evidence_baseline": "235be81",
+    "reconciled_experiment": "9ad0ca0",
+    "experiment_commits": [
+      "d2460fb9",
+      "0d49ed7e",
+      "61a22013",
+      "3ac7efb4"
+    ],
+    "promoted_main_commits": [
+      "804abdcb08ac46a64f7b7bb903a6d2ac82dae90b",
+      "7907b4796d30233d8ca8a4fa21daee9700d07298",
+      "5f7d879c94304d0b03dc3ee87d4508fcf07e6352",
+      "3b9bb55eb62d8f50694b98c9cff644fa0f7c30cf"
+    ],
+    "scope": "Offline dataset integrity, original/relocalized optical models, frozen cross-target scoring, provisional table-map and candidate-center sensitivity, next discriminating experiment and ADR follow-up. No replacement runtime algorithm or calibration selected.",
+    "verification_record": "thoughts/calibration/evaluation-verification-20261028.json",
+    "camera_access": false,
+    "source_images_changed": false,
+    "runtime_configuration_changed": false,
+    "deployment_performed": false,
+    "published_to_origin": false,
+    "cross_checkout_reproduction": "All numerical results, plots and reports reproduce. Two optical JSON records differ only in settings.session_dir/output_prefix absolute repository locations; same-checkout replays are byte-identical.",
+    "next_action": "Prepare validated corner observations, then two frozen-model native4K views of the earlier verified single-piece target. Explain purpose and wait for user confirmation the table is uncovered before camera access."
+  }
 }

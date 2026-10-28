@@ -19,5 +19,12 @@
     "three Python modules compile",
     "git diff --check"
   ],
-  "limits": "Research validation only; no full-pipeline, target performance or independent millimeter qualification."
+  "limits": "Research validation only; no full-pipeline, target performance or independent millimeter qualification.",
+  "cross_checkout_main_reproduction": {
+    "optics": "All numerical values and 16 other artifacts byte-identical; two JSON records have only absolute repository-path metadata differences.",
+    "dataset_table": "All six artifacts byte-identical.",
+    "center": "Both reports byte-identical from compact inputs; original large trace directories unnecessary.",
+    "adr_records_validated": 4,
+    "main_runtime_diff_from_evidence_baseline": []
+  }
 }
