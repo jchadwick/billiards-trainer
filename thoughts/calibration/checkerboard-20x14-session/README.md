@@ -57,6 +57,13 @@ has generous image-edge margin. Median neighboring-corner spacing is 74.49 px
 (62.55 px minimum). This adds top-right field coverage in the opposite tilt
 orientation from view 3.
 
+## View 007 — top-center
+
+The seventh original 3840 × 2160 snapshot is `view-007.jpg`, with its 54-corner
+overlay in `view-007-annotated.png`. It is near the upper-center with ample
+image-edge margin. Median neighboring-corner spacing is 76.30 px (62.78 px
+minimum). This contributes another distinct pose with visible perspective.
+
 The active print scale and flat rigid backing have not yet been independently
 verified for this assembled 20 × 14 inch target. Its nominal square pitch is
 50.8 mm, but the manifest deliberately leaves both verification fields
@@ -66,5 +73,5 @@ physical properties are confirmed and the remaining views are collected.
 Future captures must keep the camera geometry unchanged, use this same target,
 and include distinct board tilts and positions across the image. Repeated
 captures without moving the target are not independent views; flat translations
-alone are insufficient to establish camera intrinsics. None of the six
+alone are insufficient to establish camera intrinsics. None of the seven
 captured views has been used to fit or activate a calibration.
