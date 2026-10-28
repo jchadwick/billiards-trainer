@@ -1,10 +1,10 @@
 {
   "schema_version": 1,
-  "recorded_at_utc": "2026-10-28T14:09:13+00:00",
+  "recorded_at_utc": "2026-10-28T14:15:18+00:00",
   "scope": "Preserve established findings and independently verified capture code and checkerboard capture evidence on local main. Unqualified localization implementation stays on experiment branch.",
   "base_main_sha": "e9fb9a0f8402c1d5dd69657b0273d6fbc46b5e20",
-  "main_head_before_this_record_commit": "096e903bf48755e39155ed1c4531285d1afb3868",
-  "latest_promoted_main_head": "096e903bf48755e39155ed1c4531285d1afb3868",
+  "main_head_before_this_record_commit": "c3d7876df3b4a17ad74c2696272bb0b886ed6bb3",
+  "latest_promoted_main_head": "c3d7876df3b4a17ad74c2696272bb0b886ed6bb3",
   "main_commits": [
     {
       "sha": "3e6799187a0ac869d2504fc6b9540c960ad34e1c",
@@ -109,6 +109,17 @@
         "thoughts/calibration/checkerboard-20x14-session/view-004-annotated.png",
         "thoughts/calibration/checkerboard-20x14-session/view-004-corners.json",
         "thoughts/calibration/checkerboard-20x14-session/view-004.jpg"
+      ]
+    },
+    {
+      "sha": "c3d7876df3b4a17ad74c2696272bb0b886ed6bb3",
+      "subject": "calibration: capture lower-right checkerboard view",
+      "files": [
+        "thoughts/calibration/checkerboard-20x14-session/README.md",
+        "thoughts/calibration/checkerboard-20x14-session/manifest.json",
+        "thoughts/calibration/checkerboard-20x14-session/view-005-annotated.png",
+        "thoughts/calibration/checkerboard-20x14-session/view-005-corners.json",
+        "thoughts/calibration/checkerboard-20x14-session/view-005.jpg"
       ]
     }
   ],
@@ -282,6 +293,11 @@
       "result": "Passed. View 4 is a distinct lower-left 4K image with 54/54 corners, 77.17 px median and 71.61 px minimum neighboring-corner spacing. It adds another position and tilted orientation; no calibration was fit or activated."
     },
     {
+      "name": "lower-right checkerboard snapshot",
+      "command": "Capture the next user-indicated ready state from the user-provided snapshot endpoint; independently verify hash, 3840 x 2160 dimensions, corner count, annotation, and distinctness.",
+      "result": "Passed. View 5 is a distinct lower-right 4K image with 54/54 corners, 69.64 px median and 42.00 px minimum neighboring-corner spacing. The full pattern is visible near the right edge; this adds opposite-side field coverage and another tilted perspective. No calibration was fit or activated."
+    },
+    {
       "name": "four-page Letter checkerboard PDF",
       "command": "/tmp/billiards-checkerboard-env/bin/python thoughts/calibration/generate_letter_checkerboard_tiles.py --self-test; pdfinfo output/pdf/ball-localization-checkerboard-letter-tiles.pdf; render pages at 72 dpi and reconstruct the 2 x 2 tile layout",
       "result": "Passed. PDF has four 792 x 612 point Letter landscape pages. The rendered pages reconstruct a pixel-exact 20 x 14 inch 10 x 7 square pattern at 72 points per inch; each square is 2 inches. Pages were rendered and visually inspected."
@@ -303,11 +319,11 @@
   "clean_checkout_prerequisite": "First isolated full camera-feature suite attempt lacked frontend/web/dist. Locked dependencies and ignored generated browser assets were built, then the full suite passed. No frontend source/dependency changes were committed.",
   "target_hardware_evidence": "thoughts/calibration/gpu-saved-frame-qualification-20261027.json",
   "no_live_camera_used": false,
-  "live_camera_access": "Fetched four images from the user-provided snapshot endpoint after the user indicated the checkerboard was ready; camera settings were not changed.",
+  "live_camera_access": "Fetched five images from the user-provided snapshot endpoint after the user indicated the checkerboard was ready; camera settings were not changed.",
   "deployment_performed": false,
   "published_to_origin": false,
   "preexisting_main_ahead_of_origin_tracking_ref": 159,
-  "current_main_ahead_of_origin_tracking_ref": 175,
+  "current_main_ahead_of_origin_tracking_ref": 177,
   "publication_note": "User requested committing to main. Main is advanced locally; no push was requested or performed, and unrelated preexisting unpushed history was not published.",
   "excluded_claims": [
     "native-ball accuracy qualification",
