@@ -33,6 +33,14 @@ px (73.05 px minimum). The user estimates the board tilt at about 30 degrees;
 the earlier 45-degree note was corrected. This is the first view with clear
 perspective foreshortening.
 
+## View 004 — lower-left, tilted about the other axis
+
+The fourth original 3840 × 2160 snapshot is `view-004.jpg`, with its 54-corner
+overlay in `view-004-annotated.png`. The target is near the lower-left and all
+corners remain visible. Median neighboring-corner spacing is 77.17 px (71.61
+px minimum). The pose adds another tilted orientation; no angle was reported
+for this view.
+
 The active print scale and flat rigid backing have not yet been independently
 verified for this assembled 20 × 14 inch target. Its nominal square pitch is
 50.8 mm, but the manifest deliberately leaves both verification fields
@@ -42,5 +50,5 @@ physical properties are confirmed and the remaining views are collected.
 Future captures must keep the camera geometry unchanged, use this same target,
 and include distinct board tilts and positions across the image. Repeated
 captures without moving the target are not independent views; flat translations
-alone are insufficient to establish camera intrinsics. None of the three
+alone are insufficient to establish camera intrinsics. None of the four
 captured views has been used to fit or activate a calibration.
