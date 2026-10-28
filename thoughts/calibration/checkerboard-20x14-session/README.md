@@ -64,6 +64,16 @@ overlay in `view-007-annotated.png`. It is near the upper-center with ample
 image-edge margin. Median neighboring-corner spacing is 76.30 px (62.78 px
 minimum). This contributes another distinct pose with visible perspective.
 
+## View 008 — center-left, alternate orientation
+
+The eighth original 3840 × 2160 snapshot is `view-008.jpg`, with all 54
+detected corners shown in `view-008-annotated.png`. The checkerboard is
+center-left, fully in frame, and rotated to portrait orientation. Median
+neighboring-corner spacing is 77.56 px (71.07 px minimum), with at least 596 px
+of estimated pattern-to-image-border clearance. The image appears close to
+front-facing, so this adds useful field coverage and board rotation but only
+limited new tilt information. No calibration was fit or activated.
+
 The active print scale and flat rigid backing have not yet been independently
 verified for this assembled 20 × 14 inch target. Its nominal square pitch is
 50.8 mm, but the manifest deliberately leaves both verification fields
@@ -73,5 +83,5 @@ physical properties are confirmed and the remaining views are collected.
 Future captures must keep the camera geometry unchanged, use this same target,
 and include distinct board tilts and positions across the image. Repeated
 captures without moving the target are not independent views; flat translations
-alone are insufficient to establish camera intrinsics. None of the seven
+alone are insufficient to establish camera intrinsics. None of the eight
 captured views has been used to fit or activate a calibration.
