@@ -1,0 +1,23 @@
+{
+  "dataset_table_input_hash_checks": 47,
+  "preexisting_calibration_images_unchanged": 44,
+  "runtime_and_configuration_diff_since_evaluation_baseline": [],
+  "camera_access": false,
+  "deployment_performed": false,
+  "published_to_origin": false,
+  "synthetic_checks": [
+    "center/outline iteration isolation, known centers, shared-bias counterexample, homography holdout and degeneracy",
+    "optics parity exclusion, residual sign, scale invariance and frozen-refit guard",
+    "dataset topology, affine registration, K/D inversion, known-plane recovery"
+  ],
+  "byte_identical_replays": {
+    "optics_artifacts": 18,
+    "dataset_table_artifacts": 6,
+    "center_artifacts": 2
+  },
+  "checks": [
+    "three Python modules compile",
+    "git diff --check"
+  ],
+  "limits": "Research validation only; no full-pipeline, target performance or independent millimeter qualification."
+}

@@ -44,6 +44,24 @@ production feature. A future corrected estimator must write a new result file.
 | Larger checkerboard capture | `checkerboard-20x14in-capture.md`, `checkerboard-20x14-session/`, both checkerboard PDFs, `generate_letter_checkerboard_tiles.py`, updated `capture_checkerboard.py` | A four-page US Letter version joins to a 20 × 14-inch active pattern with 2-inch squares; the 22 × 16-inch single-page file remains for large-format printing. Eight user-provided 3840 × 2160 snapshots each produced all 54 corners (71.64 px center, 75.19 px upper-left, 80.02 px tilted right, 77.17 px tilted lower-left, 69.64 px tilted lower-right, 74.49 px top-right, 76.30 px top-center, 77.56 px center-left median spacing) after bright-paper ROI detection. Views 3–7 add distinct tilted perspectives and field coverage; view 8 adds center-left coverage and an alternate board orientation but little additional foreshortening. Print scale and flat rigid backing remain unverified; these captures establish no calibrated lens model or X/Y accuracy. |
 | Corrected interpretations | `offline-refiner-nine-position-check.md`, `review-and-next-step-20261027.md` | Different proposal definitions confound 4/9 versus 5/9 comparisons. A low reported metric can belong to an earlier iteration. These corrections supersede stronger earlier interpretations. |
 
+## Evaluation update — 2026-10-28
+
+The earlier identity defect is fixed on the experiment; it is historical
+baseline evidence. Revision-2 current acceptance remains 0/9 measured and
+0/18 additional proposals. The next steps are defined in
+`next-localization-decision-20261028.md`; all architecture choices may be revised.
+
+| New evidence | Artifacts | Conclusion |
+|---|---|---|
+| Eight-view integrity | `large-board-dataset-table-20261028/dataset-audit.*` | All native image hashes and 54-corner topology pass; this does not verify corner localization. |
+| Corner and optics audit | `large-board-optics-20261028/`, `offline-large-board-optics-20261028.py` | Demonstrated ~20 px misplaced corner; source-only refinement improves it. New radial fits improve the larger target internally but fail to improve the earlier independent validation view. No qualified model. |
+| Registered table sensitivity | `large-board-dataset-table-20261028/table-results.*`, corresponding offline script | Approximate same framing supported. Radial candidates improve two cloth checks while degrading rail-grid checks. Conditional map variation is not measured accuracy. |
+| Center/outline separation | `center-outline-audit-20261028/`, corresponding offline script | 0/30 multi-fit iterations support stable centers with only outline disagreement. Compact frozen evidence supports standalone main reproduction; no new refiner run or accepted center. |
+
+No live camera, source alteration, runtime change, deployment or push occurred
+in the evaluation. A later two-view test needs advance explanation and user
+confirmation that the covered table is uncovered.
+
 ## Not established
 
 - Independent 2 mm p95 or 5 mm maximum ball-center accuracy.
@@ -70,7 +88,7 @@ intrinsics prove insufficient.
 The evidence and independent GPU capture commit can remain on main while
 experimental localization stays on its checkpoint branch. No localization
 rollout or production camera/FPS selection is implied. GPU decoder qualification
-used saved-frame data. The checkerboard session includes one snapshot fetched
+used saved-frame data. The checkerboard session includes eight snapshots fetched
 from the user-provided camera endpoint; no camera settings were changed. Keep
 machine credentials, stream keys, `.env` backups, transient capture locks, and
 generated model/browser artifacts out of preservation commits.

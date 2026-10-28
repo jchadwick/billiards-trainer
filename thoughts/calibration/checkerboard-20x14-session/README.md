@@ -86,3 +86,14 @@ and include distinct board tilts and positions across the image. Repeated
 captures without moving the target are not independent views; flat translations
 alone are insufficient to establish camera intrinsics. None of the eight
 captured views has been used to fit or activate a calibration.
+
+## Observation-quality finding — 2026-10-28
+
+Integrity and complete corner count do not verify corner accuracy. The optics
+audit identifies several misplaced corners in view 005, including an approximately
+20 px error preserved by the original five-pixel refinement window. Original
+JPEGs, manifest and corner files remain unchanged. Source-only relocalization
+and native pixel crops are separate artifacts in
+`../large-board-optics-20261028/`. Those diagnostics still do not qualify the
+assembled target or a production optical model. Pause additional captures;
+see `../next-localization-decision-20261028.md` for the minimal independent test.
