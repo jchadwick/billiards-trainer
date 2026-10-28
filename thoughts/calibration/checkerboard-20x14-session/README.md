@@ -77,8 +77,9 @@ limited new tilt information. No calibration was fit or activated.
 The active print scale and flat rigid backing have not yet been independently
 verified for this assembled 20 × 14 inch target. Its nominal square pitch is
 50.8 mm, but the manifest deliberately leaves both verification fields
-`pending`. Do not use this session to fit or activate calibration until those
-physical properties are confirmed and the remaining views are collected.
+`pending`. Exploratory fits may use the nominal geometry with these limitations recorded;
+production activation requires physical verification and independent validation.
+Pause additional captures until analysis identifies a specific information gap.
 
 Future captures must keep the camera geometry unchanged, use this same target,
 and include distinct board tilts and positions across the image. Repeated

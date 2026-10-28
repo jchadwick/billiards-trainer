@@ -1,0 +1,496 @@
+{
+  "purpose": "dataset integrity, image support and coverage; exploratory only",
+  "image_size_px": [
+    3840,
+    2160
+  ],
+  "view_count": 8,
+  "views": [
+    {
+      "id": "view-001",
+      "source_sha256": "4d7fd4b6b8f949f0353fc7db30200a59ac5db357f11ec0b49088e9e3162795b5",
+      "decoded_pixel_sha256": "6e535467a98ac808504349987770db0a9c1a51e2799f10dd4ff4c233088abec7",
+      "corner_count": 54,
+      "corner_file_matches_manifest": true,
+      "topology": {
+        "all_cells_same_nonzero_winding": true,
+        "cell_signed_area_px2_min_abs": 4873.177803197876,
+        "adjacent_pitch_px": {
+          "count": 93,
+          "rms": 71.35035703367497,
+          "median": 71.6401539343913,
+          "p95": 72.40843474608914,
+          "max": 72.48581518809344
+        }
+      },
+      "center_fraction_image": [
+        0.48846074946132706,
+        0.4805725958448705
+      ],
+      "internal_corner_bbox_fraction_image": [
+        0.15052083333333333,
+        0.16712962962962963
+      ],
+      "board_roi_laplacian_variance_proxy": 558.0802339706456,
+      "board_roi_gray_p95_minus_p05": 109.0,
+      "capture_quality": {
+        "adjacent_corner_pitch_px_min": 66.93278776599247,
+        "adjacent_corner_pitch_px_median": 71.6401539343913,
+        "estimated_pattern_outer_corners_px": [
+          [
+            1519.2969195040425,
+            786.6843355497638
+          ],
+          [
+            2235.6445733872774,
+            792.9805012285115
+          ],
+          [
+            2230.725955745391,
+            1288.2472191852687
+          ],
+          [
+            1515.1246229210794,
+            1283.817360783651
+          ]
+        ],
+        "estimated_pattern_to_image_border_clearance_px_min": 786.6843355497638,
+        "white_border_clearance": "not measured; inspect annotated source image",
+        "pattern_roi_grayscale_p95_minus_p05": 113.0,
+        "warnings": []
+      },
+      "capture_note": "Centered, face-up on table, freshly captured at 3840x2160; exploratory view. Assembled print scale and flatness not independently verified."
+    },
+    {
+      "id": "view-002",
+      "source_sha256": "32fb50d3a13fa32e6ca55ab9028d2dff0f587936b0ffa5d2b94dd0e698aaa69f",
+      "decoded_pixel_sha256": "85ff0cb5725dbb92603df9fa5de1ff335c3ac6280cdc0fac277aba9a02097550",
+      "corner_count": 54,
+      "corner_file_matches_manifest": true,
+      "topology": {
+        "all_cells_same_nonzero_winding": true,
+        "cell_signed_area_px2_min_abs": 5335.516203343868,
+        "adjacent_pitch_px": {
+          "count": 93,
+          "rms": 75.25810746244521,
+          "median": 75.1914075683684,
+          "p95": 76.8866006444871,
+          "max": 77.4563899017097
+        }
+      },
+      "center_fraction_image": [
+        0.1603633674574487,
+        0.2260451676587182
+      ],
+      "internal_corner_bbox_fraction_image": [
+        0.1640625,
+        0.1763888888888889
+      ],
+      "board_roi_laplacian_variance_proxy": 357.1204121155064,
+      "board_roi_gray_p95_minus_p05": 170.0,
+      "capture_quality": {
+        "adjacent_corner_pitch_px_min": 71.73360350022995,
+        "adjacent_corner_pitch_px_median": 75.1914075683684,
+        "estimated_pattern_outer_corners_px": [
+          [
+            1006.4315707897103,
+            751.0833846480776
+          ],
+          [
+            263.6114806154512,
+            746.8727525375667
+          ],
+          [
+            217.15765651536054,
+            221.15415022313266
+          ],
+          [
+            974.7807464559918,
+            226.04104403542817
+          ]
+        ],
+        "estimated_pattern_to_image_border_clearance_px_min": 217.15765651536054,
+        "white_border_clearance": "not measured; inspect annotated source image",
+        "pattern_roi_grayscale_p95_minus_p05": 172.0,
+        "warnings": []
+      },
+      "capture_note": "Upper-left view; user clarified board rests on the rail about 1 inch above table surface. Camera geometry unchanged."
+    },
+    {
+      "id": "view-003",
+      "source_sha256": "eae363826ea818326412a489a23ed97bf490596df612bfaf6128da6a6261139a",
+      "decoded_pixel_sha256": "44e0348333c75766ca08b1a339b9d95398025d37d6ff93ea2eeb157db027e661",
+      "corner_count": 54,
+      "corner_file_matches_manifest": true,
+      "topology": {
+        "all_cells_same_nonzero_winding": true,
+        "cell_signed_area_px2_min_abs": 6468.046387434006,
+        "adjacent_pitch_px": {
+          "count": 93,
+          "rms": 83.48651052589416,
+          "median": 80.01586276477457,
+          "p95": 93.67880777850472,
+          "max": 94.0955916883168
+        }
+      },
+      "center_fraction_image": [
+        0.857914705629702,
+        0.4963667290037388
+      ],
+      "internal_corner_bbox_fraction_image": [
+        0.12213541666666666,
+        0.2949074074074074
+      ],
+      "board_roi_laplacian_variance_proxy": 526.8157029159685,
+      "board_roi_gray_p95_minus_p05": 151.0,
+      "capture_quality": {
+        "adjacent_corner_pitch_px_min": 73.05231683268713,
+        "adjacent_corner_pitch_px_median": 80.01586276477457,
+        "estimated_pattern_outer_corners_px": [
+          [
+            3631.619112345061,
+            678.3965231288355
+          ],
+          [
+            3604.2926481189306,
+            1480.2601171385452
+          ],
+          [
+            2980.512099082888,
+            1432.6678504213999
+          ],
+          [
+            2999.9371358661847,
+            692.8802886741491
+          ]
+        ],
+        "estimated_pattern_to_image_border_clearance_px_min": 207.38088765493922,
+        "white_border_clearance": "not measured; inspect annotated source image",
+        "pattern_roi_grayscale_p95_minus_p05": 157.0,
+        "warnings": []
+      },
+      "capture_note": "Right-side view; user estimates board tilt at about 30 degrees (corrected from earlier 45-degree estimate)."
+    },
+    {
+      "id": "view-004",
+      "source_sha256": "8d604e3283cdb50f34c7f89d0cd599283594794300e6710b9b6de0329ebeb45d",
+      "decoded_pixel_sha256": "3a9e1e9fc0cf63266e6b8e9f823c30a9987da43ae087a23aabf869afb2f1de12",
+      "corner_count": 54,
+      "corner_file_matches_manifest": true,
+      "topology": {
+        "all_cells_same_nonzero_winding": true,
+        "cell_signed_area_px2_min_abs": 5248.249861545861,
+        "adjacent_pitch_px": {
+          "count": 93,
+          "rms": 78.173428327349,
+          "median": 77.17301903597586,
+          "p95": 86.22126796540974,
+          "max": 87.16588804309771
+        }
+      },
+      "center_fraction_image": [
+        0.15030042720429693,
+        0.7959987331646787
+      ],
+      "internal_corner_bbox_fraction_image": [
+        0.18151041666666667,
+        0.18611111111111112
+      ],
+      "board_roi_laplacian_variance_proxy": 436.52682130850053,
+      "board_roi_gray_p95_minus_p05": 167.0,
+      "capture_quality": {
+        "adjacent_corner_pitch_px_min": 71.61410891051577,
+        "adjacent_corner_pitch_px_median": 77.17301903597586,
+        "estimated_pattern_outer_corners_px": [
+          [
+            904.7871425951373,
+            2003.4782794810958
+          ],
+          [
+            120.93936540293204,
+            2005.975111403502
+          ],
+          [
+            284.09645817055974,
+            1461.042880875894
+          ],
+          [
+            1005.8103521438029,
+            1443.5963266378865
+          ]
+        ],
+        "estimated_pattern_to_image_border_clearance_px_min": 120.93936540293204,
+        "white_border_clearance": "not measured; inspect annotated source image",
+        "pattern_roi_grayscale_p95_minus_p05": 176.0,
+        "warnings": []
+      },
+      "capture_note": "Lower-left view; user indicated ready. Intended tilt about the other board axis from view 3."
+    },
+    {
+      "id": "view-005",
+      "source_sha256": "5cfa32081507d9b40ba32b32c236e8f91c12483bb330e5cc5ca488367899c51d",
+      "decoded_pixel_sha256": "f5667a238d51bfb7466c67f737c2549790bdfe46ab2b6ce73ffe63439acb1943",
+      "corner_count": 54,
+      "corner_file_matches_manifest": true,
+      "topology": {
+        "all_cells_same_nonzero_winding": true,
+        "cell_signed_area_px2_min_abs": 2733.1852125525475,
+        "adjacent_pitch_px": {
+          "count": 93,
+          "rms": 71.26828183218478,
+          "median": 69.64408822688712,
+          "p95": 83.28933522358695,
+          "max": 100.0199980003999
+        }
+      },
+      "center_fraction_image": [
+        0.8616468358922887,
+        0.7965163671757786
+      ],
+      "internal_corner_bbox_fraction_image": [
+        0.19583333333333333,
+        0.1337962962962963
+      ],
+      "board_roi_laplacian_variance_proxy": 876.9261295704603,
+      "board_roi_gray_p95_minus_p05": 174.0,
+      "capture_quality": {
+        "adjacent_corner_pitch_px_min": 42.00287066878544,
+        "adjacent_corner_pitch_px_median": 69.64408822688712,
+        "estimated_pattern_outer_corners_px": [
+          [
+            3601.862466520452,
+            1909.9181861098743
+          ],
+          [
+            2859.7427297755576,
+            1905.2576665314853
+          ],
+          [
+            2970.554709076946,
+            1510.2152195650747
+          ],
+          [
+            3817.8804222277568,
+            1516.559250152531
+          ]
+        ],
+        "estimated_pattern_to_image_border_clearance_px_min": 21.119577772243247,
+        "white_border_clearance": "not measured; inspect annotated source image",
+        "pattern_roi_grayscale_p95_minus_p05": 180.0,
+        "warnings": []
+      },
+      "capture_note": "Lower-right view; user indicated ready. Intended tilt opposite to view 4."
+    },
+    {
+      "id": "view-006",
+      "source_sha256": "794d64ba1df1930515a2b9f9a977e4226267f5033f67341cd96961bb889a71f9",
+      "decoded_pixel_sha256": "03d816d24d6e31c0433ffdc5d5766b1b3c078d03412fe09a8d707d1316903c6f",
+      "corner_count": 54,
+      "corner_file_matches_manifest": true,
+      "topology": {
+        "all_cells_same_nonzero_winding": true,
+        "cell_signed_area_px2_min_abs": 4620.312742859125,
+        "adjacent_pitch_px": {
+          "count": 93,
+          "rms": 73.41802176530844,
+          "median": 74.485338995949,
+          "p95": 80.45353954276439,
+          "max": 81.22583262099658
+        }
+      },
+      "center_fraction_image": [
+        0.8422447569576311,
+        0.24603182422444325
+      ],
+      "internal_corner_bbox_fraction_image": [
+        0.18098958333333334,
+        0.15694444444444444
+      ],
+      "board_roi_laplacian_variance_proxy": 922.7435446244607,
+      "board_roi_gray_p95_minus_p05": 201.0,
+      "capture_quality": {
+        "adjacent_corner_pitch_px_min": 62.550255851390354,
+        "adjacent_corner_pitch_px_median": 74.485338995949,
+        "estimated_pattern_outer_corners_px": [
+          [
+            3691.8179597236754,
+            773.8973494353673
+          ],
+          [
+            2877.3141181538767,
+            772.497223842689
+          ],
+          [
+            2813.628319122358,
+            303.8649467717379
+          ],
+          [
+            3557.170169160508,
+            308.18591284473433
+          ]
+        ],
+        "estimated_pattern_to_image_border_clearance_px_min": 147.18204027632464,
+        "white_border_clearance": "not measured; inspect annotated source image",
+        "pattern_roi_grayscale_p95_minus_p05": 204.0,
+        "warnings": []
+      },
+      "capture_note": "Top-right view; user indicated ready. Intended tilt opposite to view 3; positioned inward to preserve frame margin."
+    },
+    {
+      "id": "view-007",
+      "source_sha256": "6a01916923c071b138fb31d4db496afada3c958374c49d57dc7124fd7008546a",
+      "decoded_pixel_sha256": "d6e369a00b56bb724e9646752e9bec93ac555ebae2a8cc28aabec9056297652a",
+      "corner_count": 54,
+      "corner_file_matches_manifest": true,
+      "topology": {
+        "all_cells_same_nonzero_winding": true,
+        "cell_signed_area_px2_min_abs": 4426.804249897599,
+        "adjacent_pitch_px": {
+          "count": 93,
+          "rms": 75.38728673706404,
+          "median": 76.2994553905772,
+          "p95": 83.76450832141687,
+          "max": 84.59027961578147
+        }
+      },
+      "center_fraction_image": [
+        0.5466825002505455,
+        0.4418038508201987
+      ],
+      "internal_corner_bbox_fraction_image": [
+        0.15859375,
+        0.19490740740740742
+      ],
+      "board_roi_laplacian_variance_proxy": 782.3241714863161,
+      "board_roi_gray_p95_minus_p05": 147.0,
+      "capture_quality": {
+        "adjacent_corner_pitch_px_min": 62.784399226322925,
+        "adjacent_corner_pitch_px_median": 76.2994553905772,
+        "estimated_pattern_outer_corners_px": [
+          [
+            2466.1291054996173,
+            1271.3450178143914
+          ],
+          [
+            1746.3478277629672,
+            1184.0538169559804
+          ],
+          [
+            1777.4894805538247,
+            691.102353792866
+          ],
+          [
+            2512.6881189594887,
+            671.0739268443085
+          ]
+        ],
+        "estimated_pattern_to_image_border_clearance_px_min": 671.0739268443085,
+        "white_border_clearance": "not measured; inspect annotated source image",
+        "pattern_roi_grayscale_p95_minus_p05": 153.0,
+        "warnings": []
+      },
+      "capture_note": "Top-center view; user indicated ready. Intended moderate tilt distinct from previous views."
+    },
+    {
+      "id": "view-008",
+      "source_sha256": "e9d754f31505f009804fb0506680934a5a37a218820d4c92bc1ab84e63ebf699",
+      "decoded_pixel_sha256": "85465cbe9bbe3ee79cefb73525dc5696da6f949d85e8da685c95bd9a411cba5e",
+      "corner_count": 54,
+      "corner_file_matches_manifest": true,
+      "topology": {
+        "all_cells_same_nonzero_winding": true,
+        "cell_signed_area_px2_min_abs": 5734.369060021825,
+        "adjacent_pitch_px": {
+          "count": 93,
+          "rms": 78.54270733171016,
+          "median": 77.56031614772158,
+          "p95": 86.04243952418506,
+          "max": 87.14959887631103
+        }
+      },
+      "center_fraction_image": [
+        0.2598038507096561,
+        0.5415153959978102
+      ],
+      "internal_corner_bbox_fraction_image": [
+        0.10807291666666667,
+        0.2861111111111111
+      ],
+      "board_roi_laplacian_variance_proxy": 511.3800058116082,
+      "board_roi_gray_p95_minus_p05": 138.0,
+      "capture_quality": {
+        "adjacent_corner_pitch_px_min": 71.07104021228501,
+        "adjacent_corner_pitch_px_median": 77.56031614772158,
+        "estimated_pattern_outer_corners_px": [
+          [
+            700.7246485606263,
+            1562.8287846231713
+          ],
+          [
+            702.852572866007,
+            784.6523241287927
+          ],
+          [
+            1277.162832682195,
+            806.0880104316708
+          ],
+          [
+            1276.0022759481108,
+            1526.370352389525
+          ]
+        ],
+        "estimated_pattern_to_image_border_clearance_px_min": 596.1712153768287,
+        "white_border_clearance": "not measured; inspect annotated source image",
+        "pattern_roi_grayscale_p95_minus_p05": 142.0,
+        "warnings": []
+      },
+      "capture_note": "Center-left view with a different tilt; checkerboard fully visible."
+    }
+  ],
+  "printed_scale_verification": "pending",
+  "rigid_flat_backing_verification": "pending",
+  "nominal_pitch_mm": 50.8,
+  "provenance": {
+    "inputs_sha256": {
+      "thoughts/calibration/checkerboard-20x14-session/manifest.json": "60f68a8950c5f307cfa0caf2f7d80b67e61e3e6c50ace74866c36bded1ddf7a1",
+      "thoughts/calibration/capture_checkerboard.py": "050c94d0f696372c122c24fbf60ed00f4383eb916f6a1ae684b4251d39727f6b",
+      "thoughts/calibration/checkerboard-20x14-session/view-001.jpg": "4d7fd4b6b8f949f0353fc7db30200a59ac5db357f11ec0b49088e9e3162795b5",
+      "thoughts/calibration/checkerboard-20x14-session/view-001-corners.json": "61f1a34b8334da686fd5a450ac3c336571f096af4fac5f8c3e3b3c77ebf30829",
+      "thoughts/calibration/checkerboard-20x14-session/view-001-annotated.png": "73204d6d0d5e282962f9e910ef652abf4375bac2c664cac9fd9e094a0404011a",
+      "thoughts/calibration/checkerboard-20x14-session/view-002.jpg": "32fb50d3a13fa32e6ca55ab9028d2dff0f587936b0ffa5d2b94dd0e698aaa69f",
+      "thoughts/calibration/checkerboard-20x14-session/view-002-corners.json": "1115383cdd5d9f61df55d6f08292f4e0b31b3b214e83ce3b16f860489be2c5e9",
+      "thoughts/calibration/checkerboard-20x14-session/view-002-annotated.png": "181b3ef6a1dbed10d1c7c88456df36432e6e2f1783e66d73a8d2233fc826b3c3",
+      "thoughts/calibration/checkerboard-20x14-session/view-003.jpg": "eae363826ea818326412a489a23ed97bf490596df612bfaf6128da6a6261139a",
+      "thoughts/calibration/checkerboard-20x14-session/view-003-corners.json": "f6cae1c8006895c661e1a5a1255331e45df54f8aa18bddadc9252bd80678932a",
+      "thoughts/calibration/checkerboard-20x14-session/view-003-annotated.png": "2139345bde699fdc8509aec4074cfa59734862886d392868604ca8db3a5b25c8",
+      "thoughts/calibration/checkerboard-20x14-session/view-004.jpg": "8d604e3283cdb50f34c7f89d0cd599283594794300e6710b9b6de0329ebeb45d",
+      "thoughts/calibration/checkerboard-20x14-session/view-004-corners.json": "391c5e4c38b7f6dd461906d2009ed714021c1822f26f5f824aa5fd4e7a0de7e6",
+      "thoughts/calibration/checkerboard-20x14-session/view-004-annotated.png": "e72f50ab4cf8665f87204956fe0ec1d8aea530c9c60e28338cac979ded81f445",
+      "thoughts/calibration/checkerboard-20x14-session/view-005.jpg": "5cfa32081507d9b40ba32b32c236e8f91c12483bb330e5cc5ca488367899c51d",
+      "thoughts/calibration/checkerboard-20x14-session/view-005-corners.json": "c3cb9abb27afab17ffb2e56d0f1820dbc51cdea4495ae15d5f09da91df653ef9",
+      "thoughts/calibration/checkerboard-20x14-session/view-005-annotated.png": "9ff75f9fbdf6f522b4dcc8392f744ea3ce785189d784045890a37e7c45120e20",
+      "thoughts/calibration/checkerboard-20x14-session/view-006.jpg": "794d64ba1df1930515a2b9f9a977e4226267f5033f67341cd96961bb889a71f9",
+      "thoughts/calibration/checkerboard-20x14-session/view-006-corners.json": "da19914bc4918505d611912edf256b9ca5babcc5707a2f8d4518581b007820de",
+      "thoughts/calibration/checkerboard-20x14-session/view-006-annotated.png": "95e9debc247680b828ebb847379cbe5658f7268e7fa73801a726286559d1528b",
+      "thoughts/calibration/checkerboard-20x14-session/view-007.jpg": "6a01916923c071b138fb31d4db496afada3c958374c49d57dc7124fd7008546a",
+      "thoughts/calibration/checkerboard-20x14-session/view-007-corners.json": "a4767aa5b1acc1bbcde54fe8541a19489778a03c89319ab691af7cc67997b8ad",
+      "thoughts/calibration/checkerboard-20x14-session/view-007-annotated.png": "e3f50c2e5b0e31373f3c6e1fa8e3a9550b69e59543db6bc2e6c7ac8e75d2e6cb",
+      "thoughts/calibration/checkerboard-20x14-session/view-008.jpg": "e9d754f31505f009804fb0506680934a5a37a218820d4c92bc1ab84e63ebf699",
+      "thoughts/calibration/checkerboard-20x14-session/view-008-corners.json": "c73c87392c4fc7869cc7bacd63322a42d78a446d9d56a91735f0c0920194e5c3",
+      "thoughts/calibration/checkerboard-20x14-session/view-008-annotated.png": "538e0c2d0987a9b0d4a3e30983c7969543fa083bdfed564a7b9c8fdf142928ab"
+    },
+    "script_sha256": "facdd0901c7a1ddb15c793491bf16a70cc05bae6c53ba6d3b49c8e8117767002",
+    "python": "3.14.5",
+    "opencv": "5.0.0",
+    "numpy": "2.5.4",
+    "camera_access": false,
+    "production_calibration_emitted": false
+  },
+  "limits": [
+    "Laplacian and contrast are descriptive proxies, not a calibrated sharpness/noise or corner-accuracy measurement.",
+    "Cell winding verifies topology, not independent correct detection or physical target geometry.",
+    "Board seams are visibly present; mounting flatness, tiled alignment and print scale are not verified.",
+    "All views have previously been inspected; leave-one-view-out results are cross-validation, not prospective unseen validation.",
+    "Board positions and perspective diversity are visible in the montage; image geometry alone cannot prove a physically flat target."
+  ]
+}

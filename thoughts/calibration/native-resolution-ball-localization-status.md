@@ -1,15 +1,80 @@
 # Native-resolution 2D ball localization: implementation record
 
-Last updated: 2026-10-27
+Last updated: 2026-10-28
 
-Review and immediate next action: `review-and-next-step-20261027.md`.
-The controlled saved-image audit demonstrates acceptance dependence on
-detection index for seven of nine measured balls. A new saved-image audit
-finds that rail sights form a strong candidate table grid and the two visible
-cloth dots are consistent with the table's centerline spots. The grid is not
-yet a qualified metric calibration because the optics and rail-to-cloth plane
-transfer remain uncertain. Stabilize the estimator before FPS tuning or
-calibration activation.
+Current execution plan and latest next step:
+`native-ball-localization-next-steps-plan.md`. The initial review in
+`review-and-next-step-20261027.md` is historical. Detection-index and
+proposal-order invariance is fixed; the current revision-2 estimator still
+rejects the nine measured positions at production seed 716, so no calibration
+fit or FPS selection has been made.
+
+## Offline evaluation in progress — 2026-10-28
+
+Eight larger-target 3840 × 2160 captures are retained with all 54 corners per
+view. These captures are now available on the experiment after merge
+`9ad0ca0`; print scale and flat backing for this assembled target remain
+unverified. Exploratory optical fits will retain that uncertainty explicitly.
+The user has covered the table. No live camera access or new physical work is
+needed for the current evaluation. Any later capture requires advance notice
+and confirmation that the table has been uncovered.
+
+Detection-identity and diagnostic fixes and converged-candidate comparison
+are complete. Current 0/9 and 0/18 rejection results remain authoritative.
+Architecture is open for revision, including the unique-outline acceptance
+contract, stochastic search, image transformations, and calibration approach.
+The approved next task tests optics, table registration/transfer, and candidate
+center uncertainty on frozen images before selecting one next implementation.
+See the authoritative 2026-10-28 continuation at the top of the execution plan.
+
+## Current executed state — 2026-10-27
+
+- The final revision-2 audit on 15 manual proposals from the measured 720p
+  frame accepts **0/15** centers at production seed 716. Fourteen reject as
+  `ambiguous_boundary`; one pocket proposal has insufficient boundary
+  evidence. The nine proposals with physical references all reject, so no
+  report-only homography was fit and no calibration asset was emitted.
+- Controlled saved-image sensitivity work found 1 accepted result across 150
+  proposal-center perturbations, 0/150 size perturbations, and 5 accepted
+  results across 240 seed/proposal runs. The selected production seed accepted
+  0/15; alternate-seed acceptance is not evidence of accuracy. The 15-box
+  batch timed out all proposals at the initial 25/10 ms limits on the Darwin
+  development host, while relaxed limits took about 0.29 s. These timings do
+  not qualify the Intel target.
+- All 18 manually proposed crops on the reserved 720p and 4K scenes reject.
+  These images lack qualified optics profiles and physical X/Y references.
+- Audit schema 3 records the sampled boundary-candidate indices and rays for
+  each valid RANSAC hypothesis. The first-iteration and normal-aiming saved
+  audits show RANSAC acceptance is non-monotonic: seed 716 accepts at 512
+  iterations for one isolated pass, but the normal aiming flow rejects with
+  no center. Do not change the production seed, count, candidate cap, or
+  gates to increase acceptance.
+- The independently verified Intel GPU JPEG-decoding result remains
+  independently adoptable. Complete pipeline accuracy, target FPS, latency,
+  memory trend, and sustained precise availability remain unqualified.
+
+The per-ray candidate-cap question is now tested. All 18 cap/proposal runs
+reject as ambiguous; at the production cap of 16 the candidate search is
+untruncated for all three crops and still finds multiple qualified boundary
+fits. Do not spend more effort raising the cap or changing the RANSAC count,
+seed, or acceptance gates to make these crops pass. The next useful saved-image
+pixel audit has also been completed: across 27 measured/reserved proposals,
+91 qualified fits and 7,891 inlier-ray RGB profiles, neither transition rank
+nor simple inside/outside color statistics consistently distinguishes the
+physical silhouette. Preserve the ambiguous result. The fisheye-specific
+model audit failed to produce an admissible calibration. The fixed-sphere
+conic audit also failed to improve table consistency: its best all-nine X/Y
+training RMS was 15.21 mm and its held-out oracle candidate score was 18.65 mm
+RMS, compared with 8.71 mm for the existing segmentation-center homography.
+The oracle uses each held-out answer to choose its candidate, so it is not an
+automatic result. Preserve the synthetic math check, but do not activate this
+selector. Static table-feature registration passes relative image-transfer
+checks, and the report-only rectangle map is too sensitive to the ambiguous
+cushion edge for metric localization. The new mark-grid audit shows that the
+rail sights and cloth spots provide a candidate physical coordinate grid;
+however, checkerboard intrinsics and the rail-to-cloth plane bridge are not
+yet qualified. No ball measurements or new table-mark measurements are
+needed.
 
 ## Project requirements
 
@@ -55,34 +120,6 @@ establish identical intrinsics, table millimeter accuracy, or ball-center
 accuracy. Do not activate a scaled profile as ground truth without binding it
 to a verified camera profile and qualifying its effect.
 
-## Table-mark grid evidence
-
-The saved-image audits are in `mark-grid-calibration-audit-20261027/` and
-`table-feature-registration-audit-20261027/`. Ten visible long-rail sights fit
-the expected one-eighth table-length lattice at 0.57 px RMS, with 0.99 px
-leave-one-sight-out RMS. A glare-obscured lower sight visually agrees with the
-predicted 5/8 position, but is qualitative only. Side-rail annotations miss
-their expected quarter positions by roughly 4–6 px and remain excluded from
-the fit. Two cloth dots appear at approximately 23 and 69 inches along the
-long axis and 22 3/4 inches across; this is consistent with the head/foot
-centerline spots, but their identities are not confirmed by the image alone.
-
-This supports using the rail marks as a candidate grid tied to the user's
-92 × 45 1/2 inch playing-area dimensions. It does not yet produce a production
-metric map: a direct rail-plane projection misses the two cloth dots by
-10.57–11.00 px. A single shared rail-to-cloth plane separation fits them at
-1.34 px joint RMS, but fitting either dot alone predicts the other only within
-2.30–2.48 px, and the two implied separations differ by 12.13 mm. The
-checkerboard-derived intrinsics and the cushion-nose sight offset also need
-qualification. These are saved-image diagnostics; no new table or ball
-measurements and no live camera access were used.
-
-The next useful user-side input, if further optics calibration is needed, is a
-set of original JPEGs of the larger checkerboard described in
-`checkerboard-20x14in-capture.md`. No jig or ball repositioning measurements
-are needed. Do not activate table X/Y from the candidate grid until the
-checkerboard and rail-to-cloth transfer checks are stable.
-
 ## Current implementation on `codex/native-ball-localization`
 
 - The GStreamer capture probe parses MJPEG, drops stale compressed frames
@@ -90,18 +127,63 @@ checkerboard and rail-to-cloth transfer checks are stable.
   and bounds app-sink buffering. It does not silently use software decode.
 - The Rust local-view refiner works on borrowed native RGB, returns explicit
   fit/reject evidence per proposal, and has bounded sample counts, work time,
-  ROI size, and scratch allocation. Its ambiguity check now requires a spatial
-  cluster of plausible competing RANSAC fits; one alternate sample no longer
-  causes rejection by itself. Offline checks accepted 4/9
-  manually seeded crops from the 720p measured scene and 3/3 crops from a
-  separate saved 4K scene. These are not physical accuracy or live-availability
-  results; details and limitations are in
-  `offline-refiner-nine-position-check.md`. A later, differently constructed
-  all-ball proposal set accepts 5/9 measured balls. Holding its boxes fixed and
-  varying only detection index changes acceptance for 7/9. Raw hypothesis
-  ambiguity, mixed diagnostic iterations, and inconsistent center-distance
-  coordinate spaces need correction; the three-vote change is not a qualified
-  solution. Exact audit results are in `offline-refiner-identity-check.json`.
+  ROI size, and scratch allocation. Its revision-2 selection is invariant to
+  detection identity and proposal order for the frozen audit inputs, but it
+  currently accepts 0/15 final measured-scene proposals at production seed
+  716 (14 ambiguous, one insufficient) and 0/9 proposals with physical
+  references. The 18-run cap audit found that cap 16 is untruncated on all
+  three tested crops and still leaves 4, 2, and 8 individually qualified
+  boundary fits for the purple, orange, and striped balls respectively; every
+  cap/proposal run remains ambiguous. Earlier 4/9, 3/3, and 5/9 acceptance
+  counts are historical results from prior estimator or proposal constructions
+  and must not be presented as current qualification. Details are in
+  `report-only-nine-reference-evaluation-20261027.md`,
+  `robustness-audit-20261027/`, the sampling audit folders, and
+  `candidate-cap-audit-20261027/`.
+  A separate pixel-level audit of nine measured 720p proposals and 18 reserved
+  720p/4K proposals found no repeatable simple RGB or gradient-rank rule among
+  91 qualified fits. The report and source-pixel profiles are in
+  `contour-color-audit-20261027/`; they do not establish which outline is the
+  physical silhouette.
+- The existing checkerboard/ellipse evidence is consistent with off-axis
+  perspective shaping a sphere's apparent image ellipse: the measured far-left
+  yellow ball has a gradient-ellipse aspect ratio of 1.314 versus a 1.312
+  small-sphere perspective approximation; the far-right purple ball is about
+  1.25 versus about 1.27. This does not prove the lens has no residual
+  distortion. A new OpenCV fisheye-model audit found 0/8 admissible held-out
+  folds; the prospective ninth-view parity RMS was 1.3266 px versus 0.2279 px
+  for the frozen Brown-zero model. The test model also greatly increased
+  straight-edge bow and had unresolved flag/skew behavior. It is rejected as a
+  correction candidate, not evidence that the lens is perfectly pinhole.
+  Details are in `fisheye-optics-audit-20261027/`.
+- The fixed-sphere conic audit is in `sphere-projection-audit-20261027/`.
+  Ideal synthetic tests recover table X/Y to under 0.001 mm, but 0.15 px
+  contour noise produces up to 0.935 mm error. On the saved scene, 36 qualified
+  outlines across nine balls yield 15.21 mm all-nine training X/Y RMS; the
+  held-out oracle candidate score is 18.65 mm RMS versus 8.71 mm for the
+  existing segmentation-center homography. The oracle sees each held-out
+  position when choosing among candidates, and the bounded search is not
+  exhaustive. This rejects the tested selector as an improvement, not the
+  ideal sphere-conic geometry. The user-provided reference uncertainty remains
+  unknown; no height/depth output or production change is made.
+- The static table-feature registration audit is in
+  `table-feature-registration-audit-20261027/`. Six upper/lower rail sights
+  produce 0.209 px held-out RMS between the measured and alternate 720p scenes
+  and 0.094 px between the before/after framing images after 3× normalization.
+  Held-out side-rail sights measure 0.463 px and 0.196 px RMS respectively.
+  Two cloth markers are visible only in the framing pair; their cross-plane
+  transfers are 1.360 px and 0.004 px, too few to infer a plane correction.
+  All reported positions are pixels. Exact physical dot XY is absent from the
+  inspected records, so this is relative registration evidence only.
+- The report-only playing-area rectangle audit is in
+  `playing-area-homography-audit-20261027/`. Its synthetic homography and fixed
+  center-plane round trips pass, but the nominal X/Y residual against the nine
+  ball references is 22.04 mm RMS. Across 13,122 line/corner variants, the
+  maximum per-ball coordinate spread is about 23.8 mm; using the nearby lower
+  seam instead of the inner nose transition worsens the residual range to
+  33.76–41.84 mm RMS. The sampled brightness edges do not identify the
+  physical nose reliably, and the ball-reference uncertainty is unknown. No
+  metric asset or production change is justified.
 - The separate ball-center calibration solver fits normalized homographies
   from at least 12 distributed correspondences, reports every residual, and
   validates the asset against runtime context.
@@ -128,11 +210,10 @@ The user declined building a positioning jig. Do not ask for one or request
 measurements of the pocket-adjacent balls. The project already contains nine
 user-confirmed ball-center positions, including rail contacts, in
 `table-grid-20261026-114241-measurements.json`; those coordinates apply only to
-the matching `table-grid-20261026-114241.jpg` arrangement. Use them with the
-new refiner for a provisional ball-center map. The user identifies the rail
-sights and felt dots as the precisely measured table marks; the current saved
-audit derives their candidate regular grid from the visible lattice and the
-known table dimensions, rather than requesting new physical measurements.
+the matching `table-grid-20261026-114241.jpg` arrangement. The current refiner
+rejects all nine matching image observations, so they cannot yet be used to
+fit even a diagnostic ball-center map. Use the precisely measured table dots
+and rail geometry only for the physical references they actually represent.
 
 Known table reference marks help establish table geometry. Verify the exact
 physical reference represented by each mark; do not assume all marks are
@@ -149,38 +230,61 @@ it cannot emit an asset from the existing nine. Nine-point diagnostic mapping
 and residual analysis remain possible; resolve this contract explicitly before
 activation rather than duplicating points or silently lowering its minimum.
 
-The user's existing rail and felt dots are the intended table references;
-their individual numeric readings are not recorded in the repository. The
-candidate regular grid and specified playing-area dimensions allow offline
-analysis to continue without asking the user to remeasure them. Do not request
-new tape measurements over round balls, a jig, or pocket-ball coordinates.
-Independent held-out accuracy and availability remain unverified. If the existing dots,
-rail contacts, and saved nine-position scene cannot provide independent
-validation, report that limit rather than claiming the desired accuracy.
+Existing references are enough to continue development without further user
+measurements. Independent held-out accuracy and availability are still
+unverified. If existing dots, rail contacts, and the saved nine-position scene
+cannot provide independent validation, report that limitation instead of
+requiring a fixture or claiming the desired accuracy.
+
+The user clarified that the table's rail and felt dots are the physical grid.
+The offline mark-grid audit at
+`mark-grid-calibration-audit-20261027/` found that ten visible long-rail
+sights match the WPA 8-foot eighth-spacing layout with 0.57–0.59 px fit RMS
+and 0.99–1.01 px leave-one-sight-out RMS. The 92-inch table length matches the
+11.5-inch sight interval; the 45.5-inch measured width differs from the
+nominal 46-inch WPA value, and WPA warns that its competition specification
+may not apply to home tables. Treat the standard as a candidate lattice and
+the user's dimensions as authoritative.
+
+The two visible cloth dots match the head/foot spots at x=23 and 69 inches,
+y=22.75 inches. A rail-plane map alone misses them by roughly 11 px. The
+checkerboard-intrinsics plane-aware fit estimates a 52.831 mm rail-cap/cloth
+separation and gives 1.341 px joint error, but single-spot cross-checks remain
+2.296–2.481 px and yield rail-plane estimates 12.134 mm apart. Side-rail
+sight annotations are ambiguous; their 4–6 px residuals are excluded from
+the fit. The nine saved ball references remain diagnostics only. Coarse box
+midpoints give 11.286 mm RMS after mapping, not qualified ball-center
+accuracy.
 
 ## Remaining qualification
 
-The existing mark-grid audit is reproduced; its candidate rail lattice is
-not yet a qualified metric map. If the existing checkerboard views are
-insufficient, the next user-side input is original JPEGs of the larger
-rigid-backed target in `checkerboard-20x14in-capture.md`. No live table-camera
-access, jig, new ball measurements, or pocket-ball coordinates are needed.
-Estimator stability remains required before production localization or FPS
-selection and can be fixed from saved images while the table calibration is
-being prepared.
+The ordered next estimator investigation is recorded in
+`native-ball-localization-next-steps-plan.md`. Identity, sensitivity,
+nine-reference, sample-provenance, candidate-cap, contour-color, fisheye,
+fixed-sphere, static-feature registration, and playing-area-rectangle audits
+are complete. Relative frame registration is strong, but the metric rectangle
+mapping is unstable because the visible edge is not known to be the physical
+nose. The mark-grid audit replaces the earlier assumption that exact dot XY
+must first be supplied as a separate record. The long-rail lattice is a strong
+candidate based on official fractions and saved pixels, but it is not yet a
+table-specific qualified map.
 
-1. Correct detection-index sensitivity in the estimator using the saved
-   corpus, following `review-and-next-step-20261027.md`.
-2. Calibrate intrinsics with fixed camera settings, sharp center/corner
-   coverage, and held-out tilted checkerboard views.
-3. Refit the rail-to-cloth transfer using the saved felt dots as held-out
-   references and the measured 92 × 45 1/2 inch playing area. Do not treat the
-   current provisional transfer as calibration.
-4. Verify and select the native source geometry in the live capture request
+The next step is to use the prepared larger rigid-backed checkerboard at the
+unchanged camera setting, then re-estimate intrinsics and rerun the
+rail-cap-to-cloth plane bridge against the saved two cloth spots. Keep those
+spots held out one at a time. The board's active grid is 20 x 14 inches, with
+2-inch squares and 9 x 6 inner corners; its print-ready file is
+`output/pdf/ball-localization-checkerboard-20x14in.pdf`. Capture sharp native
+resolution JPEGs across the image center and corners with tilts around both
+axes. No jig, ball measurements, or pocket coordinates are needed. Until the
+plane bridge and ball-center estimator are independently validated, keep
+precise X/Y unavailable and do not alter FPS or production localization.
+
+1. Verify and select the native source geometry in the live capture request
    without changing the Coral input tensor shape. The repository default has
    no optics or center-calibration asset configured, so precise X/Y correctly
    remains unavailable until qualified assets are supplied.
-5. Benchmark 3840 × 2160, 2560 × 1440, and 1920 × 1080 with camera rates
+2. Benchmark 3840 × 2160, 2560 × 1440, and 1920 × 1080 with camera rates
    5, 7.5, 10, 15, and 20 FPS on the target. Include actual source delivery,
    decoded/analyzed/published/dropped counts, detector/refiner age, motion
    invalidation, CPU/GPU use, and memory trend. Select the most responsive
@@ -188,15 +292,15 @@ being prepared.
    choose a nominal FPS that falls behind. Treat desired latency/accuracy
    metrics as goals; prefer continuous available positions at a lower rate to
    frequent drops or unavailable measurements at a higher rate.
-6. Qualify the exact optics profile and local-view fit on real source crops,
+3. Qualify the exact optics profile and local-view fit on real source crops,
    including highlights, stripe edges, shadows, cushion contact, touching
    balls, and partial contours.
-7. Add operator acquisition/export for accepted image centers paired with the
+4. Add operator acquisition/export for accepted image centers paired with the
    existing measured references; do not require a jig or new pocket-ball
    measurements.
-8. Run whatever independent held-out physical X/Y validation the known dots,
+5. Run whatever independent held-out physical X/Y validation the known dots,
    rail contacts, and saved positions support. Report actual available
    reference coverage and accepted-measurement rate alongside residuals.
-9. Only then deploy a selected single configuration. The old deployment and
+6. Only then deploy a selected single configuration. The old deployment and
    the separate GPU discovery can each be retained or rolled back
    independently.
