@@ -41,7 +41,7 @@ production feature. A future corrected estimator must write a new result file.
 | Nine physical references | `table-grid-20261026-114241.jpg`, matching measurements JSON, `table-grid-feasibility-*`, `ball-outline-consistency.*` | Diagnostic mapping from nine user-confirmed positions on this image only, with unknown reference uncertainty. Six pocket positions lack physical truth. |
 | Demonstrated identity defect | `offline-refiner-identity-check.{json,rs}` | Fixed pixels/boxes/config, indices 0–15: 7/9 measured cases change acceptance. All three repeated outputs match. This is software behavior, not a live availability rate. |
 | Table-mark grid | `mark-grid-calibration-audit-20261027/`, `table-feature-registration-audit-20261027/`, and their offline audit scripts | Ten long-rail sights match the expected one-eighth-length lattice at 0.57 px fit RMS and 0.99 px leave-one-out RMS. Rail-to-cloth transfer remains provisional: direct projection misses visible cloth dots by 10.57–11.00 px, and two-marker cross-validation is 2.30–2.48 px. No production metric map is established. |
-| Larger checkerboard capture | `checkerboard-20x14in-capture.md`, `output/pdf/ball-localization-checkerboard-letter-tiles.pdf`, `output/pdf/ball-localization-checkerboard-20x14in.pdf`, `generate_letter_checkerboard_tiles.py`, updated `capture_checkerboard.py` | A four-page US Letter version joins to a 20 × 14-inch active pattern with 2-inch squares; the 22 × 16-inch single-page file remains for large-format printing. The target has not yet been photographed; no new calibration result is claimed. |
+| Larger checkerboard capture | `checkerboard-20x14in-capture.md`, `checkerboard-20x14-session/`, both checkerboard PDFs, `generate_letter_checkerboard_tiles.py`, updated `capture_checkerboard.py` | A four-page US Letter version joins to a 20 × 14-inch active pattern with 2-inch squares; the 22 × 16-inch single-page file remains for large-format printing. The first user-requested 3840 × 2160 snapshot produced all 54 corners with 71.64 px median spacing after bright-paper ROI detection. Print scale and flat rigid backing remain unverified; this is one centered view, not a calibrated lens model or X/Y accuracy result. |
 | Corrected interpretations | `offline-refiner-nine-position-check.md`, `review-and-next-step-20261027.md` | Different proposal definitions confound 4/9 versus 5/9 comparisons. A low reported metric can belong to an earlier iteration. These corrections supersede stronger earlier interpretations. |
 
 ## Not established
@@ -69,7 +69,8 @@ intrinsics prove insufficient.
 
 The evidence and independent GPU capture commit can remain on main while
 experimental localization stays on its checkpoint branch. No localization
-rollout or production camera/FPS selection is implied. Saved-frame target
-qualification used temporary files, removed them afterward, and did not read
-the camera. Keep machine credentials, stream keys, `.env` backups, transient
-capture locks, and generated model/browser artifacts out of preservation commits.
+rollout or production camera/FPS selection is implied. GPU decoder qualification
+used saved-frame data. The checkerboard session includes one snapshot fetched
+from the user-provided camera endpoint; no camera settings were changed. Keep
+machine credentials, stream keys, `.env` backups, transient capture locks, and
+generated model/browser artifacts out of preservation commits.

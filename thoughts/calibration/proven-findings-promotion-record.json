@@ -1,10 +1,10 @@
 {
   "schema_version": 1,
-  "recorded_at_utc": "2026-10-27T19:00:37+00:00",
-  "scope": "Preserve established findings and independently verified capture code on local main. Unqualified localization implementation stays on experiment branch.",
+  "recorded_at_utc": "2026-10-28T02:25:42+00:00",
+  "scope": "Preserve established findings and independently verified capture code and checkerboard capture evidence on local main. Unqualified localization implementation stays on experiment branch.",
   "base_main_sha": "e9fb9a0f8402c1d5dd69657b0273d6fbc46b5e20",
-  "main_head_before_this_record_commit": "5787b56eb3064ae7c5718a17b7d3fe6f75341b92",
-  "latest_promoted_main_head": "860bce38f4b5381b2776ee53b1237cab6cc55621",
+  "main_head_before_this_record_commit": "04f9aa0b62926ed6fa81bae7cb96ffe073924cd6",
+  "latest_promoted_main_head": "04f9aa0b62926ed6fa81bae7cb96ffe073924cd6",
   "main_commits": [
     {
       "sha": "3e6799187a0ac869d2504fc6b9540c960ad34e1c",
@@ -64,6 +64,18 @@
         "thoughts/calibration/checkerboard-20x14in-capture.md",
         "thoughts/calibration/generate_letter_checkerboard_tiles.py",
         "thoughts/calibration/proven-findings-index.md"
+      ]
+    },
+    {
+      "sha": "04f9aa0b62926ed6fa81bae7cb96ffe073924cd6",
+      "subject": "calibration: capture centered 4k checkerboard view",
+      "files": [
+        "thoughts/calibration/capture_checkerboard.py",
+        "thoughts/calibration/checkerboard-20x14-session/README.md",
+        "thoughts/calibration/checkerboard-20x14-session/manifest.json",
+        "thoughts/calibration/checkerboard-20x14-session/view-001-annotated.png",
+        "thoughts/calibration/checkerboard-20x14-session/view-001-corners.json",
+        "thoughts/calibration/checkerboard-20x14-session/view-001.jpg"
       ]
     }
   ],
@@ -217,6 +229,11 @@
       "result": "Passed synthetic full-board detection, native pitch, cropped-board rejection, and 20 x 14 inch scale metadata checks."
     },
     {
+      "name": "centered 4K checkerboard snapshot",
+      "command": "Fetch the user-provided snapshot JPEG; run capture_checkerboard.py --file on the retained original; independently verify image hash, dimensions, corner count, and physical-verification state.",
+      "result": "Passed. Bright-paper ROI detection recorded 54/54 corners in the original 3840 x 2160 frame, with 71.64 px median and 66.93 px minimum neighboring-corner spacing. Print scale and flat backing remain pending; one view establishes no calibrated lens model or table X/Y accuracy."
+    },
+    {
       "name": "four-page Letter checkerboard PDF",
       "command": "/tmp/billiards-checkerboard-env/bin/python thoughts/calibration/generate_letter_checkerboard_tiles.py --self-test; pdfinfo output/pdf/ball-localization-checkerboard-letter-tiles.pdf; render pages at 72 dpi and reconstruct the 2 x 2 tile layout",
       "result": "Passed. PDF has four 792 x 612 point Letter landscape pages. The rendered pages reconstruct a pixel-exact 20 x 14 inch 10 x 7 square pattern at 72 points per inch; each square is 2 inches. Pages were rendered and visually inspected."
@@ -232,15 +249,17 @@
     "PDF info/render check: one 22 x 16 inch page; rendered checkerboard visually inspected",
     "copied audit outputs and inputs byte-compared against experiment-branch sources",
     "Python py_compile for the Letter tile generator",
+    "Checkerboard capture utility self-test and retained 4K JPEG reproduction: 54/54 corners detected; hash and pending physical-verification state confirmed",
     "git diff --check for the Letter tile and guide changes"
   ],
   "clean_checkout_prerequisite": "First isolated full camera-feature suite attempt lacked frontend/web/dist. Locked dependencies and ignored generated browser assets were built, then the full suite passed. No frontend source/dependency changes were committed.",
   "target_hardware_evidence": "thoughts/calibration/gpu-saved-frame-qualification-20261027.json",
-  "no_live_camera_used": true,
+  "no_live_camera_used": false,
+  "live_camera_access": "Fetched one image from the user-provided snapshot endpoint to capture the newly placed checkerboard; camera settings were not changed.",
   "deployment_performed": false,
   "published_to_origin": false,
   "preexisting_main_ahead_of_origin_tracking_ref": 159,
-  "current_main_ahead_of_origin_tracking_ref": 167,
+  "current_main_ahead_of_origin_tracking_ref": 169,
   "publication_note": "User requested committing to main. Main is advanced locally; no push was requested or performed, and unrelated preexisting unpushed history was not published.",
   "excluded_claims": [
     "native-ball accuracy qualification",
