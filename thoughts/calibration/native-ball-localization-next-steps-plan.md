@@ -5,6 +5,48 @@ by an implementer without the conversation history. Read ADR-0102 and
 `review-and-next-step-20261027.md` first. The latter contains the experiment
 review; this document defines tasks, deliverables, checks, and commits.
 
+## Authoritative continuation — 2026-10-28
+
+The user approved evaluating the eight new 4K checkerboard captures, then
+choosing the next localization architecture from the saved evidence. All
+previous architecture choices may be revised to achieve reliable accurate
+X/Y. The table is covered: use saved images only. Before any new camera
+capture, explain its purpose and wait for confirmation that the table is
+uncovered. No table-side action is currently required.
+
+Baseline experiment `6f3404a` and main evidence `235be81` were clean and
+reconciled by merge `9ad0ca0`. The detection-index fix, per-iteration diagnostic
+fix, converged-boundary comparison, schema-3 traces, seed/proposal sensitivity,
+candidate-cap, color-profile, failed fisheye, fixed-sphere selector, rectangle
+map, and provisional mark-grid investigations are complete. Their earlier
+implementation task descriptions below are historical, not a new work queue.
+Current standard-seed acceptance remains 0/9 referenced balls and 0/18
+additional saved proposals; the nine-reference evaluation is a completed
+no-fit result, not a pending homography exercise.
+
+The new work is confined to reproducible research and documentation:
+
+1. Verify all eight native sources, geometry/topology, and capture provenance.
+   The assembled larger target's scale and rigid-flat backing remain pending;
+   nominal geometry permits exploratory fits but no production activation.
+2. Evaluate zero/k1/k1k2 models with unchanged solver settings, whole-view
+   holdouts, parity-split pose scoring, fold stability and residual-vector
+   diagnostics. Preserve the old small-board results without overwriting them.
+3. Register new/old frames using static rail sights before transferring K.
+   Re-evaluate the provisional rail/felt grid under plausible optics, holding
+   out each felt spot and retaining sight-offset sensitivity.
+4. Quantify center spread separately from outline/radius variation, including
+   saved proposal/start perturbations and matching existing position baselines.
+   Agreement alone cannot establish accuracy.
+5. Select one evidence-backed implementation specification, or a minimal
+   discriminating observation if saved evidence cannot select an algorithm.
+   Reopen ADR-0102 where justified; preserve historical failed experiments.
+
+Do not retune RANSAC to obtain acceptance, repeat the unresolved fisheye flag
+path, manufacture exact physical references, or promote a metric asset.
+Performance qualification follows spatial feasibility; start future live
+comparison at 4K/5 FPS and measure continuous fresh availability.
+
 ## 1. Verification strategy and completion definition
 
 The current next milestone is to qualify the table coordinate frame from the
@@ -86,9 +128,9 @@ format checks, and `make config-check`. Its final implementation audit is saved 
 
 Task D's current result differs from the earlier Task C identity audit:
 
-- The Task C run on the pre-Task D selection behavior accepted 3/9 measured
-  proposals but changed acceptance for 7/9 when only detection identity
-  changed. The regression now checks identities 0–15 and reversed proposal
+- The post-identity-fix Task C run on the pre-Task D selection behavior
+  accepted 3/9 measured proposals. The earlier unfixed checkpoint changed
+  acceptance for 7/9 when only detection identity changed. The regression now checks identities 0–15 and reversed proposal
   order with fixed geometry; the frozen rerun was semantically identical.
 - Task D revision 2 has bounded, traceable candidate comparison in common
   source-image coordinates. On the frozen 15 manual proposals, 0/15 precise

@@ -1,6 +1,6 @@
 # Native-resolution 2D ball localization: implementation record
 
-Last updated: 2026-10-27
+Last updated: 2026-10-28
 
 Current execution plan and latest next step:
 `native-ball-localization-next-steps-plan.md`. The initial review in
@@ -8,6 +8,24 @@ Current execution plan and latest next step:
 proposal-order invariance is fixed; the current revision-2 estimator still
 rejects the nine measured positions at production seed 716, so no calibration
 fit or FPS selection has been made.
+
+## Offline evaluation in progress — 2026-10-28
+
+Eight larger-target 3840 × 2160 captures are retained with all 54 corners per
+view. These captures are now available on the experiment after merge
+`9ad0ca0`; print scale and flat backing for this assembled target remain
+unverified. Exploratory optical fits will retain that uncertainty explicitly.
+The user has covered the table. No live camera access or new physical work is
+needed for the current evaluation. Any later capture requires advance notice
+and confirmation that the table has been uncovered.
+
+Detection-identity and diagnostic fixes and converged-candidate comparison
+are complete. Current 0/9 and 0/18 rejection results remain authoritative.
+Architecture is open for revision, including the unique-outline acceptance
+contract, stochastic search, image transformations, and calibration approach.
+The approved next task tests optics, table registration/transfer, and candidate
+center uncertainty on frozen images before selecting one next implementation.
+See the authoritative 2026-10-28 continuation at the top of the execution plan.
 
 ## Current executed state — 2026-10-27
 
