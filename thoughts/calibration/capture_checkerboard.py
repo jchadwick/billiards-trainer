@@ -42,7 +42,7 @@ def active_pattern_size_inches(pattern, pitch_mm):
             (rows + 1) * pitch_mm / 25.4)
 
 
-def detect(image, pattern):
+def _detect_in_region(image, pattern):
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     # The SB algorithm supplies subpixel coordinates directly, in source pixels.
     success, corners = cv2.findChessboardCornersSB(
@@ -64,6 +64,72 @@ def detect(image, pattern):
     if not np.isfinite(corners).all():
         raise ValueError('Detector returned nonfinite corners')
     return corners.astype(np.float64).reshape(-1, 2), method
+
+
+def bright_component_rois(image, pattern):
+    """Find plausible bright-paper regions to reduce background clutter.
+
+    The original image remains the source of truth: callers detect only on a
+    crop, then translate corner coordinates back to the full source frame.
+    Multiple thresholds and candidates allow for exposure changes, shadows,
+    and unrelated bright objects without selecting one candidate by color
+    alone.
+    """
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    height, width = gray.shape
+    minimum_area = max(4096, int(width * height * .002))
+    expected_aspect = (pattern[0] + 1) / (pattern[1] + 1)
+    regions = {}
+    for threshold in (175, 195, 215, 235):
+        _, mask = cv2.threshold(gray, threshold, 255, cv2.THRESH_BINARY)
+        count, _, stats, _ = cv2.connectedComponentsWithStats(mask, connectivity=8)
+        for x, y, region_width, region_height, area in stats[1:count]:
+            x, y, region_width, region_height, area = map(
+                int, (x, y, region_width, region_height, area)
+            )
+            if area < minimum_area or region_width < (pattern[0] + 1) * 8 \
+                    or region_height < (pattern[1] + 1) * 8:
+                continue
+            aspect = region_width / region_height
+            if not .35 * expected_aspect <= aspect <= 2.85 * expected_aspect:
+                continue
+            padding = max(8, int(max(region_width, region_height) * .08))
+            x0, y0 = max(0, x - padding), max(0, y - padding)
+            x1 = min(width, x + region_width + padding)
+            y1 = min(height, y + region_height + padding)
+            key = (x0, y0, x1, y1)
+            regions[key] = max(regions.get(key, 0), area)
+    # Try larger plausible paper regions first; detections are still required
+    # to contain the complete requested corner pattern.
+    return sorted(regions, key=lambda roi: (-(roi[2] - roi[0]) * (roi[3] - roi[1]), roi))[:32]
+
+
+def detect_in_bright_regions(image, pattern):
+    """Detect within bright-region crops and return full-frame coordinates."""
+    failures = []
+    for x0, y0, x1, y1 in bright_component_rois(image, pattern):
+        try:
+            corners, method = _detect_in_region(image[y0:y1, x0:x1], pattern)
+        except ValueError as error:
+            failures.append(str(error))
+            continue
+        corners += np.array([x0, y0], dtype=np.float64)
+        return corners, f'{method}; bright-region ROI ({x0},{y0})-({x1},{y1})'
+    detail = f'; tried {len(failures)} bright-region crops' if failures else ''
+    raise ValueError(
+        f'Complete {pattern[0]}x{pattern[1]} corner pattern not detected{detail}; nothing appended'
+    )
+
+
+def detect(image, pattern):
+    """Detect a full checkerboard, falling back to bright-paper crops."""
+    try:
+        return _detect_in_region(image, pattern)
+    except ValueError as full_frame_error:
+        try:
+            return detect_in_bright_regions(image, pattern)
+        except ValueError:
+            raise full_frame_error
 
 
 def quality(image, corners, pattern):
@@ -218,6 +284,24 @@ def self_test():
         pass
     else:
         raise AssertionError('Partial target incorrectly accepted')
+
+    # Exercise the camera-frame fallback: a small checkerboard on a large,
+    # cluttered green field must be found inside its paper crop, with its
+    # detected corner coordinates translated back into the full image.
+    cluttered = np.full((720, 1280, 3), (70, 145, 85), np.uint8)
+    board = np.full((440, 600, 3), 255, np.uint8)
+    pitch = 48
+    for row in range(7):
+        for col in range(10):
+            if (row + col) % 2 == 0:
+                board[80 + row*pitch:80 + (row+1)*pitch,
+                      60 + col*pitch:60 + (col+1)*pitch] = 0
+    cluttered[120:560, 340:940] = board
+    # Bright distractors ensure the crop search cannot assume one white object.
+    cv2.rectangle(cluttered, (20, 20), (320, 620), (255, 255, 255), -1)
+    fallback_corners, fallback_method = detect_in_bright_regions(cluttered, pattern)
+    assert len(fallback_corners) == 54 and 'bright-region ROI' in fallback_method
+    assert np.all(fallback_corners[:, 0] > 340) and np.all(fallback_corners[:, 1] > 120)
 
     # Exercise session metadata with a 2-inch-square print so the verified
     # scale record cannot silently retain the former 10 x 7 inch dimensions.
