@@ -1,0 +1,4231 @@
+{
+  "schema_version": 1,
+  "purpose": "saved center-versus-outline sensitivity, no production change or calibration activation",
+  "runtime": {
+    "python": "3.14.5",
+    "numpy": "2.5.4"
+  },
+  "self_tests": {
+    "aiming_iteration_isolation": "passed",
+    "concentric_outline_radius_disagreement": "passed",
+    "known_center_shift_3_4_5": "passed",
+    "shared_bias_counterexample": "passed",
+    "exact_projective_recovery_and_leave_one_out": "passed",
+    "degenerate_mapping_rejection": "passed"
+  },
+  "source_hashes": {
+    "thoughts/calibration/converged-candidate-audit-20261027/cases/bottom-black-second-left-ball.json": "d047ee1079aa3ce459a6e31f1d3e506408879ce40fa59c6b930761582e645877",
+    "thoughts/calibration/converged-candidate-audit-20261027/cases/bottom-left-pocket-ball.json": "704f33543e2b5de7721f82671ff5beb78a472eefee47b85f2ed7ab5e5755d087",
+    "thoughts/calibration/converged-candidate-audit-20261027/cases/bottom-middle-pocket-ball.json": "f4cbbb84e70ce7152f7023ff33ab0907a06817cce2da8bed03443f08f13295f8",
+    "thoughts/calibration/converged-candidate-audit-20261027/cases/bottom-right-pocket-ball.json": "7f5a908db1c6add2a54459547b3b3db7b58bea3b5db2156bca1b44116c8ffb96",
+    "thoughts/calibration/converged-candidate-audit-20261027/cases/bottom-yellow-second-right-ball.json": "cf7b1b214dc9ae5ccc7cbca632535e91399e005620e67179fa684aeea0b3eb9c",
+    "thoughts/calibration/converged-candidate-audit-20261027/cases/far-left-yellow-middle-row-ball.json": "43613265801699988b68890f91097fa434e67513eeefd0bb66d844d853fdfe0a",
+    "thoughts/calibration/converged-candidate-audit-20261027/cases/far-right-purple-middle-row-ball.json": "8bb8ec92cb1fadea37c1e58e6f4617c945073c9b108f51d6b70e6d70ee2ff7b1",
+    "thoughts/calibration/converged-candidate-audit-20261027/cases/interior-green-second-right-middle-row-ball.json": "c656f8c895acff1f89cefc60d09fe06c71797ddeef00c4d00eb96cb6ca7ef0da",
+    "thoughts/calibration/converged-candidate-audit-20261027/cases/interior-purple-second-left-middle-row-ball.json": "6a1b53e7682363f8188e2c526d432977f65ad7f88a2fd76cce907066740a4534",
+    "thoughts/calibration/converged-candidate-audit-20261027/cases/middle-row-center-ball.json": "d83e49bb81e785e1e581010ec5a9a683fef246c2522768f5be4a2745ab520189",
+    "thoughts/calibration/converged-candidate-audit-20261027/cases/top-left-pocket-ball.json": "92c90a4d3ecaf0cc8697483816c704bf315b8c87fd8acaba85ce71d22ee0b39d",
+    "thoughts/calibration/converged-candidate-audit-20261027/cases/top-middle-pocket-ball.json": "979286a2badf9bbe2248811bdc6cdb71bd3f6da005690bfa1b931b4017064a38",
+    "thoughts/calibration/converged-candidate-audit-20261027/cases/top-orange-solid-second-left-ball.json": "e9eeeba3a4c1e23d47925c157574fd3c221e4873004b8d88e1cc9d08222ee686",
+    "thoughts/calibration/converged-candidate-audit-20261027/cases/top-red-striped-second-right-ball.json": "3821ae8abe1c38c23ae3827252a2f96f433af6eb4c9805da7423ac2e416bd2ab",
+    "thoughts/calibration/converged-candidate-audit-20261027/cases/top-right-cue-pocket-ball.json": "e942298b488d9e2b176ebbd191cb691a04e7a4f340cc7e648bb30f70ff03928c",
+    "thoughts/calibration/robustness-audit-20261027/reserved-cases/4k-top-center-striped.json": "47d713eb2134a6b76805a2023fdb59796f83ff6fabee1461b316bd431c6035f0",
+    "thoughts/calibration/robustness-audit-20261027/reserved-cases/4k-top-left-orange.json": "bccb3b4ba9e3c24bda2827fcc36a8b1a779dcf5ce25f4d64017a02e1111f6a41",
+    "thoughts/calibration/robustness-audit-20261027/reserved-cases/4k-top-right-red-stripe.json": "80a3841e3adbd79b2250f6b0b124abaebeab2c17d130ba6a7245e9de72897bab",
+    "thoughts/calibration/robustness-audit-20261027/reserved-cases/alt-bottom-black.json": "44594f8bc9a473a0460a7e41a7b9e36e72617de30ccd50543c6d3b54ee4ca0e9",
+    "thoughts/calibration/robustness-audit-20261027/reserved-cases/alt-bottom-center-red-stripe.json": "c80f67a3a12cc6bbc930cebaafbda937fad3e74a1c0b24af52d18cfb06be6b97",
+    "thoughts/calibration/robustness-audit-20261027/reserved-cases/alt-bottom-left-red.json": "1b176b4402e56d1b64f6e84602c4255ee4e75f598cba43a7219037b31a310384",
+    "thoughts/calibration/robustness-audit-20261027/reserved-cases/alt-bottom-right-blue-stripe.json": "d75fdc026fb84db51187783b013dffe87077c30e8ccd58df8346474c1829c521",
+    "thoughts/calibration/robustness-audit-20261027/reserved-cases/alt-bottom-yellow.json": "bcd8ef4d35af13a579aab6753b9de59b3fd3fbeabe341c1b0432b883dc53e82d",
+    "thoughts/calibration/robustness-audit-20261027/reserved-cases/alt-middle-green-stripe.json": "6b1675caf4969b21d554612fbdefc0cc552b4f6e4227ad67869614c40d66b800",
+    "thoughts/calibration/robustness-audit-20261027/reserved-cases/alt-middle-left-purple-stripe.json": "e2e7ed338d8039db6c1d16276667a9812d1172d62d7e8ac5016f1bca3e651c60",
+    "thoughts/calibration/robustness-audit-20261027/reserved-cases/alt-middle-left-yellow.json": "94a579ca421bdecd1063efb12de049db9038f50f336c1245e0e060c6a05f4d42",
+    "thoughts/calibration/robustness-audit-20261027/reserved-cases/alt-middle-red-stripe.json": "7a4f8246ab641bf4c96264f728287aedd92eff7bdf03580688e68ffba84f6cdf",
+    "thoughts/calibration/robustness-audit-20261027/reserved-cases/alt-middle-right-purple.json": "839356f5f81b6881585f2650045bed31e77dfbc0b27421e313ba42d57eb13d74",
+    "thoughts/calibration/robustness-audit-20261027/reserved-cases/alt-top-left-pocket.json": "59860448db8f7c9ee7b5ac878a817d4f8502bd5259ec2e62da29b5a37de1e11e",
+    "thoughts/calibration/robustness-audit-20261027/reserved-cases/alt-top-orange.json": "e17f12c642df4d339d458f8a89e6c10a4dd4579bbcd3048e607adbb497ca425a",
+    "thoughts/calibration/robustness-audit-20261027/reserved-cases/alt-top-red-stripe.json": "6da74e2edb13e6d0ca3a8da882827bd175e7e724aa5c0e8906f3a515c8ae8731",
+    "thoughts/calibration/robustness-audit-20261027/reserved-cases/alt-top-right-cue.json": "86d71104ad3e35a15be71a297cccb0e8761ba9a0f2367e45ecfcdf771fa7b973",
+    "thoughts/calibration/robustness-audit-20261027/reserved-cases/alt-top-yellow-stripe.json": "a2906d56941b0fadc461460bea3858f4b88e4e265a33deedf071369f8afff7cc",
+    "thoughts/calibration/robustness-audit-20261027/summary.json": "07234a9d7cba23759bb0b7f5d1207521d83fbce9f8e4465fa33fe7f3013760d8",
+    "thoughts/calibration/table-grid-20261026-114241-measurements.json": "fc2eb93e5f0144e1b15b446078be11e494c80c8da8e427295c6e51d283e7d335",
+    "thoughts/calibration/table-grid-feasibility-results.json": "fc365735415930b6ba5a20af0b978f159c3132e027210d9a19ec027ba5899f73",
+    "thoughts/calibration/table-grid-20261026-114241.jpg": "06ef40f52e0f93db17601585c4ed1d014895aaadcaf6b04c6abbd6e986d57e7b",
+    "thoughts/calibration/table-grid-2026-10-26.jpg": "8371e508f79c5556cfd2fe6632b9095ba87d8f7052741b2f6b01563b448c385b",
+    "thoughts/calibration/stream-4k-verification/after.jpg": "5d88a4d6037e7718723916b3af6c930f8020ddcb03e008122e9c8fadc5530206"
+  },
+  "script_sha256": "63348dff30645b764e64133557d771f60ed78d5181b23b67a6979a568a2e27ff",
+  "compact_inputs_sha256": "d00eb60086a95df9ad0b064d343b6055bd0913d6176437d4a53d4401031372da",
+  "extraction_experiment_revision": "9ad0ca07c786043e44b66ab738986296f01ada8f",
+  "producer_refiner_source": {
+    "path": "perception/src/ball_localization.rs",
+    "sha256": "602266310962d8a4703a264515c272dd024c731d1b45edc56ef04a5d2bfb1b82"
+  },
+  "frozen_runtime_parameters": {
+    "angular_samples": 96,
+    "angular_sectors": 16,
+    "annulus_inner_factor": 1.5,
+    "annulus_outer_factor": 1.8,
+    "background_probe_px": 3.0,
+    "batch_budget_ms": 10000,
+    "candidates_per_ray": 3,
+    "convergence_px": 0.01,
+    "gradient_step_px": 1.0,
+    "inlier_threshold_px": 1.5,
+    "irls_iterations": 10,
+    "irls_scale_floor_px": 0.25,
+    "irls_tuning": 2.5,
+    "max_iterations": 3,
+    "max_proposals": 16,
+    "max_roi_side_px": 512,
+    "maximum_alternative_error_ratio": 1.1,
+    "maximum_alternative_residual_tolerance_px": 0.25,
+    "maximum_center_shift_fraction": 0.2,
+    "maximum_center_spread_px": 1.5,
+    "maximum_gap_fraction": 0.3333333333333333,
+    "maximum_inlier_reselection_rounds": 3,
+    "maximum_outer_background_distance": 0.25,
+    "maximum_radius_px": 160.0,
+    "maximum_refined_candidates": 16,
+    "maximum_residual_px": 1.5,
+    "maximum_same_boundary_outline_disagreement_px": 1.5,
+    "minimum_alternative_support_fraction": 0.95,
+    "minimum_background_supported_fraction": 0.6,
+    "minimum_coverage": 0.6666666666666666,
+    "minimum_foreground_background_contrast": 0.06,
+    "minimum_foreground_fraction": 0.4,
+    "minimum_gradient": 0.035,
+    "minimum_inliers": 28,
+    "minimum_radius_px": 4.0,
+    "minimum_supported_ray_fraction": 0.5,
+    "numerical_epsilon": 1e-09,
+    "outline_samples": 48,
+    "patch_size_px": 193,
+    "proposal_budget_ms": 10000,
+    "radial_samples": 96,
+    "radius_max_fraction": 1.4,
+    "radius_min_fraction": 0.6,
+    "ransac_iterations": 128,
+    "reference_width_px": 3840,
+    "roi_padding_factor": 1.8,
+    "seed": 716
+  },
+  "producer_corpus": {
+    "path": "thoughts/calibration/native-localization-corpus-v1.json",
+    "sha256": "4389155bf13fac6dd49d45a6488a53f37f4864b586646c0ced543f151c41a1de"
+  },
+  "cases": [
+    {
+      "ball_id": "bottom-black-second-left-ball",
+      "source_case": "thoughts/calibration/converged-candidate-audit-20261027/cases/bottom-black-second-left-ball.json",
+      "source_image_id": "measured-grid-720",
+      "source_width_px": 1280,
+      "status": "rejected",
+      "reason": "ambiguous_boundary",
+      "final_center_source_px": null,
+      "dropped_trace_events": 0,
+      "iterations_with_qualified_candidates": [
+        {
+          "iteration": 1,
+          "qualified_fit_count": 3,
+          "fits": [
+            {
+              "fit_id": 11,
+              "center_source_px": [
+                362.7219855780333,
+                627.5473367961896
+              ],
+              "median_source_outline_radius_px": 15.091893208820771,
+              "min_source_outline_radius_px": 14.0021741960458,
+              "max_source_outline_radius_px": 16.26927219823544,
+              "local_patch_radius_px": 12.173711093273067
+            },
+            {
+              "fit_id": 29,
+              "center_source_px": [
+                363.23879541743054,
+                627.4185483214886
+              ],
+              "median_source_outline_radius_px": 15.37718581175664,
+              "min_source_outline_radius_px": 14.26910589626264,
+              "max_source_outline_radius_px": 16.577970933342314,
+              "local_patch_radius_px": 12.409336033121521
+            },
+            {
+              "fit_id": 67,
+              "center_source_px": [
+                362.1805316874128,
+                625.9864989355528
+              ],
+              "median_source_outline_radius_px": 14.515543107264573,
+              "min_source_outline_radius_px": 13.471013992380149,
+              "max_source_outline_radius_px": 15.639027656469647,
+              "local_patch_radius_px": 11.716921774120545
+            }
+          ],
+          "center_pairwise_max_source_px": 1.7806424587856349,
+          "sampled_outline_pairwise_max_source_px": 2.589339023174572,
+          "median_source_radius_range_px": 0.8616427044920663,
+          "diagnostic_existing_source_threshold_px": 0.5,
+          "centers_within_existing_threshold_despite_outline_spread": false,
+          "pairs": [
+            {
+              "fit_ids": [
+                11,
+                29
+              ],
+              "center_distance_source_px": 0.5326151343264693,
+              "sampled_outline_hausdorff_source_px": 0.8202446039719695
+            },
+            {
+              "fit_ids": [
+                11,
+                67
+              ],
+              "center_distance_source_px": 1.6520856947704645,
+              "sampled_outline_hausdorff_source_px": 2.214580488313126
+            },
+            {
+              "fit_ids": [
+                29,
+                67
+              ],
+              "center_distance_source_px": 1.7806424587856349,
+              "sampled_outline_hausdorff_source_px": 2.589339023174572
+            }
+          ],
+          "candidate_center_pairwise_max_diagnostic_table_mm": 3.709652489897745,
+          "table_mapping_scope": "all-nine segmentation-fit diagnostic, not independent truth or production calibration"
+        }
+      ]
+    },
+    {
+      "ball_id": "bottom-left-pocket-ball",
+      "source_case": "thoughts/calibration/converged-candidate-audit-20261027/cases/bottom-left-pocket-ball.json",
+      "source_image_id": "measured-grid-720",
+      "source_width_px": 1280,
+      "status": "rejected",
+      "reason": "ambiguous_boundary",
+      "final_center_source_px": null,
+      "dropped_trace_events": 0,
+      "iterations_with_qualified_candidates": [
+        {
+          "iteration": 1,
+          "qualified_fit_count": 4,
+          "fits": [
+            {
+              "fit_id": 32,
+              "center_source_px": [
+                105.46225180258352,
+                617.3270076494675
+              ],
+              "median_source_outline_radius_px": 15.49854245180197,
+              "min_source_outline_radius_px": 13.242771555686428,
+              "max_source_outline_radius_px": 17.698137419591053,
+              "local_patch_radius_px": 10.012728311822992
+            },
+            {
+              "fit_id": 9,
+              "center_source_px": [
+                107.15282788339084,
+                616.8984658266833
+              ],
+              "median_source_outline_radius_px": 15.771991011777775,
+              "min_source_outline_radius_px": 13.486348066650956,
+              "max_source_outline_radius_px": 18.00693203480716,
+              "local_patch_radius_px": 10.209705287149896
+            },
+            {
+              "fit_id": 49,
+              "center_source_px": [
+                106.62393896884703,
+                618.1413121776939
+              ],
+              "median_source_outline_radius_px": 16.03693307246877,
+              "min_source_outline_radius_px": 13.705762315429597,
+              "max_source_outline_radius_px": 18.318665485002324,
+              "local_patch_radius_px": 10.36874698510917
+            },
+            {
+              "fit_id": 34,
+              "center_source_px": [
+                106.1894143496927,
+                617.2933654449774
+              ],
+              "median_source_outline_radius_px": 15.082759695869022,
+              "min_source_outline_radius_px": 12.891185822766692,
+              "max_source_outline_radius_px": 17.214496675620897,
+              "local_patch_radius_px": 9.75151743528728
+            }
+          ],
+          "center_pairwise_max_source_px": 1.7440457502236275,
+          "sampled_outline_pairwise_max_source_px": 2.0340920483786413,
+          "median_source_radius_range_px": 0.9541733765997478,
+          "diagnostic_existing_source_threshold_px": 0.5,
+          "centers_within_existing_threshold_despite_outline_spread": false,
+          "pairs": [
+            {
+              "fit_ids": [
+                32,
+                9
+              ],
+              "center_distance_source_px": 1.7440457502236275,
+              "sampled_outline_hausdorff_source_px": 2.0340920483786413
+            },
+            {
+              "fit_ids": [
+                32,
+                49
+              ],
+              "center_distance_source_px": 1.4186644906218095,
+              "sampled_outline_hausdorff_source_px": 1.9072392473031965
+            },
+            {
+              "fit_ids": [
+                32,
+                34
+              ],
+              "center_distance_source_px": 0.7279403600853951,
+              "sampled_outline_hausdorff_source_px": 1.198539919043169
+            },
+            {
+              "fit_ids": [
+                9,
+                49
+              ],
+              "center_distance_source_px": 1.3507000170828802,
+              "sampled_outline_hausdorff_source_px": 1.6368675526844139
+            },
+            {
+              "fit_ids": [
+                9,
+                34
+              ],
+              "center_distance_source_px": 1.0412066775821365,
+              "sampled_outline_hausdorff_source_px": 1.7946258858503124
+            },
+            {
+              "fit_ids": [
+                49,
+                34
+              ],
+              "center_distance_source_px": 0.9527986703263567,
+              "sampled_outline_hausdorff_source_px": 1.7701555866336323
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "ball_id": "bottom-middle-pocket-ball",
+      "source_case": "thoughts/calibration/converged-candidate-audit-20261027/cases/bottom-middle-pocket-ball.json",
+      "source_image_id": "measured-grid-720",
+      "source_width_px": 1280,
+      "status": "rejected",
+      "reason": "ambiguous_boundary",
+      "final_center_source_px": null,
+      "dropped_trace_events": 0,
+      "iterations_with_qualified_candidates": [
+        {
+          "iteration": 1,
+          "qualified_fit_count": 6,
+          "fits": [
+            {
+              "fit_id": 35,
+              "center_source_px": [
+                641.5344969196509,
+                629.4978609136715
+              ],
+              "median_source_outline_radius_px": 14.537644625162253,
+              "min_source_outline_radius_px": 13.991356189633626,
+              "max_source_outline_radius_px": 15.19831177376628,
+              "local_patch_radius_px": 12.980884846281908
+            },
+            {
+              "fit_id": 5,
+              "center_source_px": [
+                641.2018385407627,
+                629.8150106277652
+              ],
+              "median_source_outline_radius_px": 13.998419021732822,
+              "min_source_outline_radius_px": 13.470521405546645,
+              "max_source_outline_radius_px": 14.630639145165565,
+              "local_patch_radius_px": 12.495579182554414
+            },
+            {
+              "fit_id": 65,
+              "center_source_px": [
+                641.1949353207713,
+                628.8077917328466
+              ],
+              "median_source_outline_radius_px": 14.370218251149776,
+              "min_source_outline_radius_px": 13.832711308345885,
+              "max_source_outline_radius_px": 15.019404722975084,
+              "local_patch_radius_px": 12.838100759829324
+            },
+            {
+              "fit_id": 60,
+              "center_source_px": [
+                642.1170121860658,
+                629.4259044658461
+              ],
+              "median_source_outline_radius_px": 13.899555675003256,
+              "min_source_outline_radius_px": 13.376483118941538,
+              "max_source_outline_radius_px": 14.52497404089152,
+              "local_patch_radius_px": 12.41090709773782
+            },
+            {
+              "fit_id": 19,
+              "center_source_px": [
+                641.6318614887389,
+                628.805336146178
+              ],
+              "median_source_outline_radius_px": 14.000161305299134,
+              "min_source_outline_radius_px": 13.476318577388643,
+              "max_source_outline_radius_px": 14.62956929556853,
+              "local_patch_radius_px": 12.507386026699228
+            },
+            {
+              "fit_id": 25,
+              "center_source_px": [
+                640.8008251306304,
+                628.7981006957157
+              ],
+              "median_source_outline_radius_px": 13.996887029794497,
+              "min_source_outline_radius_px": 13.473187498528972,
+              "max_source_outline_radius_px": 14.626021690346114,
+              "local_patch_radius_px": 12.504403918745837
+            }
+          ],
+          "center_pairwise_max_source_px": 1.458247557407769,
+          "sampled_outline_pairwise_max_source_px": 1.5687685364318544,
+          "median_source_radius_range_px": 0.6380889501589966,
+          "diagnostic_existing_source_threshold_px": 0.5,
+          "centers_within_existing_threshold_despite_outline_spread": false,
+          "pairs": [
+            {
+              "fit_ids": [
+                35,
+                5
+              ],
+              "center_distance_source_px": 0.4596145539408945,
+              "sampled_outline_hausdorff_source_px": 0.9931852976640467
+            },
+            {
+              "fit_ids": [
+                35,
+                65
+              ],
+              "center_distance_source_px": 0.7690887814538024,
+              "sampled_outline_hausdorff_source_px": 0.9454719203003736
+            },
+            {
+              "fit_ids": [
+                35,
+                60
+              ],
+              "center_distance_source_px": 0.5869427280323937,
+              "sampled_outline_hausdorff_source_px": 1.205255035034143
+            },
+            {
+              "fit_ids": [
+                35,
+                19
+              ],
+              "center_distance_source_px": 0.6993356940022762,
+              "sampled_outline_hausdorff_source_px": 1.267410135573457
+            },
+            {
+              "fit_ids": [
+                35,
+                25
+              ],
+              "center_distance_source_px": 1.0138730969101184,
+              "sampled_outline_hausdorff_source_px": 1.5634237679838836
+            },
+            {
+              "fit_ids": [
+                5,
+                65
+              ],
+              "center_distance_source_px": 1.0072425510905496,
+              "sampled_outline_hausdorff_source_px": 1.3845219397055586
+            },
+            {
+              "fit_ids": [
+                5,
+                60
+              ],
+              "center_distance_source_px": 0.9944578454117377,
+              "sampled_outline_hausdorff_source_px": 1.093750094693348
+            },
+            {
+              "fit_ids": [
+                5,
+                19
+              ],
+              "center_distance_source_px": 1.0974344146939379,
+              "sampled_outline_hausdorff_source_px": 1.1004890883080034
+            },
+            {
+              "fit_ids": [
+                5,
+                25
+              ],
+              "center_distance_source_px": 1.0931228499152748,
+              "sampled_outline_hausdorff_source_px": 1.0986007329121397
+            },
+            {
+              "fit_ids": [
+                65,
+                60
+              ],
+              "center_distance_source_px": 1.1100851752039564,
+              "sampled_outline_hausdorff_source_px": 1.5687685364318544
+            },
+            {
+              "fit_ids": [
+                65,
+                19
+              ],
+              "center_distance_source_px": 0.43693306828477696,
+              "sampled_outline_hausdorff_source_px": 0.7934416855400284
+            },
+            {
+              "fit_ids": [
+                65,
+                25
+              ],
+              "center_distance_source_px": 0.3942293218084233,
+              "sampled_outline_hausdorff_source_px": 0.753985723442049
+            },
+            {
+              "fit_ids": [
+                60,
+                19
+              ],
+              "center_distance_source_px": 0.7877031410960187,
+              "sampled_outline_hausdorff_source_px": 0.8866232212047759
+            },
+            {
+              "fit_ids": [
+                60,
+                25
+              ],
+              "center_distance_source_px": 1.458247557407769,
+              "sampled_outline_hausdorff_source_px": 1.5514321432771965
+            },
+            {
+              "fit_ids": [
+                19,
+                25
+              ],
+              "center_distance_source_px": 0.8310678553773874,
+              "sampled_outline_hausdorff_source_px": 0.8379876273474473
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "ball_id": "bottom-right-pocket-ball",
+      "source_case": "thoughts/calibration/converged-candidate-audit-20261027/cases/bottom-right-pocket-ball.json",
+      "source_image_id": "measured-grid-720",
+      "source_width_px": 1280,
+      "status": "rejected",
+      "reason": "ambiguous_boundary",
+      "final_center_source_px": null,
+      "dropped_trace_events": 0,
+      "iterations_with_qualified_candidates": []
+    },
+    {
+      "ball_id": "bottom-yellow-second-right-ball",
+      "source_case": "thoughts/calibration/converged-candidate-audit-20261027/cases/bottom-yellow-second-right-ball.json",
+      "source_image_id": "measured-grid-720",
+      "source_width_px": 1280,
+      "status": "rejected",
+      "reason": "ambiguous_boundary",
+      "final_center_source_px": null,
+      "dropped_trace_events": 0,
+      "iterations_with_qualified_candidates": [
+        {
+          "iteration": 1,
+          "qualified_fit_count": 4,
+          "fits": [
+            {
+              "fit_id": 89,
+              "center_source_px": [
+                925.5014384261704,
+                630.796665977417
+              ],
+              "median_source_outline_radius_px": 15.588952107796068,
+              "min_source_outline_radius_px": 14.452164922604423,
+              "max_source_outline_radius_px": 16.820056724900617,
+              "local_patch_radius_px": 12.547125035216574
+            },
+            {
+              "fit_id": 70,
+              "center_source_px": [
+                924.7860274176808,
+                629.8760788459202
+              ],
+              "median_source_outline_radius_px": 15.529190927967765,
+              "min_source_outline_radius_px": 14.402507965465995,
+              "max_source_outline_radius_px": 16.749671866744873,
+              "local_patch_radius_px": 12.512970031611244
+            },
+            {
+              "fit_id": 20,
+              "center_source_px": [
+                926.1737969807468,
+                630.6089762586465
+              ],
+              "median_source_outline_radius_px": 15.926076233859877,
+              "min_source_outline_radius_px": 14.762633187260278,
+              "max_source_outline_radius_px": 17.188892540950604,
+              "local_patch_radius_px": 12.81396738110876
+            },
+            {
+              "fit_id": 59,
+              "center_source_px": [
+                925.3199061899694,
+                629.913909064107
+              ],
+              "median_source_outline_radius_px": 15.97920933752615,
+              "min_source_outline_radius_px": 14.81759820796289,
+              "max_source_outline_radius_px": 17.24188573603158,
+              "local_patch_radius_px": 12.870393300125334
+            }
+          ],
+          "center_pairwise_max_source_px": 1.569408480209485,
+          "sampled_outline_pairwise_max_source_px": 2.0041705921256914,
+          "median_source_radius_range_px": 0.45001840955838546,
+          "diagnostic_existing_source_threshold_px": 0.5,
+          "centers_within_existing_threshold_despite_outline_spread": false,
+          "pairs": [
+            {
+              "fit_ids": [
+                89,
+                70
+              ],
+              "center_distance_source_px": 1.1658874635853524,
+              "sampled_outline_hausdorff_source_px": 1.2361282780334106
+            },
+            {
+              "fit_ids": [
+                89,
+                20
+              ],
+              "center_distance_source_px": 0.6980640776062766,
+              "sampled_outline_hausdorff_source_px": 1.03048655217107
+            },
+            {
+              "fit_ids": [
+                89,
+                59
+              ],
+              "center_distance_source_px": 0.9012290057342386,
+              "sampled_outline_hausdorff_source_px": 1.291651085117394
+            },
+            {
+              "fit_ids": [
+                70,
+                20
+              ],
+              "center_distance_source_px": 1.569408480209485,
+              "sampled_outline_hausdorff_source_px": 2.0041705921256914
+            },
+            {
+              "fit_ids": [
+                70,
+                59
+              ],
+              "center_distance_source_px": 0.5352174034058237,
+              "sampled_outline_hausdorff_source_px": 1.0036987807780737
+            },
+            {
+              "fit_ids": [
+                20,
+                59
+              ],
+              "center_distance_source_px": 1.1010212929365066,
+              "sampled_outline_hausdorff_source_px": 1.1515070474701636
+            }
+          ],
+          "candidate_center_pairwise_max_diagnostic_table_mm": 3.2640409137714568,
+          "table_mapping_scope": "all-nine segmentation-fit diagnostic, not independent truth or production calibration"
+        }
+      ]
+    },
+    {
+      "ball_id": "far-left-yellow-middle-row-ball",
+      "source_case": "thoughts/calibration/converged-candidate-audit-20261027/cases/far-left-yellow-middle-row-ball.json",
+      "source_image_id": "measured-grid-720",
+      "source_width_px": 1280,
+      "status": "rejected",
+      "reason": "ambiguous_boundary",
+      "final_center_source_px": null,
+      "dropped_trace_events": 0,
+      "iterations_with_qualified_candidates": [
+        {
+          "iteration": 1,
+          "qualified_fit_count": 6,
+          "fits": [
+            {
+              "fit_id": 39,
+              "center_source_px": [
+                96.3046184072872,
+                362.5751980273742
+              ],
+              "median_source_outline_radius_px": 15.847384773594907,
+              "min_source_outline_radius_px": 13.847826209038463,
+              "max_source_outline_radius_px": 17.843407771038112,
+              "local_patch_radius_px": 10.882161663607876
+            },
+            {
+              "fit_id": 77,
+              "center_source_px": [
+                95.85559019368407,
+                362.0380541702847
+              ],
+              "median_source_outline_radius_px": 15.545291509583064,
+              "min_source_outline_radius_px": 13.5811560180347,
+              "max_source_outline_radius_px": 17.5011442459836,
+              "local_patch_radius_px": 10.66940243313361
+            },
+            {
+              "fit_id": 46,
+              "center_source_px": [
+                95.30823080141352,
+                361.6654580109073
+              ],
+              "median_source_outline_radius_px": 16.118516438861228,
+              "min_source_outline_radius_px": 14.07845432386068,
+              "max_source_outline_radius_px": 18.157338901389668,
+              "local_patch_radius_px": 11.05611213370822
+            },
+            {
+              "fit_id": 54,
+              "center_source_px": [
+                95.73088978288934,
+                361.18202586559
+              ],
+              "median_source_outline_radius_px": 15.580820295447772,
+              "min_source_outline_radius_px": 13.611281900645794,
+              "max_source_outline_radius_px": 17.54223586083643,
+              "local_patch_radius_px": 10.69247181929736
+            },
+            {
+              "fit_id": 14,
+              "center_source_px": [
+                95.8718271065793,
+                362.03182702903166
+              ],
+              "median_source_outline_radius_px": 16.544699957597544,
+              "min_source_outline_radius_px": 14.454218477936259,
+              "max_source_outline_radius_px": 18.640970812953814,
+              "local_patch_radius_px": 11.355613125101854
+            },
+            {
+              "fit_id": 62,
+              "center_source_px": [
+                96.34089490781832,
+                362.23943640598196
+              ],
+              "median_source_outline_radius_px": 15.186303098026492,
+              "min_source_outline_radius_px": 13.270399206268655,
+              "max_source_outline_radius_px": 17.089951700743047,
+              "local_patch_radius_px": 10.428665965904042
+            }
+          ],
+          "center_pairwise_max_source_px": 1.5066828487853507,
+          "sampled_outline_pairwise_max_source_px": 2.207557792682879,
+          "median_source_radius_range_px": 1.3583968595710516,
+          "diagnostic_existing_source_threshold_px": 0.5,
+          "centers_within_existing_threshold_despite_outline_spread": false,
+          "pairs": [
+            {
+              "fit_ids": [
+                39,
+                77
+              ],
+              "center_distance_source_px": 0.7001070345458765,
+              "sampled_outline_hausdorff_source_px": 0.9886424516223803
+            },
+            {
+              "fit_ids": [
+                39,
+                46
+              ],
+              "center_distance_source_px": 1.3492276156008294,
+              "sampled_outline_hausdorff_source_px": 1.6363636513856932
+            },
+            {
+              "fit_ids": [
+                39,
+                54
+              ],
+              "center_distance_source_px": 1.5066828487853507,
+              "sampled_outline_hausdorff_source_px": 1.742706681309204
+            },
+            {
+              "fit_ids": [
+                39,
+                14
+              ],
+              "center_distance_source_px": 0.6946656402962471,
+              "sampled_outline_hausdorff_source_px": 1.408821371449148
+            },
+            {
+              "fit_ids": [
+                39,
+                62
+              ],
+              "center_distance_source_px": 0.33771563613597905,
+              "sampled_outline_hausdorff_source_px": 0.9464692956551675
+            },
+            {
+              "fit_ids": [
+                77,
+                46
+              ],
+              "center_distance_source_px": 0.662140621235075,
+              "sampled_outline_hausdorff_source_px": 1.2839652857400712
+            },
+            {
+              "fit_ids": [
+                77,
+                54
+              ],
+              "center_distance_source_px": 0.8650633796958684,
+              "sampled_outline_hausdorff_source_px": 0.89929211425832
+            },
+            {
+              "fit_ids": [
+                77,
+                14
+              ],
+              "center_distance_source_px": 0.01739007270118823,
+              "sampled_outline_hausdorff_source_px": 1.123576908994325
+            },
+            {
+              "fit_ids": [
+                77,
+                62
+              ],
+              "center_distance_source_px": 0.5254288442932779,
+              "sampled_outline_hausdorff_source_px": 0.9262371431050346
+            },
+            {
+              "fit_ids": [
+                46,
+                54
+              ],
+              "center_distance_source_px": 0.6421427051273412,
+              "sampled_outline_hausdorff_source_px": 1.2021221382958704
+            },
+            {
+              "fit_ids": [
+                46,
+                14
+              ],
+              "center_distance_source_px": 0.672210571649945,
+              "sampled_outline_hausdorff_source_px": 1.1078227259519673
+            },
+            {
+              "fit_ids": [
+                46,
+                62
+              ],
+              "center_distance_source_px": 1.1814594172756603,
+              "sampled_outline_hausdorff_source_px": 2.207557792682879
+            },
+            {
+              "fit_ids": [
+                54,
+                14
+              ],
+              "center_distance_source_px": 0.8614089311097861,
+              "sampled_outline_hausdorff_source_px": 1.7060788336480037
+            },
+            {
+              "fit_ids": [
+                54,
+                62
+              ],
+              "center_distance_source_px": 1.2207470267715872,
+              "sampled_outline_hausdorff_source_px": 1.604310684396381
+            },
+            {
+              "fit_ids": [
+                14,
+                62
+              ],
+              "center_distance_source_px": 0.5129583370576035,
+              "sampled_outline_hausdorff_source_px": 2.037630205015157
+            }
+          ],
+          "candidate_center_pairwise_max_diagnostic_table_mm": 3.0930681270511293,
+          "table_mapping_scope": "all-nine segmentation-fit diagnostic, not independent truth or production calibration"
+        }
+      ]
+    },
+    {
+      "ball_id": "far-right-purple-middle-row-ball",
+      "source_case": "thoughts/calibration/converged-candidate-audit-20261027/cases/far-right-purple-middle-row-ball.json",
+      "source_image_id": "measured-grid-720",
+      "source_width_px": 1280,
+      "status": "rejected",
+      "reason": "ambiguous_boundary",
+      "final_center_source_px": null,
+      "dropped_trace_events": 0,
+      "iterations_with_qualified_candidates": [
+        {
+          "iteration": 1,
+          "qualified_fit_count": 2,
+          "fits": [
+            {
+              "fit_id": 67,
+              "center_source_px": [
+                1196.8895597823323,
+                362.943510002274
+              ],
+              "median_source_outline_radius_px": 15.725609736260083,
+              "min_source_outline_radius_px": 13.712781627278865,
+              "max_source_outline_radius_px": 17.72855485930408,
+              "local_patch_radius_px": 10.739628922606101
+            },
+            {
+              "fit_id": 66,
+              "center_source_px": [
+                1197.1129363420735,
+                362.3425587152533
+              ],
+              "median_source_outline_radius_px": 16.36167735285584,
+              "min_source_outline_radius_px": 14.265803248340896,
+              "max_source_outline_radius_px": 18.456086364416002,
+              "local_patch_radius_px": 11.171389257851578
+            }
+          ],
+          "center_pairwise_max_source_px": 0.6411236517347265,
+          "sampled_outline_pairwise_max_source_px": 1.2403009941309986,
+          "median_source_radius_range_px": 0.6360676165957564,
+          "diagnostic_existing_source_threshold_px": 0.5,
+          "centers_within_existing_threshold_despite_outline_spread": false,
+          "pairs": [
+            {
+              "fit_ids": [
+                67,
+                66
+              ],
+              "center_distance_source_px": 0.6411236517347265,
+              "sampled_outline_hausdorff_source_px": 1.2403009941309986
+            }
+          ],
+          "candidate_center_pairwise_max_diagnostic_table_mm": 1.3039890062753452,
+          "table_mapping_scope": "all-nine segmentation-fit diagnostic, not independent truth or production calibration"
+        }
+      ]
+    },
+    {
+      "ball_id": "interior-green-second-right-middle-row-ball",
+      "source_case": "thoughts/calibration/converged-candidate-audit-20261027/cases/interior-green-second-right-middle-row-ball.json",
+      "source_image_id": "measured-grid-720",
+      "source_width_px": 1280,
+      "status": "rejected",
+      "reason": "ambiguous_boundary",
+      "final_center_source_px": null,
+      "dropped_trace_events": 0,
+      "iterations_with_qualified_candidates": [
+        {
+          "iteration": 1,
+          "qualified_fit_count": 1,
+          "fits": [
+            {
+              "fit_id": 3,
+              "center_source_px": [
+                923.9642751199915,
+                362.0014744971698
+              ],
+              "median_source_outline_radius_px": 14.226543327236254,
+              "min_source_outline_radius_px": 13.68827050710866,
+              "max_source_outline_radius_px": 14.863988924332775,
+              "local_patch_radius_px": 12.70117977067548
+            }
+          ],
+          "center_pairwise_max_source_px": null,
+          "sampled_outline_pairwise_max_source_px": null,
+          "median_source_radius_range_px": 0.0,
+          "diagnostic_existing_source_threshold_px": 0.5,
+          "centers_within_existing_threshold_despite_outline_spread": null,
+          "pairs": [],
+          "candidate_center_pairwise_max_diagnostic_table_mm": null,
+          "table_mapping_scope": "all-nine segmentation-fit diagnostic, not independent truth or production calibration"
+        },
+        {
+          "iteration": 2,
+          "qualified_fit_count": 2,
+          "fits": [
+            {
+              "fit_id": 59,
+              "center_source_px": [
+                924.427894652336,
+                362.1937734229805
+              ],
+              "median_source_outline_radius_px": 14.610930933249866,
+              "min_source_outline_radius_px": 14.056102622243897,
+              "max_source_outline_radius_px": 15.269855629360075,
+              "local_patch_radius_px": 13.039625658145283
+            },
+            {
+              "fit_id": 24,
+              "center_source_px": [
+                924.1758617190234,
+                361.672163053643
+              ],
+              "median_source_outline_radius_px": 14.523975930192606,
+              "min_source_outline_radius_px": 13.97331296026501,
+              "max_source_outline_radius_px": 15.177484771052525,
+              "local_patch_radius_px": 12.964729433999773
+            }
+          ],
+          "center_pairwise_max_source_px": 0.5793081881646334,
+          "sampled_outline_pairwise_max_source_px": 0.6664848419462486,
+          "median_source_radius_range_px": 0.08695500305726078,
+          "diagnostic_existing_source_threshold_px": 0.5,
+          "centers_within_existing_threshold_despite_outline_spread": false,
+          "pairs": [
+            {
+              "fit_ids": [
+                59,
+                24
+              ],
+              "center_distance_source_px": 0.5793081881646334,
+              "sampled_outline_hausdorff_source_px": 0.6664848419462486
+            }
+          ],
+          "candidate_center_pairwise_max_diagnostic_table_mm": 1.1897337186065717,
+          "table_mapping_scope": "all-nine segmentation-fit diagnostic, not independent truth or production calibration"
+        }
+      ]
+    },
+    {
+      "ball_id": "interior-purple-second-left-middle-row-ball",
+      "source_case": "thoughts/calibration/converged-candidate-audit-20261027/cases/interior-purple-second-left-middle-row-ball.json",
+      "source_image_id": "measured-grid-720",
+      "source_width_px": 1280,
+      "status": "rejected",
+      "reason": "ambiguous_boundary",
+      "final_center_source_px": null,
+      "dropped_trace_events": 0,
+      "iterations_with_qualified_candidates": [
+        {
+          "iteration": 1,
+          "qualified_fit_count": 4,
+          "fits": [
+            {
+              "fit_id": 5,
+              "center_source_px": [
+                358.0028223297428,
+                363.7810997950204
+              ],
+              "median_source_outline_radius_px": 14.10853937130259,
+              "min_source_outline_radius_px": 13.550687885683937,
+              "max_source_outline_radius_px": 14.762547193559286,
+              "local_patch_radius_px": 12.532823828333893
+            },
+            {
+              "fit_id": 31,
+              "center_source_px": [
+                358.1645237051656,
+                364.5151114746537
+              ],
+              "median_source_outline_radius_px": 14.112580992217673,
+              "min_source_outline_radius_px": 13.55526862348904,
+              "max_source_outline_radius_px": 14.76610211086231,
+              "local_patch_radius_px": 12.53761908131001
+            },
+            {
+              "fit_id": 69,
+              "center_source_px": [
+                358.3915232403054,
+                363.6543199441907
+              ],
+              "median_source_outline_radius_px": 14.456003902842513,
+              "min_source_outline_radius_px": 13.88588074476653,
+              "max_source_outline_radius_px": 15.127720021519913,
+              "local_patch_radius_px": 12.845560796041926
+            },
+            {
+              "fit_id": 87,
+              "center_source_px": [
+                358.51432945207875,
+                363.60057451919744
+              ],
+              "median_source_outline_radius_px": 13.705995032681605,
+              "min_source_outline_radius_px": 13.16463134689892,
+              "max_source_outline_radius_px": 14.335122529891377,
+              "local_patch_radius_px": 12.178904560771398
+            }
+          ],
+          "center_pairwise_max_source_px": 0.9791536669331521,
+          "sampled_outline_pairwise_max_source_px": 1.3809555784716612,
+          "median_source_radius_range_px": 0.750008870160908,
+          "diagnostic_existing_source_threshold_px": 0.5,
+          "centers_within_existing_threshold_despite_outline_spread": false,
+          "pairs": [
+            {
+              "fit_ids": [
+                5,
+                31
+              ],
+              "center_distance_source_px": 0.7516119215736949,
+              "sampled_outline_hausdorff_source_px": 0.7580838668265437
+            },
+            {
+              "fit_ids": [
+                5,
+                69
+              ],
+              "center_distance_source_px": 0.4088539206716532,
+              "sampled_outline_hausdorff_source_px": 0.7616763754092142
+            },
+            {
+              "fit_ids": [
+                5,
+                87
+              ],
+              "center_distance_source_px": 0.5424287155114175,
+              "sampled_outline_hausdorff_source_px": 0.9675303391593746
+            },
+            {
+              "fit_ids": [
+                31,
+                69
+              ],
+              "center_distance_source_px": 0.8902195503753244,
+              "sampled_outline_hausdorff_source_px": 1.220290075330323
+            },
+            {
+              "fit_ids": [
+                31,
+                87
+              ],
+              "center_distance_source_px": 0.9791536669331521,
+              "sampled_outline_hausdorff_source_px": 1.3809555784716612
+            },
+            {
+              "fit_ids": [
+                69,
+                87
+              ],
+              "center_distance_source_px": 0.13405199124904155,
+              "sampled_outline_hausdorff_source_px": 0.922442451674589
+            }
+          ],
+          "candidate_center_pairwise_max_diagnostic_table_mm": 2.03438780113309,
+          "table_mapping_scope": "all-nine segmentation-fit diagnostic, not independent truth or production calibration"
+        }
+      ]
+    },
+    {
+      "ball_id": "middle-row-center-ball",
+      "source_case": "thoughts/calibration/converged-candidate-audit-20261027/cases/middle-row-center-ball.json",
+      "source_image_id": "measured-grid-720",
+      "source_width_px": 1280,
+      "status": "rejected",
+      "reason": "ambiguous_boundary",
+      "final_center_source_px": null,
+      "dropped_trace_events": 0,
+      "iterations_with_qualified_candidates": [
+        {
+          "iteration": 1,
+          "qualified_fit_count": 4,
+          "fits": [
+            {
+              "fit_id": 44,
+              "center_source_px": [
+                643.0222110591475,
+                361.20734574472135
+              ],
+              "median_source_outline_radius_px": 13.366591040975447,
+              "min_source_outline_radius_px": 13.364035450487435,
+              "max_source_outline_radius_px": 13.372798080068065,
+              "local_patch_radius_px": 13.364722857311026
+            },
+            {
+              "fit_id": 49,
+              "center_source_px": [
+                642.9664370544525,
+                360.83489734098515
+              ],
+              "median_source_outline_radius_px": 13.640237402370778,
+              "min_source_outline_radius_px": 13.637415066412697,
+              "max_source_outline_radius_px": 13.646541047324444,
+              "local_patch_radius_px": 13.638453079182547
+            },
+            {
+              "fit_id": 88,
+              "center_source_px": [
+                642.7511542214179,
+                361.2246624985001
+              ],
+              "median_source_outline_radius_px": 13.3281251799031,
+              "min_source_outline_radius_px": 13.325574860867732,
+              "max_source_outline_radius_px": 13.33431389961475,
+              "local_patch_radius_px": 13.326246660981345
+            },
+            {
+              "fit_id": 4,
+              "center_source_px": [
+                643.4322819886256,
+                360.84937052089
+              ],
+              "median_source_outline_radius_px": 12.977542147208627,
+              "min_source_outline_radius_px": 12.975087151548372,
+              "max_source_outline_radius_px": 12.983326924517755,
+              "local_patch_radius_px": 12.975856768779913
+            }
+          ],
+          "center_pairwise_max_source_px": 0.7776754488344714,
+          "sampled_outline_pairwise_max_source_px": 1.128657515586304,
+          "median_source_radius_range_px": 0.6626952551621503,
+          "diagnostic_existing_source_threshold_px": 0.5,
+          "centers_within_existing_threshold_despite_outline_spread": false,
+          "pairs": [
+            {
+              "fit_ids": [
+                44,
+                49
+              ],
+              "center_distance_source_px": 0.3766013184328461,
+              "sampled_outline_hausdorff_source_px": 0.6499558679726356
+            },
+            {
+              "fit_ids": [
+                44,
+                88
+              ],
+              "center_distance_source_px": 0.27160942406587835,
+              "sampled_outline_hausdorff_source_px": 0.3100052973208532
+            },
+            {
+              "fit_ids": [
+                44,
+                4
+              ],
+              "center_distance_source_px": 0.5443385234210296,
+              "sampled_outline_hausdorff_source_px": 0.9332299317736349
+            },
+            {
+              "fit_ids": [
+                49,
+                88
+              ],
+              "center_distance_source_px": 0.44526798246905375,
+              "sampled_outline_hausdorff_source_px": 0.7570711090444742
+            },
+            {
+              "fit_ids": [
+                49,
+                4
+              ],
+              "center_distance_source_px": 0.46606971112839185,
+              "sampled_outline_hausdorff_source_px": 1.128657515586304
+            },
+            {
+              "fit_ids": [
+                88,
+                4
+              ],
+              "center_distance_source_px": 0.7776754488344714,
+              "sampled_outline_hausdorff_source_px": 1.1284743084723934
+            }
+          ],
+          "candidate_center_pairwise_max_diagnostic_table_mm": 1.6103901273466243,
+          "table_mapping_scope": "all-nine segmentation-fit diagnostic, not independent truth or production calibration"
+        }
+      ]
+    },
+    {
+      "ball_id": "top-left-pocket-ball",
+      "source_case": "thoughts/calibration/converged-candidate-audit-20261027/cases/top-left-pocket-ball.json",
+      "source_image_id": "measured-grid-720",
+      "source_width_px": 1280,
+      "status": "rejected",
+      "reason": "insufficient_boundary",
+      "final_center_source_px": null,
+      "dropped_trace_events": 0,
+      "iterations_with_qualified_candidates": []
+    },
+    {
+      "ball_id": "top-middle-pocket-ball",
+      "source_case": "thoughts/calibration/converged-candidate-audit-20261027/cases/top-middle-pocket-ball.json",
+      "source_image_id": "measured-grid-720",
+      "source_width_px": 1280,
+      "status": "rejected",
+      "reason": "ambiguous_boundary",
+      "final_center_source_px": null,
+      "dropped_trace_events": 0,
+      "iterations_with_qualified_candidates": [
+        {
+          "iteration": 1,
+          "qualified_fit_count": 2,
+          "fits": [
+            {
+              "fit_id": 33,
+              "center_source_px": [
+                640.9630427592901,
+                97.26224532499663
+              ],
+              "median_source_outline_radius_px": 14.590330397597132,
+              "min_source_outline_radius_px": 14.14065525708285,
+              "max_source_outline_radius_px": 15.150538576082731,
+              "local_patch_radius_px": 13.292759532413097
+            },
+            {
+              "fit_id": 64,
+              "center_source_px": [
+                640.9037904416159,
+                97.85046160778919
+              ],
+              "median_source_outline_radius_px": 14.24099228734869,
+              "min_source_outline_radius_px": 13.803915912628677,
+              "max_source_outline_radius_px": 14.783168161458496,
+              "local_patch_radius_px": 12.979754726589602
+            }
+          ],
+          "center_pairwise_max_source_px": 0.5911930585621448,
+          "sampled_outline_pairwise_max_source_px": 0.9580134255376439,
+          "median_source_radius_range_px": 0.34933811024844275,
+          "diagnostic_existing_source_threshold_px": 0.5,
+          "centers_within_existing_threshold_despite_outline_spread": false,
+          "pairs": [
+            {
+              "fit_ids": [
+                33,
+                64
+              ],
+              "center_distance_source_px": 0.5911930585621448,
+              "sampled_outline_hausdorff_source_px": 0.9580134255376439
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "ball_id": "top-orange-solid-second-left-ball",
+      "source_case": "thoughts/calibration/converged-candidate-audit-20261027/cases/top-orange-solid-second-left-ball.json",
+      "source_image_id": "measured-grid-720",
+      "source_width_px": 1280,
+      "status": "rejected",
+      "reason": "ambiguous_boundary",
+      "final_center_source_px": null,
+      "dropped_trace_events": 0,
+      "iterations_with_qualified_candidates": [
+        {
+          "iteration": 1,
+          "qualified_fit_count": 2,
+          "fits": [
+            {
+              "fit_id": 34,
+              "center_source_px": [
+                352.7703809519476,
+                97.37596880307447
+              ],
+              "median_source_outline_radius_px": 15.234204395856764,
+              "min_source_outline_radius_px": 14.19066039668219,
+              "max_source_outline_radius_px": 16.378434351325474,
+              "local_patch_radius_px": 12.414027739194047
+            },
+            {
+              "fit_id": 25,
+              "center_source_px": [
+                352.1341191072498,
+                95.84531279491193
+              ],
+              "median_source_outline_radius_px": 15.222944498707436,
+              "min_source_outline_radius_px": 14.173460809289319,
+              "max_source_outline_radius_px": 16.372176012544593,
+              "local_patch_radius_px": 12.387307574470373
+            }
+          ],
+          "center_pairwise_max_source_px": 1.6576299195967479,
+          "sampled_outline_pairwise_max_source_px": 1.6654139865739086,
+          "median_source_radius_range_px": 0.011259897149328069,
+          "diagnostic_existing_source_threshold_px": 0.5,
+          "centers_within_existing_threshold_despite_outline_spread": false,
+          "pairs": [
+            {
+              "fit_ids": [
+                34,
+                25
+              ],
+              "center_distance_source_px": 1.6576299195967479,
+              "sampled_outline_hausdorff_source_px": 1.6654139865739086
+            }
+          ],
+          "candidate_center_pairwise_max_diagnostic_table_mm": 3.3443298821373517,
+          "table_mapping_scope": "all-nine segmentation-fit diagnostic, not independent truth or production calibration"
+        }
+      ]
+    },
+    {
+      "ball_id": "top-red-striped-second-right-ball",
+      "source_case": "thoughts/calibration/converged-candidate-audit-20261027/cases/top-red-striped-second-right-ball.json",
+      "source_image_id": "measured-grid-720",
+      "source_width_px": 1280,
+      "status": "rejected",
+      "reason": "ambiguous_boundary",
+      "final_center_source_px": null,
+      "dropped_trace_events": 0,
+      "iterations_with_qualified_candidates": [
+        {
+          "iteration": 1,
+          "qualified_fit_count": 8,
+          "fits": [
+            {
+              "fit_id": 48,
+              "center_source_px": [
+                927.2474258836091,
+                93.59305370457213
+              ],
+              "median_source_outline_radius_px": 15.037828806624251,
+              "min_source_outline_radius_px": 14.023383473322307,
+              "max_source_outline_radius_px": 16.148848412629988,
+              "local_patch_radius_px": 12.296247021886943
+            },
+            {
+              "fit_id": 29,
+              "center_source_px": [
+                926.9190605705619,
+                94.03902836861167
+              ],
+              "median_source_outline_radius_px": 15.591441088361938,
+              "min_source_outline_radius_px": 14.542295963114823,
+              "max_source_outline_radius_px": 16.74718076734876,
+              "local_patch_radius_px": 12.755644085243125
+            },
+            {
+              "fit_id": 36,
+              "center_source_px": [
+                927.6563579547317,
+                93.21501621707574
+              ],
+              "median_source_outline_radius_px": 14.659853632851291,
+              "min_source_outline_radius_px": 13.66837556077892,
+              "max_source_outline_radius_px": 15.741233817015688,
+              "local_patch_radius_px": 11.980756083128517
+            },
+            {
+              "fit_id": 65,
+              "center_source_px": [
+                927.8318465986677,
+                94.13720769108619
+              ],
+              "median_source_outline_radius_px": 14.882887803203129,
+              "min_source_outline_radius_px": 13.879023977468968,
+              "max_source_outline_radius_px": 15.980796636940354,
+              "local_patch_radius_px": 12.168765665122912
+            },
+            {
+              "fit_id": 63,
+              "center_source_px": [
+                928.1961243574401,
+                93.27448283078257
+              ],
+              "median_source_outline_radius_px": 15.098421963342886,
+              "min_source_outline_radius_px": 14.075696820736615,
+              "max_source_outline_radius_px": 16.218288481989887,
+              "local_patch_radius_px": 12.335081355755335
+            },
+            {
+              "fit_id": 74,
+              "center_source_px": [
+                926.8931000371806,
+                93.0670282667453
+              ],
+              "median_source_outline_radius_px": 15.521744819642002,
+              "min_source_outline_radius_px": 14.473769059395933,
+              "max_source_outline_radius_px": 16.67455408268343,
+              "local_patch_radius_px": 12.69093913264899
+            },
+            {
+              "fit_id": 31,
+              "center_source_px": [
+                927.2030968444031,
+                93.53329798710172
+              ],
+              "median_source_outline_radius_px": 15.978570669220957,
+              "min_source_outline_radius_px": 14.900402643090638,
+              "max_source_outline_radius_px": 17.169984784440796,
+              "local_patch_radius_px": 13.065623947108827
+            },
+            {
+              "fit_id": 24,
+              "center_source_px": [
+                927.3060349338281,
+                92.51058257799212
+              ],
+              "median_source_outline_radius_px": 15.111475263010323,
+              "min_source_outline_radius_px": 14.087939156570828,
+              "max_source_outline_radius_px": 16.2322576598713,
+              "local_patch_radius_px": 12.34741990734163
+            }
+          ],
+          "center_pairwise_max_source_px": 1.70949909781481,
+          "sampled_outline_pairwise_max_source_px": 2.0719736956727974,
+          "median_source_radius_range_px": 1.3187170363696659,
+          "diagnostic_existing_source_threshold_px": 0.5,
+          "centers_within_existing_threshold_despite_outline_spread": false,
+          "pairs": [
+            {
+              "fit_ids": [
+                48,
+                29
+              ],
+              "center_distance_source_px": 0.5538205302964074,
+              "sampled_outline_hausdorff_source_px": 1.1268154339454217
+            },
+            {
+              "fit_ids": [
+                48,
+                36
+              ],
+              "center_distance_source_px": 0.5569001532996253,
+              "sampled_outline_hausdorff_source_px": 0.9489725136109332
+            },
+            {
+              "fit_ids": [
+                48,
+                65
+              ],
+              "center_distance_source_px": 0.7985306088238879,
+              "sampled_outline_hausdorff_source_px": 0.9428396720724768
+            },
+            {
+              "fit_ids": [
+                48,
+                63
+              ],
+              "center_distance_source_px": 1.0007578107995245,
+              "sampled_outline_hausdorff_source_px": 1.069454286460875
+            },
+            {
+              "fit_ids": [
+                48,
+                74
+              ],
+              "center_distance_source_px": 0.6342314772133351,
+              "sampled_outline_hausdorff_source_px": 1.0901633934152324
+            },
+            {
+              "fit_ids": [
+                48,
+                31
+              ],
+              "center_distance_source_px": 0.0744030206868622,
+              "sampled_outline_hausdorff_source_px": 1.038929385257734
+            },
+            {
+              "fit_ids": [
+                48,
+                24
+              ],
+              "center_distance_source_px": 1.084056622435815,
+              "sampled_outline_hausdorff_source_px": 1.1633073242132699
+            },
+            {
+              "fit_ids": [
+                29,
+                36
+              ],
+              "center_distance_source_px": 1.1057140039732074,
+              "sampled_outline_hausdorff_source_px": 2.0719736956727974
+            },
+            {
+              "fit_ids": [
+                29,
+                65
+              ],
+              "center_distance_source_px": 0.9180509313031815,
+              "sampled_outline_hausdorff_source_px": 1.6120457719378076
+            },
+            {
+              "fit_ids": [
+                29,
+                63
+              ],
+              "center_distance_source_px": 1.488429304727002,
+              "sampled_outline_hausdorff_source_px": 1.9940860781445084
+            },
+            {
+              "fit_ids": [
+                29,
+                74
+              ],
+              "center_distance_source_px": 0.9723467217621894,
+              "sampled_outline_hausdorff_source_px": 1.0374267767948455
+            },
+            {
+              "fit_ids": [
+                29,
+                31
+              ],
+              "center_distance_source_px": 0.5800343297080106,
+              "sampled_outline_hausdorff_source_px": 0.9981240933084878
+            },
+            {
+              "fit_ids": [
+                29,
+                24
+              ],
+              "center_distance_source_px": 1.576672347917557,
+              "sampled_outline_hausdorff_source_px": 2.054716753345888
+            },
+            {
+              "fit_ids": [
+                36,
+                65
+              ],
+              "center_distance_source_px": 0.9387403149370164,
+              "sampled_outline_hausdorff_source_px": 1.150431668032169
+            },
+            {
+              "fit_ids": [
+                36,
+                63
+              ],
+              "center_distance_source_px": 0.5430322712680753,
+              "sampled_outline_hausdorff_source_px": 0.9903726387542723
+            },
+            {
+              "fit_ids": [
+                36,
+                74
+              ],
+              "center_distance_source_px": 0.7774722388274753,
+              "sampled_outline_hausdorff_source_px": 1.6164341065882193
+            },
+            {
+              "fit_ids": [
+                36,
+                31
+              ],
+              "center_distance_source_px": 0.5538491845864872,
+              "sampled_outline_hausdorff_source_px": 1.9259421034120783
+            },
+            {
+              "fit_ids": [
+                36,
+                24
+              ],
+              "center_distance_source_px": 0.7867356422888278,
+              "sampled_outline_hausdorff_source_px": 1.2181110827991717
+            },
+            {
+              "fit_ids": [
+                65,
+                63
+              ],
+              "center_distance_source_px": 0.9364787611698293,
+              "sampled_outline_hausdorff_source_px": 1.1692073041475557
+            },
+            {
+              "fit_ids": [
+                65,
+                74
+              ],
+              "center_distance_source_px": 1.4235621191175205,
+              "sampled_outline_hausdorff_source_px": 2.0207879326973757
+            },
+            {
+              "fit_ids": [
+                65,
+                31
+              ],
+              "center_distance_source_px": 0.8717988208608023,
+              "sampled_outline_hausdorff_source_px": 1.8931368972693905
+            },
+            {
+              "fit_ids": [
+                65,
+                24
+              ],
+              "center_distance_source_px": 1.70949909781481,
+              "sampled_outline_hausdorff_source_px": 1.9352924216993819
+            },
+            {
+              "fit_ids": [
+                63,
+                74
+              ],
+              "center_distance_source_px": 1.319435400210126,
+              "sampled_outline_hausdorff_source_px": 1.7276187829823706
+            },
+            {
+              "fit_ids": [
+                63,
+                31
+              ],
+              "center_distance_source_px": 1.026201211648515,
+              "sampled_outline_hausdorff_source_px": 1.9211268503376324
+            },
+            {
+              "fit_ids": [
+                63,
+                24
+              ],
+              "center_distance_source_px": 1.172946195798991,
+              "sampled_outline_hausdorff_source_px": 1.18904507106116
+            },
+            {
+              "fit_ids": [
+                74,
+                31
+              ],
+              "center_distance_source_px": 0.5599155941831132,
+              "sampled_outline_hausdorff_source_px": 0.9854382187729428
+            },
+            {
+              "fit_ids": [
+                74,
+                24
+              ],
+              "center_distance_source_px": 0.6929264271199715,
+              "sampled_outline_hausdorff_source_px": 1.1164568503880767
+            },
+            {
+              "fit_ids": [
+                31,
+                24
+              ],
+              "center_distance_source_px": 1.0278828037693102,
+              "sampled_outline_hausdorff_source_px": 1.8881206306673222
+            }
+          ],
+          "candidate_center_pairwise_max_diagnostic_table_mm": 3.445508202070308,
+          "table_mapping_scope": "all-nine segmentation-fit diagnostic, not independent truth or production calibration"
+        }
+      ]
+    },
+    {
+      "ball_id": "top-right-cue-pocket-ball",
+      "source_case": "thoughts/calibration/converged-candidate-audit-20261027/cases/top-right-cue-pocket-ball.json",
+      "source_image_id": "measured-grid-720",
+      "source_width_px": 1280,
+      "status": "rejected",
+      "reason": "ambiguous_boundary",
+      "final_center_source_px": null,
+      "dropped_trace_events": 0,
+      "iterations_with_qualified_candidates": [
+        {
+          "iteration": 1,
+          "qualified_fit_count": 2,
+          "fits": [
+            {
+              "fit_id": 38,
+              "center_source_px": [
+                1194.7508384091411,
+                96.92485585670161
+              ],
+              "median_source_outline_radius_px": 15.954404970339178,
+              "min_source_outline_radius_px": 13.59394917773362,
+              "max_source_outline_radius_px": 18.250197826857484,
+              "local_patch_radius_px": 10.253684998072162
+            },
+            {
+              "fit_id": 9,
+              "center_source_px": [
+                1195.1816131612263,
+                96.46777236751112
+              ],
+              "median_source_outline_radius_px": 15.727605759311851,
+              "min_source_outline_radius_px": 13.397359565285742,
+              "max_source_outline_radius_px": 17.98993188773755,
+              "local_patch_radius_px": 10.101004638214022
+            }
+          ],
+          "center_pairwise_max_source_px": 0.6280861430764272,
+          "sampled_outline_pairwise_max_source_px": 0.868125653484103,
+          "median_source_radius_range_px": 0.22679921102732692,
+          "diagnostic_existing_source_threshold_px": 0.5,
+          "centers_within_existing_threshold_despite_outline_spread": false,
+          "pairs": [
+            {
+              "fit_ids": [
+                38,
+                9
+              ],
+              "center_distance_source_px": 0.6280861430764272,
+              "sampled_outline_hausdorff_source_px": 0.868125653484103
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "ball_id": "4k-top-center-striped",
+      "source_case": "thoughts/calibration/robustness-audit-20261027/reserved-cases/4k-top-center-striped.json",
+      "source_image_id": "framing-after-4k",
+      "source_width_px": 3840,
+      "status": "rejected",
+      "reason": "ambiguous_boundary",
+      "final_center_source_px": null,
+      "dropped_trace_events": 0,
+      "iterations_with_qualified_candidates": [
+        {
+          "iteration": 1,
+          "qualified_fit_count": 6,
+          "fits": [
+            {
+              "fit_id": 74,
+              "center_source_px": [
+                1923.4291059444463,
+                293.16208721983253
+              ],
+              "median_source_outline_radius_px": 43.87953433590117,
+              "min_source_outline_radius_px": 42.53140568143235,
+              "max_source_outline_radius_px": 45.55671689397484,
+              "local_patch_radius_px": 39.98923501836438
+            },
+            {
+              "fit_id": 80,
+              "center_source_px": [
+                1926.45019333161,
+                294.36691426460993
+              ],
+              "median_source_outline_radius_px": 43.2750278846286,
+              "min_source_outline_radius_px": 41.9493128480441,
+              "max_source_outline_radius_px": 44.92071630130092,
+              "local_patch_radius_px": 39.44954349005829
+            },
+            {
+              "fit_id": 11,
+              "center_source_px": [
+                1924.902882385717,
+                292.6837885591775
+              ],
+              "median_source_outline_radius_px": 45.228981946166996,
+              "min_source_outline_radius_px": 43.83841185697316,
+              "max_source_outline_radius_px": 46.97044684105169,
+              "local_patch_radius_px": 41.215326576488636
+            },
+            {
+              "fit_id": 0,
+              "center_source_px": [
+                1926.34167337985,
+                293.26740339809146
+              ],
+              "median_source_outline_radius_px": 41.3053317471368,
+              "min_source_outline_radius_px": 40.035413513323626,
+              "max_source_outline_radius_px": 42.86485922063638,
+              "local_patch_radius_px": 37.64320954838651
+            },
+            {
+              "fit_id": 29,
+              "center_source_px": [
+                1925.0348654062345,
+                294.022104492822
+              ],
+              "median_source_outline_radius_px": 44.81070729573494,
+              "min_source_outline_radius_px": 43.43751777841799,
+              "max_source_outline_radius_px": 46.52823015773252,
+              "local_patch_radius_px": 40.84682539373769
+            },
+            {
+              "fit_id": 25,
+              "center_source_px": [
+                1927.7059213920752,
+                293.43864556695075
+              ],
+              "median_source_outline_radius_px": 42.48514360073389,
+              "min_source_outline_radius_px": 41.18012711592664,
+              "max_source_outline_radius_px": 44.097784043112334,
+              "local_patch_radius_px": 38.72075107553597
+            }
+          ],
+          "center_pairwise_max_source_px": 4.285747880176574,
+          "sampled_outline_pairwise_max_source_px": 5.642420901479541,
+          "median_source_radius_range_px": 3.923650199030199,
+          "diagnostic_existing_source_threshold_px": 1.5,
+          "centers_within_existing_threshold_despite_outline_spread": false,
+          "pairs": [
+            {
+              "fit_ids": [
+                74,
+                80
+              ],
+              "center_distance_source_px": 3.2524724762412944,
+              "sampled_outline_hausdorff_source_px": 3.8524741342352775
+            },
+            {
+              "fit_ids": [
+                74,
+                11
+              ],
+              "center_distance_source_px": 1.5494471942047574,
+              "sampled_outline_hausdorff_source_px": 2.876055731721974
+            },
+            {
+              "fit_ids": [
+                74,
+                0
+              ],
+              "center_distance_source_px": 2.9144708890597393,
+              "sampled_outline_hausdorff_source_px": 5.41402749667289
+            },
+            {
+              "fit_ids": [
+                74,
+                29
+              ],
+              "center_distance_source_px": 1.821563383185634,
+              "sampled_outline_hausdorff_source_px": 2.7290720321814756
+            },
+            {
+              "fit_ids": [
+                74,
+                25
+              ],
+              "center_distance_source_px": 4.285747880176574,
+              "sampled_outline_hausdorff_source_px": 5.642420901479541
+            },
+            {
+              "fit_ids": [
+                80,
+                11
+              ],
+              "center_distance_source_px": 2.286281545122526,
+              "sampled_outline_hausdorff_source_px": 4.2806724562221
+            },
+            {
+              "fit_ids": [
+                80,
+                0
+              ],
+              "center_distance_source_px": 1.1048532597237655,
+              "sampled_outline_hausdorff_source_px": 3.1044100436543074
+            },
+            {
+              "fit_ids": [
+                80,
+                29
+              ],
+              "center_distance_source_px": 1.4567247217879937,
+              "sampled_outline_hausdorff_source_px": 2.9605250318312395
+            },
+            {
+              "fit_ids": [
+                80,
+                25
+              ],
+              "center_distance_source_px": 1.5615811656437681,
+              "sampled_outline_hausdorff_source_px": 2.335517209055733
+            },
+            {
+              "fit_ids": [
+                11,
+                0
+              ],
+              "center_distance_source_px": 1.5526512180777923,
+              "sampled_outline_hausdorff_source_px": 5.439510376771078
+            },
+            {
+              "fit_ids": [
+                11,
+                29
+              ],
+              "center_distance_source_px": 1.3448081855609084,
+              "sampled_outline_hausdorff_source_px": 1.7864824318877854
+            },
+            {
+              "fit_ids": [
+                11,
+                25
+              ],
+              "center_distance_source_px": 2.902901440515988,
+              "sampled_outline_hausdorff_source_px": 5.594116658024719
+            },
+            {
+              "fit_ids": [
+                0,
+                29
+              ],
+              "center_distance_source_px": 1.5090794618880075,
+              "sampled_outline_hausdorff_source_px": 4.943129048534891
+            },
+            {
+              "fit_ids": [
+                0,
+                25
+              ],
+              "center_distance_source_px": 1.3749532789357928,
+              "sampled_outline_hausdorff_source_px": 2.517842749323641
+            },
+            {
+              "fit_ids": [
+                29,
+                25
+              ],
+              "center_distance_source_px": 2.73403811196444,
+              "sampled_outline_hausdorff_source_px": 4.985861431923158
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "ball_id": "4k-top-left-orange",
+      "source_case": "thoughts/calibration/robustness-audit-20261027/reserved-cases/4k-top-left-orange.json",
+      "source_image_id": "framing-after-4k",
+      "source_width_px": 3840,
+      "status": "rejected",
+      "reason": "ambiguous_boundary",
+      "final_center_source_px": null,
+      "dropped_trace_events": 0,
+      "iterations_with_qualified_candidates": [
+        {
+          "iteration": 1,
+          "qualified_fit_count": 2,
+          "fits": [
+            {
+              "fit_id": 12,
+              "center_source_px": [
+                1056.84918977823,
+                292.8347200102172
+              ],
+              "median_source_outline_radius_px": 44.92747097006411,
+              "min_source_outline_radius_px": 41.846028819641425,
+              "max_source_outline_radius_px": 48.2973536913385,
+              "local_patch_radius_px": 36.60296051481478
+            },
+            {
+              "fit_id": 10,
+              "center_source_px": [
+                1056.6676630574052,
+                289.26165008264206
+              ],
+              "median_source_outline_radius_px": 45.86369607866962,
+              "min_source_outline_radius_px": 42.70748813549167,
+              "max_source_outline_radius_px": 49.32368808645556,
+              "local_patch_radius_px": 37.33660079258035
+            }
+          ],
+          "center_pairwise_max_source_px": 3.577678109852157,
+          "sampled_outline_pairwise_max_source_px": 4.541679977912279,
+          "median_source_radius_range_px": 0.9362251086055124,
+          "diagnostic_existing_source_threshold_px": 1.5,
+          "centers_within_existing_threshold_despite_outline_spread": false,
+          "pairs": [
+            {
+              "fit_ids": [
+                12,
+                10
+              ],
+              "center_distance_source_px": 3.577678109852157,
+              "sampled_outline_hausdorff_source_px": 4.541679977912279
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "ball_id": "4k-top-right-red-stripe",
+      "source_case": "thoughts/calibration/robustness-audit-20261027/reserved-cases/4k-top-right-red-stripe.json",
+      "source_image_id": "framing-after-4k",
+      "source_width_px": 3840,
+      "status": "rejected",
+      "reason": "ambiguous_boundary",
+      "final_center_source_px": null,
+      "dropped_trace_events": 0,
+      "iterations_with_qualified_candidates": [
+        {
+          "iteration": 1,
+          "qualified_fit_count": 4,
+          "fits": [
+            {
+              "fit_id": 92,
+              "center_source_px": [
+                2783.762557150672,
+                281.05297870417303
+              ],
+              "median_source_outline_radius_px": 44.276387746639514,
+              "min_source_outline_radius_px": 41.284279561083444,
+              "max_source_outline_radius_px": 47.54272644895729,
+              "local_patch_radius_px": 36.1903141085546
+            },
+            {
+              "fit_id": 11,
+              "center_source_px": [
+                2781.791489898188,
+                284.8793624326199
+              ],
+              "median_source_outline_radius_px": 45.39188493597956,
+              "min_source_outline_radius_px": 42.34432117308087,
+              "max_source_outline_radius_px": 48.735157681276554,
+              "local_patch_radius_px": 37.149555544888365
+            },
+            {
+              "fit_id": 12,
+              "center_source_px": [
+                2782.1665356163767,
+                282.54919496412447
+              ],
+              "median_source_outline_radius_px": 47.38692327975815,
+              "min_source_outline_radius_px": 44.1949428737424,
+              "max_source_outline_radius_px": 50.90848886450723,
+              "local_patch_radius_px": 38.7603626359644
+            },
+            {
+              "fit_id": 75,
+              "center_source_px": [
+                2780.519987594309,
+                281.77925000365235
+              ],
+              "median_source_outline_radius_px": 46.52906139618101,
+              "min_source_outline_radius_px": 43.39751542844019,
+              "max_source_outline_radius_px": 49.97492800087252,
+              "local_patch_radius_px": 38.06688772499596
+            }
+          ],
+          "center_pairwise_max_source_px": 4.304221015600556,
+          "sampled_outline_pairwise_max_source_px": 5.602437927768487,
+          "median_source_radius_range_px": 3.110535533118636,
+          "diagnostic_existing_source_threshold_px": 1.5,
+          "centers_within_existing_threshold_despite_outline_spread": false,
+          "pairs": [
+            {
+              "fit_ids": [
+                92,
+                11
+              ],
+              "center_distance_source_px": 4.304221015600556,
+              "sampled_outline_hausdorff_source_px": 5.436002072936751
+            },
+            {
+              "fit_ids": [
+                92,
+                12
+              ],
+              "center_distance_source_px": 2.1876809261126677,
+              "sampled_outline_hausdorff_source_px": 5.423067860307536
+            },
+            {
+              "fit_ids": [
+                92,
+                75
+              ],
+              "center_distance_source_px": 3.32290946736426,
+              "sampled_outline_hausdorff_source_px": 5.602437927768487
+            },
+            {
+              "fit_ids": [
+                11,
+                12
+              ],
+              "center_distance_source_px": 2.360156715552204,
+              "sampled_outline_hausdorff_source_px": 4.441610886743559
+            },
+            {
+              "fit_ids": [
+                11,
+                75
+              ],
+              "center_distance_source_px": 3.3507335287976883,
+              "sampled_outline_hausdorff_source_px": 4.4496081603208015
+            },
+            {
+              "fit_ids": [
+                12,
+                75
+              ],
+              "center_distance_source_px": 1.8176731364938623,
+              "sampled_outline_hausdorff_source_px": 2.6523547013746493
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "ball_id": "alt-bottom-black",
+      "source_case": "thoughts/calibration/robustness-audit-20261027/reserved-cases/alt-bottom-black.json",
+      "source_image_id": "alternate-grid-720",
+      "source_width_px": 1280,
+      "status": "rejected",
+      "reason": "ambiguous_boundary",
+      "final_center_source_px": null,
+      "dropped_trace_events": 0,
+      "iterations_with_qualified_candidates": [
+        {
+          "iteration": 1,
+          "qualified_fit_count": 2,
+          "fits": [
+            {
+              "fit_id": 63,
+              "center_source_px": [
+                369.3863760335864,
+                626.8599279608156
+              ],
+              "median_source_outline_radius_px": 14.735414051770132,
+              "min_source_outline_radius_px": 13.696433938018453,
+              "max_source_outline_radius_px": 15.857459408080418,
+              "local_patch_radius_px": 11.945761933050763
+            },
+            {
+              "fit_id": 28,
+              "center_source_px": [
+                369.57518820611466,
+                626.3647856398472
+              ],
+              "median_source_outline_radius_px": 15.172158234773764,
+              "min_source_outline_radius_px": 14.104698511799448,
+              "max_source_outline_radius_px": 16.33006615901579,
+              "local_patch_radius_px": 12.305520368194486
+            }
+          ],
+          "center_pairwise_max_source_px": 0.5299207058691175,
+          "sampled_outline_pairwise_max_source_px": 0.9763484920055535,
+          "median_source_radius_range_px": 0.4367441830036327,
+          "diagnostic_existing_source_threshold_px": 0.5,
+          "centers_within_existing_threshold_despite_outline_spread": false,
+          "pairs": [
+            {
+              "fit_ids": [
+                63,
+                28
+              ],
+              "center_distance_source_px": 0.5299207058691175,
+              "sampled_outline_hausdorff_source_px": 0.9763484920055535
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "ball_id": "alt-bottom-center-red-stripe",
+      "source_case": "thoughts/calibration/robustness-audit-20261027/reserved-cases/alt-bottom-center-red-stripe.json",
+      "source_image_id": "alternate-grid-720",
+      "source_width_px": 1280,
+      "status": "rejected",
+      "reason": "insufficient_boundary",
+      "final_center_source_px": null,
+      "dropped_trace_events": 0,
+      "iterations_with_qualified_candidates": []
+    },
+    {
+      "ball_id": "alt-bottom-left-red",
+      "source_case": "thoughts/calibration/robustness-audit-20261027/reserved-cases/alt-bottom-left-red.json",
+      "source_image_id": "alternate-grid-720",
+      "source_width_px": 1280,
+      "status": "rejected",
+      "reason": "ambiguous_boundary",
+      "final_center_source_px": null,
+      "dropped_trace_events": 0,
+      "iterations_with_qualified_candidates": [
+        {
+          "iteration": 1,
+          "qualified_fit_count": 4,
+          "fits": [
+            {
+              "fit_id": 16,
+              "center_source_px": [
+                106.70794621863013,
+                616.8745564535811
+              ],
+              "median_source_outline_radius_px": 17.001565385571375,
+              "min_source_outline_radius_px": 14.534925897265884,
+              "max_source_outline_radius_px": 19.431800019770318,
+              "local_patch_radius_px": 11.000870944085271
+            },
+            {
+              "fit_id": 41,
+              "center_source_px": [
+                106.71157920434928,
+                616.8738374118161
+              ],
+              "median_source_outline_radius_px": 17.00002627837499,
+              "min_source_outline_radius_px": 14.533632727719757,
+              "max_source_outline_radius_px": 19.42999858899735,
+              "local_patch_radius_px": 10.999920092846102
+            },
+            {
+              "fit_id": 50,
+              "center_source_px": [
+                107.52003923096572,
+                617.3745542526958
+              ],
+              "median_source_outline_radius_px": 16.289350510346317,
+              "min_source_outline_radius_px": 13.928615332619032,
+              "max_source_outline_radius_px": 18.604569667388002,
+              "local_patch_radius_px": 10.54586460020766
+            },
+            {
+              "fit_id": 23,
+              "center_source_px": [
+                104.88450649075548,
+                619.0147981730272
+              ],
+              "median_source_outline_radius_px": 17.30720783298131,
+              "min_source_outline_radius_px": 14.778047212416789,
+              "max_source_outline_radius_px": 19.799603621896864,
+              "local_patch_radius_px": 11.164966565017933
+            }
+          ],
+          "center_pairwise_max_source_px": 3.1042604502367643,
+          "sampled_outline_pairwise_max_source_px": 4.2983546684483995,
+          "median_source_radius_range_px": 1.0178573226349918,
+          "diagnostic_existing_source_threshold_px": 0.5,
+          "centers_within_existing_threshold_despite_outline_spread": false,
+          "pairs": [
+            {
+              "fit_ids": [
+                16,
+                41
+              ],
+              "center_distance_source_px": 0.0037034586936266546,
+              "sampled_outline_hausdorff_source_px": 0.005484181997858772
+            },
+            {
+              "fit_ids": [
+                16,
+                50
+              ],
+              "center_distance_source_px": 0.9536733506834638,
+              "sampled_outline_hausdorff_source_px": 1.6635562989667085
+            },
+            {
+              "fit_ids": [
+                16,
+                23
+              ],
+              "center_distance_source_px": 2.811684025428357,
+              "sampled_outline_hausdorff_source_px": 3.1691746298510415
+            },
+            {
+              "fit_ids": [
+                41,
+                50
+              ],
+              "center_distance_source_px": 0.9509600251205163,
+              "sampled_outline_hausdorff_source_px": 1.6587367938873543
+            },
+            {
+              "fit_ids": [
+                41,
+                23
+              ],
+              "center_distance_source_px": 2.814588368093025,
+              "sampled_outline_hausdorff_source_px": 3.1738523635654046
+            },
+            {
+              "fit_ids": [
+                50,
+                23
+              ],
+              "center_distance_source_px": 3.1042604502367643,
+              "sampled_outline_hausdorff_source_px": 4.2983546684483995
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "ball_id": "alt-bottom-right-blue-stripe",
+      "source_case": "thoughts/calibration/robustness-audit-20261027/reserved-cases/alt-bottom-right-blue-stripe.json",
+      "source_image_id": "alternate-grid-720",
+      "source_width_px": 1280,
+      "status": "rejected",
+      "reason": "ambiguous_boundary",
+      "final_center_source_px": null,
+      "dropped_trace_events": 0,
+      "iterations_with_qualified_candidates": [
+        {
+          "iteration": 1,
+          "qualified_fit_count": 1,
+          "fits": [
+            {
+              "fit_id": 12,
+              "center_source_px": [
+                1188.844522016698,
+                626.0814822303175
+              ],
+              "median_source_outline_radius_px": 16.066305685262716,
+              "min_source_outline_radius_px": 13.665873367413411,
+              "max_source_outline_radius_px": 18.40170503041385,
+              "local_patch_radius_px": 10.267337154461488
+            }
+          ],
+          "center_pairwise_max_source_px": null,
+          "sampled_outline_pairwise_max_source_px": null,
+          "median_source_radius_range_px": 0.0,
+          "diagnostic_existing_source_threshold_px": 0.5,
+          "centers_within_existing_threshold_despite_outline_spread": null,
+          "pairs": []
+        },
+        {
+          "iteration": 2,
+          "qualified_fit_count": 2,
+          "fits": [
+            {
+              "fit_id": 42,
+              "center_source_px": [
+                1189.6959710768142,
+                626.0455099529536
+              ],
+              "median_source_outline_radius_px": 14.760950180085192,
+              "min_source_outline_radius_px": 12.551993898895143,
+              "max_source_outline_radius_px": 16.89050969150498,
+              "local_patch_radius_px": 9.424713846756559
+            },
+            {
+              "fit_id": 12,
+              "center_source_px": [
+                1189.061157798557,
+                625.4157748783313
+              ],
+              "median_source_outline_radius_px": 15.494607685425137,
+              "min_source_outline_radius_px": 13.180992475454977,
+              "max_source_outline_radius_px": 17.73710362151915,
+              "local_patch_radius_px": 9.903208914130285
+            }
+          ],
+          "center_pairwise_max_source_px": 0.8941779255055186,
+          "sampled_outline_pairwise_max_source_px": 1.6885550369336542,
+          "median_source_radius_range_px": 0.733657505339945,
+          "diagnostic_existing_source_threshold_px": 0.5,
+          "centers_within_existing_threshold_despite_outline_spread": false,
+          "pairs": [
+            {
+              "fit_ids": [
+                42,
+                12
+              ],
+              "center_distance_source_px": 0.8941779255055186,
+              "sampled_outline_hausdorff_source_px": 1.6885550369336542
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "ball_id": "alt-bottom-yellow",
+      "source_case": "thoughts/calibration/robustness-audit-20261027/reserved-cases/alt-bottom-yellow.json",
+      "source_image_id": "alternate-grid-720",
+      "source_width_px": 1280,
+      "status": "rejected",
+      "reason": "ambiguous_boundary",
+      "final_center_source_px": null,
+      "dropped_trace_events": 0,
+      "iterations_with_qualified_candidates": [
+        {
+          "iteration": 1,
+          "qualified_fit_count": 3,
+          "fits": [
+            {
+              "fit_id": 4,
+              "center_source_px": [
+                925.0339133426719,
+                630.7772725720372
+              ],
+              "median_source_outline_radius_px": 15.49691739434202,
+              "min_source_outline_radius_px": 14.368647047121158,
+              "max_source_outline_radius_px": 16.71800915121992,
+              "local_patch_radius_px": 12.477158304181751
+            },
+            {
+              "fit_id": 52,
+              "center_source_px": [
+                924.7932048819,
+                630.3815023201879
+              ],
+              "median_source_outline_radius_px": 15.810538811448456,
+              "min_source_outline_radius_px": 14.661725356982123,
+              "max_source_outline_radius_px": 17.057858226889284,
+              "local_patch_radius_px": 12.735200822760431
+            },
+            {
+              "fit_id": 17,
+              "center_source_px": [
+                926.0718335107194,
+                630.4154147481249
+              ],
+              "median_source_outline_radius_px": 15.875253013749468,
+              "min_source_outline_radius_px": 14.716861674110731,
+              "max_source_outline_radius_px": 17.132517472153523,
+              "local_patch_radius_px": 12.775763477568269
+            }
+          ],
+          "center_pairwise_max_source_px": 1.2790782709456243,
+          "sampled_outline_pairwise_max_source_px": 1.469116973846717,
+          "median_source_radius_range_px": 0.37833561940744787,
+          "diagnostic_existing_source_threshold_px": 0.5,
+          "centers_within_existing_threshold_despite_outline_spread": false,
+          "pairs": [
+            {
+              "fit_ids": [
+                4,
+                52
+              ],
+              "center_distance_source_px": 0.46322203675561074,
+              "sampled_outline_hausdorff_source_px": 0.7869942555406579
+            },
+            {
+              "fit_ids": [
+                4,
+                17
+              ],
+              "center_distance_source_px": 1.0991903201749769,
+              "sampled_outline_hausdorff_source_px": 1.469116973846717
+            },
+            {
+              "fit_ids": [
+                52,
+                17
+              ],
+              "center_distance_source_px": 1.2790782709456243,
+              "sampled_outline_hausdorff_source_px": 1.3508483297646705
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "ball_id": "alt-middle-green-stripe",
+      "source_case": "thoughts/calibration/robustness-audit-20261027/reserved-cases/alt-middle-green-stripe.json",
+      "source_image_id": "alternate-grid-720",
+      "source_width_px": 1280,
+      "status": "rejected",
+      "reason": "ambiguous_boundary",
+      "final_center_source_px": null,
+      "dropped_trace_events": 0,
+      "iterations_with_qualified_candidates": [
+        {
+          "iteration": 1,
+          "qualified_fit_count": 2,
+          "fits": [
+            {
+              "fit_id": 58,
+              "center_source_px": [
+                925.4945570686842,
+                360.41758353317135
+              ],
+              "median_source_outline_radius_px": 14.707785662230286,
+              "min_source_outline_radius_px": 14.144438437746254,
+              "max_source_outline_radius_px": 15.376523435717743,
+              "local_patch_radius_px": 13.116118883131502
+            },
+            {
+              "fit_id": 2,
+              "center_source_px": [
+                925.1597594632766,
+                360.34342843742087
+              ],
+              "median_source_outline_radius_px": 14.861385233370537,
+              "min_source_outline_radius_px": 14.293436458926742,
+              "max_source_outline_radius_px": 15.537246939781554,
+              "local_patch_radius_px": 13.25660126319754
+            }
+          ],
+          "center_pairwise_max_source_px": 0.34291167202713657,
+          "sampled_outline_pairwise_max_source_px": 0.49822315556190294,
+          "median_source_radius_range_px": 0.15359957114025136,
+          "diagnostic_existing_source_threshold_px": 0.5,
+          "centers_within_existing_threshold_despite_outline_spread": false,
+          "pairs": [
+            {
+              "fit_ids": [
+                58,
+                2
+              ],
+              "center_distance_source_px": 0.34291167202713657,
+              "sampled_outline_hausdorff_source_px": 0.49822315556190294
+            }
+          ]
+        },
+        {
+          "iteration": 2,
+          "qualified_fit_count": 1,
+          "fits": [
+            {
+              "fit_id": 58,
+              "center_source_px": [
+                925.2359704327954,
+                359.8187406924443
+              ],
+              "median_source_outline_radius_px": 14.542038790033885,
+              "min_source_outline_radius_px": 13.987559197982584,
+              "max_source_outline_radius_px": 15.20163739541617,
+              "local_patch_radius_px": 12.971576247547514
+            }
+          ],
+          "center_pairwise_max_source_px": null,
+          "sampled_outline_pairwise_max_source_px": null,
+          "median_source_radius_range_px": 0.0,
+          "diagnostic_existing_source_threshold_px": 0.5,
+          "centers_within_existing_threshold_despite_outline_spread": null,
+          "pairs": []
+        },
+        {
+          "iteration": 3,
+          "qualified_fit_count": 2,
+          "fits": [
+            {
+              "fit_id": 44,
+              "center_source_px": [
+                925.4372750167797,
+                359.97705539342456
+              ],
+              "median_source_outline_radius_px": 14.422718510285186,
+              "min_source_outline_radius_px": 13.872394638421094,
+              "max_source_outline_radius_px": 15.076660170542526,
+              "local_patch_radius_px": 12.863176951710118
+            },
+            {
+              "fit_id": 76,
+              "center_source_px": [
+                925.1296168995918,
+                359.35257709383063
+              ],
+              "median_source_outline_radius_px": 14.225492685769343,
+              "min_source_outline_radius_px": 13.683722409464258,
+              "max_source_outline_radius_px": 14.867923833594643,
+              "local_patch_radius_px": 12.690427726424424
+            }
+          ],
+          "center_pairwise_max_source_px": 0.6961513224402596,
+          "sampled_outline_pairwise_max_source_px": 0.8925341324390905,
+          "median_source_radius_range_px": 0.19722582451584358,
+          "diagnostic_existing_source_threshold_px": 0.5,
+          "centers_within_existing_threshold_despite_outline_spread": false,
+          "pairs": [
+            {
+              "fit_ids": [
+                44,
+                76
+              ],
+              "center_distance_source_px": 0.6961513224402596,
+              "sampled_outline_hausdorff_source_px": 0.8925341324390905
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "ball_id": "alt-middle-left-purple-stripe",
+      "source_case": "thoughts/calibration/robustness-audit-20261027/reserved-cases/alt-middle-left-purple-stripe.json",
+      "source_image_id": "alternate-grid-720",
+      "source_width_px": 1280,
+      "status": "rejected",
+      "reason": "ambiguous_boundary",
+      "final_center_source_px": null,
+      "dropped_trace_events": 0,
+      "iterations_with_qualified_candidates": [
+        {
+          "iteration": 1,
+          "qualified_fit_count": 4,
+          "fits": [
+            {
+              "fit_id": 57,
+              "center_source_px": [
+                361.990443080686,
+                362.36561321062555
+              ],
+              "median_source_outline_radius_px": 14.781335506485576,
+              "min_source_outline_radius_px": 14.212803079292248,
+              "max_source_outline_radius_px": 15.457153725500632,
+              "local_patch_radius_px": 13.172229919840074
+            },
+            {
+              "fit_id": 34,
+              "center_source_px": [
+                361.26109746342036,
+                362.8848716942693
+              ],
+              "median_source_outline_radius_px": 14.2034210926471,
+              "min_source_outline_radius_px": 13.654447070912646,
+              "max_source_outline_radius_px": 14.85045084669866,
+              "local_patch_radius_px": 12.649674202792566
+            },
+            {
+              "fit_id": 71,
+              "center_source_px": [
+                362.21048635590347,
+                362.48505051987536
+              ],
+              "median_source_outline_radius_px": 13.825532716367224,
+              "min_source_outline_radius_px": 13.294274795840305,
+              "max_source_outline_radius_px": 14.449045591021283,
+              "local_patch_radius_px": 12.321971847433677
+            },
+            {
+              "fit_id": 68,
+              "center_source_px": [
+                362.8973520341359,
+                362.0635842542071
+              ],
+              "median_source_outline_radius_px": 14.313603606629659,
+              "min_source_outline_radius_px": 13.766323718038134,
+              "max_source_outline_radius_px": 14.961105578539554,
+              "local_patch_radius_px": 12.764267904536172
+            }
+          ],
+          "center_pairwise_max_source_px": 1.8308036703566597,
+          "sampled_outline_pairwise_max_source_px": 1.9365121512464885,
+          "median_source_radius_range_px": 0.9558027901183515,
+          "diagnostic_existing_source_threshold_px": 0.5,
+          "centers_within_existing_threshold_despite_outline_spread": false,
+          "pairs": [
+            {
+              "fit_ids": [
+                57,
+                34
+              ],
+              "center_distance_source_px": 0.8953068760266665,
+              "sampled_outline_hausdorff_source_px": 1.4727904138141683
+            },
+            {
+              "fit_ids": [
+                57,
+                71
+              ],
+              "center_distance_source_px": 0.2503683562458631,
+              "sampled_outline_hausdorff_source_px": 1.2449521679157778
+            },
+            {
+              "fit_ids": [
+                57,
+                68
+              ],
+              "center_distance_source_px": 0.9558793545018005,
+              "sampled_outline_hausdorff_source_px": 1.4495079896439715
+            },
+            {
+              "fit_ids": [
+                34,
+                71
+              ],
+              "center_distance_source_px": 1.030143796110067,
+              "sampled_outline_hausdorff_source_px": 1.4280358371548982
+            },
+            {
+              "fit_ids": [
+                34,
+                68
+              ],
+              "center_distance_source_px": 1.8308036703566597,
+              "sampled_outline_hausdorff_source_px": 1.9365121512464885
+            },
+            {
+              "fit_ids": [
+                71,
+                68
+              ],
+              "center_distance_source_px": 0.8058649223226182,
+              "sampled_outline_hausdorff_source_px": 1.2957203372831994
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "ball_id": "alt-middle-left-yellow",
+      "source_case": "thoughts/calibration/robustness-audit-20261027/reserved-cases/alt-middle-left-yellow.json",
+      "source_image_id": "alternate-grid-720",
+      "source_width_px": 1280,
+      "status": "rejected",
+      "reason": "ambiguous_boundary",
+      "final_center_source_px": null,
+      "dropped_trace_events": 0,
+      "iterations_with_qualified_candidates": [
+        {
+          "iteration": 1,
+          "qualified_fit_count": 2,
+          "fits": [
+            {
+              "fit_id": 20,
+              "center_source_px": [
+                95.33046604854928,
+                357.67984589995024
+              ],
+              "median_source_outline_radius_px": 16.167654778119967,
+              "min_source_outline_radius_px": 14.120748694383725,
+              "max_source_outline_radius_px": 18.212725598404663,
+              "local_patch_radius_px": 11.090480533296255
+            },
+            {
+              "fit_id": 21,
+              "center_source_px": [
+                95.96430807265358,
+                357.9647526000863
+              ],
+              "median_source_outline_radius_px": 15.601811823364965,
+              "min_source_outline_radius_px": 13.630414447788697,
+              "max_source_outline_radius_px": 17.56455117115288,
+              "local_patch_radius_px": 10.709928342335836
+            }
+          ],
+          "center_pairwise_max_source_px": 0.6949298808534887,
+          "sampled_outline_pairwise_max_source_px": 1.3258453473705516,
+          "median_source_radius_range_px": 0.5658429547550021,
+          "diagnostic_existing_source_threshold_px": 0.5,
+          "centers_within_existing_threshold_despite_outline_spread": false,
+          "pairs": [
+            {
+              "fit_ids": [
+                20,
+                21
+              ],
+              "center_distance_source_px": 0.6949298808534887,
+              "sampled_outline_hausdorff_source_px": 1.3258453473705516
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "ball_id": "alt-middle-red-stripe",
+      "source_case": "thoughts/calibration/robustness-audit-20261027/reserved-cases/alt-middle-red-stripe.json",
+      "source_image_id": "alternate-grid-720",
+      "source_width_px": 1280,
+      "status": "rejected",
+      "reason": "ambiguous_boundary",
+      "final_center_source_px": null,
+      "dropped_trace_events": 0,
+      "iterations_with_qualified_candidates": [
+        {
+          "iteration": 1,
+          "qualified_fit_count": 3,
+          "fits": [
+            {
+              "fit_id": 43,
+              "center_source_px": [
+                631.0944514363125,
+                362.33590749406704
+              ],
+              "median_source_outline_radius_px": 13.7284977704049,
+              "min_source_outline_radius_px": 13.725592547447036,
+              "max_source_outline_radius_px": 13.740238041108762,
+              "local_patch_radius_px": 13.723834265835283
+            },
+            {
+              "fit_id": 27,
+              "center_source_px": [
+                631.3552744326662,
+                361.82608363074627
+              ],
+              "median_source_outline_radius_px": 13.34806622364734,
+              "min_source_outline_radius_px": 13.345197941474785,
+              "max_source_outline_radius_px": 13.359024818770795,
+              "local_patch_radius_px": 13.343810780692017
+            },
+            {
+              "fit_id": 24,
+              "center_source_px": [
+                631.57270210188,
+                362.3594136559884
+              ],
+              "median_source_outline_radius_px": 14.040097079875114,
+              "min_source_outline_radius_px": 14.037005893448752,
+              "max_source_outline_radius_px": 14.052090136315906,
+              "local_patch_radius_px": 14.03547855528668
+            }
+          ],
+          "center_pairwise_max_source_px": 0.5759476600912325,
+          "sampled_outline_pairwise_max_source_px": 1.2684180482909089,
+          "median_source_radius_range_px": 0.6920308562277739,
+          "diagnostic_existing_source_threshold_px": 0.5,
+          "centers_within_existing_threshold_despite_outline_spread": false,
+          "pairs": [
+            {
+              "fit_ids": [
+                43,
+                27
+              ],
+              "center_distance_source_px": 0.5726683220139154,
+              "sampled_outline_hausdorff_source_px": 0.9535752703427539
+            },
+            {
+              "fit_ids": [
+                43,
+                24
+              ],
+              "center_distance_source_px": 0.47882798452478953,
+              "sampled_outline_hausdorff_source_px": 0.7898588996584371
+            },
+            {
+              "fit_ids": [
+                27,
+                24
+              ],
+              "center_distance_source_px": 0.5759476600912325,
+              "sampled_outline_hausdorff_source_px": 1.2684180482909089
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "ball_id": "alt-middle-right-purple",
+      "source_case": "thoughts/calibration/robustness-audit-20261027/reserved-cases/alt-middle-right-purple.json",
+      "source_image_id": "alternate-grid-720",
+      "source_width_px": 1280,
+      "status": "rejected",
+      "reason": "ambiguous_boundary",
+      "final_center_source_px": null,
+      "dropped_trace_events": 0,
+      "iterations_with_qualified_candidates": [
+        {
+          "iteration": 1,
+          "qualified_fit_count": 2,
+          "fits": [
+            {
+              "fit_id": 10,
+              "center_source_px": [
+                1197.3558664829652,
+                363.43903421968815
+              ],
+              "median_source_outline_radius_px": 16.23691535315351,
+              "min_source_outline_radius_px": 14.155801294726821,
+              "max_source_outline_radius_px": 18.314530033580276,
+              "local_patch_radius_px": 11.08286453251779
+            },
+            {
+              "fit_id": 40,
+              "center_source_px": [
+                1197.9129189534124,
+                363.41036622749016
+              ],
+              "median_source_outline_radius_px": 16.267997368279357,
+              "min_source_outline_radius_px": 14.179462017510858,
+              "max_source_outline_radius_px": 18.352706545247358,
+              "local_patch_radius_px": 11.097078997924843
+            }
+          ],
+          "center_pairwise_max_source_px": 0.5577896634108143,
+          "sampled_outline_pairwise_max_source_px": 0.5959300903403579,
+          "median_source_radius_range_px": 0.03108201512584685,
+          "diagnostic_existing_source_threshold_px": 0.5,
+          "centers_within_existing_threshold_despite_outline_spread": false,
+          "pairs": [
+            {
+              "fit_ids": [
+                10,
+                40
+              ],
+              "center_distance_source_px": 0.5577896634108143,
+              "sampled_outline_hausdorff_source_px": 0.5959300903403579
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "ball_id": "alt-top-left-pocket",
+      "source_case": "thoughts/calibration/robustness-audit-20261027/reserved-cases/alt-top-left-pocket.json",
+      "source_image_id": "alternate-grid-720",
+      "source_width_px": 1280,
+      "status": "rejected",
+      "reason": "inadequate_coverage",
+      "final_center_source_px": null,
+      "dropped_trace_events": 0,
+      "iterations_with_qualified_candidates": []
+    },
+    {
+      "ball_id": "alt-top-orange",
+      "source_case": "thoughts/calibration/robustness-audit-20261027/reserved-cases/alt-top-orange.json",
+      "source_image_id": "alternate-grid-720",
+      "source_width_px": 1280,
+      "status": "rejected",
+      "reason": "ambiguous_boundary",
+      "final_center_source_px": null,
+      "dropped_trace_events": 0,
+      "iterations_with_qualified_candidates": [
+        {
+          "iteration": 1,
+          "qualified_fit_count": 3,
+          "fits": [
+            {
+              "fit_id": 75,
+              "center_source_px": [
+                361.08927258052194,
+                96.87804738751754
+              ],
+              "median_source_outline_radius_px": 15.425997274356279,
+              "min_source_outline_radius_px": 14.397336716764164,
+              "max_source_outline_radius_px": 16.559594442110217,
+              "local_patch_radius_px": 12.64070045984938
+            },
+            {
+              "fit_id": 72,
+              "center_source_px": [
+                360.25194982629034,
+                96.62313518862791
+              ],
+              "median_source_outline_radius_px": 15.234551186192288,
+              "min_source_outline_radius_px": 14.215098054924871,
+              "max_source_outline_radius_px": 16.355180187183823,
+              "local_patch_radius_px": 12.474402311911536
+            },
+            {
+              "fit_id": 83,
+              "center_source_px": [
+                359.83379115536655,
+                96.60116497231735
+              ],
+              "median_source_outline_radius_px": 15.564368371165111,
+              "min_source_outline_radius_px": 14.521338748853907,
+              "max_source_outline_radius_px": 16.714258380693117,
+              "local_patch_radius_px": 12.74063656772068
+            }
+          ],
+          "center_pairwise_max_source_px": 1.285650606019099,
+          "sampled_outline_pairwise_max_source_px": 1.4367580758709813,
+          "median_source_radius_range_px": 0.3298171849728231,
+          "diagnostic_existing_source_threshold_px": 0.5,
+          "centers_within_existing_threshold_despite_outline_spread": false,
+          "pairs": [
+            {
+              "fit_ids": [
+                75,
+                72
+              ],
+              "center_distance_source_px": 0.8752654591018235,
+              "sampled_outline_hausdorff_source_px": 1.0673331153290204
+            },
+            {
+              "fit_ids": [
+                75,
+                83
+              ],
+              "center_distance_source_px": 1.285650606019099,
+              "sampled_outline_hausdorff_source_px": 1.4367580758709813
+            },
+            {
+              "fit_ids": [
+                72,
+                83
+              ],
+              "center_distance_source_px": 0.418735434938914,
+              "sampled_outline_hausdorff_source_px": 0.7630260210062496
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "ball_id": "alt-top-red-stripe",
+      "source_case": "thoughts/calibration/robustness-audit-20261027/reserved-cases/alt-top-red-stripe.json",
+      "source_image_id": "alternate-grid-720",
+      "source_width_px": 1280,
+      "status": "rejected",
+      "reason": "ambiguous_boundary",
+      "final_center_source_px": null,
+      "dropped_trace_events": 0,
+      "iterations_with_qualified_candidates": [
+        {
+          "iteration": 1,
+          "qualified_fit_count": 3,
+          "fits": [
+            {
+              "fit_id": 23,
+              "center_source_px": [
+                930.5502310345248,
+                93.65316563158916
+              ],
+              "median_source_outline_radius_px": 15.173920555997121,
+              "min_source_outline_radius_px": 14.139843724339695,
+              "max_source_outline_radius_px": 16.306905310960026,
+              "local_patch_radius_px": 12.3800123720909
+            },
+            {
+              "fit_id": 10,
+              "center_source_px": [
+                930.6986763600123,
+                92.66804617810601
+              ],
+              "median_source_outline_radius_px": 15.249923090059829,
+              "min_source_outline_radius_px": 14.206540376588839,
+              "max_source_outline_radius_px": 16.39295197087346,
+              "local_patch_radius_px": 12.432951679177679
+            },
+            {
+              "fit_id": 54,
+              "center_source_px": [
+                929.707528026865,
+                92.97249909912108
+              ],
+              "median_source_outline_radius_px": 15.082716922222996,
+              "min_source_outline_radius_px": 14.055048371738497,
+              "max_source_outline_radius_px": 16.207615711318564,
+              "local_patch_radius_px": 12.307586571315884
+            }
+          ],
+          "center_pairwise_max_source_px": 1.0832614123751394,
+          "sampled_outline_pairwise_max_source_px": 1.2190230421051247,
+          "median_source_radius_range_px": 0.16720616783683262,
+          "diagnostic_existing_source_threshold_px": 0.5,
+          "centers_within_existing_threshold_despite_outline_spread": false,
+          "pairs": [
+            {
+              "fit_ids": [
+                23,
+                10
+              ],
+              "center_distance_source_px": 0.9962411115237272,
+              "sampled_outline_hausdorff_source_px": 1.0786116842823552
+            },
+            {
+              "fit_ids": [
+                23,
+                54
+              ],
+              "center_distance_source_px": 1.0832614123751394,
+              "sampled_outline_hausdorff_source_px": 1.1710509356928602
+            },
+            {
+              "fit_ids": [
+                10,
+                54
+              ],
+              "center_distance_source_px": 1.0368541842589376,
+              "sampled_outline_hausdorff_source_px": 1.2190230421051247
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "ball_id": "alt-top-right-cue",
+      "source_case": "thoughts/calibration/robustness-audit-20261027/reserved-cases/alt-top-right-cue.json",
+      "source_image_id": "alternate-grid-720",
+      "source_width_px": 1280,
+      "status": "rejected",
+      "reason": "ambiguous_boundary",
+      "final_center_source_px": null,
+      "dropped_trace_events": 0,
+      "iterations_with_qualified_candidates": [
+        {
+          "iteration": 1,
+          "qualified_fit_count": 2,
+          "fits": [
+            {
+              "fit_id": 11,
+              "center_source_px": [
+                1194.4693183959776,
+                96.79306898699787
+              ],
+              "median_source_outline_radius_px": 16.257356466460138,
+              "min_source_outline_radius_px": 13.853178505590304,
+              "max_source_outline_radius_px": 18.599515921675618,
+              "local_patch_radius_px": 10.45036527743975
+            },
+            {
+              "fit_id": 26,
+              "center_source_px": [
+                1195.8001014666431,
+                96.5641591409244
+              ],
+              "median_source_outline_radius_px": 15.335662873324578,
+              "min_source_outline_radius_px": 13.06004750460301,
+              "max_source_outline_radius_px": 17.537429868178773,
+              "local_patch_radius_px": 9.842712515211437
+            }
+          ],
+          "center_pairwise_max_source_px": 1.3503271080739931,
+          "sampled_outline_pairwise_max_source_px": 2.3484325265855945,
+          "median_source_radius_range_px": 0.9216935931355597,
+          "diagnostic_existing_source_threshold_px": 0.5,
+          "centers_within_existing_threshold_despite_outline_spread": false,
+          "pairs": [
+            {
+              "fit_ids": [
+                11,
+                26
+              ],
+              "center_distance_source_px": 1.3503271080739931,
+              "sampled_outline_hausdorff_source_px": 2.3484325265855945
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "ball_id": "alt-top-yellow-stripe",
+      "source_case": "thoughts/calibration/robustness-audit-20261027/reserved-cases/alt-top-yellow-stripe.json",
+      "source_image_id": "alternate-grid-720",
+      "source_width_px": 1280,
+      "status": "rejected",
+      "reason": "ambiguous_boundary",
+      "final_center_source_px": null,
+      "dropped_trace_events": 0,
+      "iterations_with_qualified_candidates": [
+        {
+          "iteration": 1,
+          "qualified_fit_count": 7,
+          "fits": [
+            {
+              "fit_id": 0,
+              "center_source_px": [
+                633.9368683477041,
+                94.03681512476697
+              ],
+              "median_source_outline_radius_px": 15.038116212667687,
+              "min_source_outline_radius_px": 14.558073545121879,
+              "max_source_outline_radius_px": 15.62552623328029,
+              "local_patch_radius_px": 13.665163252271217
+            },
+            {
+              "fit_id": 62,
+              "center_source_px": [
+                634.0686211948758,
+                95.01719035051852
+              ],
+              "median_source_outline_radius_px": 14.980770241660823,
+              "min_source_outline_radius_px": 14.506024344183013,
+              "max_source_outline_radius_px": 15.562221277796334,
+              "local_patch_radius_px": 13.622538557607117
+            },
+            {
+              "fit_id": 43,
+              "center_source_px": [
+                633.1951457149697,
+                93.59042253221548
+              ],
+              "median_source_outline_radius_px": 14.862043729105853,
+              "min_source_outline_radius_px": 14.386099670812804,
+              "max_source_outline_radius_px": 15.442545536613403,
+              "local_patch_radius_px": 13.500520982315624
+            },
+            {
+              "fit_id": 4,
+              "center_source_px": [
+                633.6467375769347,
+                94.43567439763709
+              ],
+              "median_source_outline_radius_px": 15.503988646079339,
+              "min_source_outline_radius_px": 15.010645721189565,
+              "max_source_outline_radius_px": 16.111988235072545,
+              "local_patch_radius_px": 14.092546647562887
+            },
+            {
+              "fit_id": 12,
+              "center_source_px": [
+                633.4498875146095,
+                93.92617358164253
+              ],
+              "median_source_outline_radius_px": 14.605511470957502,
+              "min_source_outline_radius_px": 14.13888389448646,
+              "max_source_outline_radius_px": 15.172954518299381,
+              "local_patch_radius_px": 13.270648337783232
+            },
+            {
+              "fit_id": 19,
+              "center_source_px": [
+                633.5112594517756,
+                94.12682671178081
+              ],
+              "median_source_outline_radius_px": 14.619826796440046,
+              "min_source_outline_radius_px": 14.153434225522126,
+              "max_source_outline_radius_px": 15.187291018601416,
+              "local_patch_radius_px": 13.285573145872757
+            },
+            {
+              "fit_id": 53,
+              "center_source_px": [
+                634.0944129730746,
+                93.27867633202749
+              ],
+              "median_source_outline_radius_px": 14.899347027820223,
+              "min_source_outline_radius_px": 14.421014303442393,
+              "max_source_outline_radius_px": 15.482794581907907,
+              "local_patch_radius_px": 13.531810061921494
+            }
+          ],
+          "center_pairwise_max_source_px": 1.7387053253247042,
+          "sampled_outline_pairwise_max_source_px": 1.84619622834322,
+          "median_source_radius_range_px": 0.8984771751218368,
+          "diagnostic_existing_source_threshold_px": 0.5,
+          "centers_within_existing_threshold_despite_outline_spread": false,
+          "pairs": [
+            {
+              "fit_ids": [
+                0,
+                62
+              ],
+              "center_distance_source_px": 0.9891887565097167,
+              "sampled_outline_hausdorff_source_px": 1.0525041980392258
+            },
+            {
+              "fit_ids": [
+                0,
+                43
+              ],
+              "center_distance_source_px": 0.8656897888939914,
+              "sampled_outline_hausdorff_source_px": 1.0366403096657715
+            },
+            {
+              "fit_ids": [
+                0,
+                4
+              ],
+              "center_distance_source_px": 0.4932185962651353,
+              "sampled_outline_hausdorff_source_px": 0.956314893860824
+            },
+            {
+              "fit_ids": [
+                0,
+                12
+              ],
+              "center_distance_source_px": 0.4993915126096256,
+              "sampled_outline_hausdorff_source_px": 0.918237851659045
+            },
+            {
+              "fit_ids": [
+                0,
+                19
+              ],
+              "center_distance_source_px": 0.43502300869067895,
+              "sampled_outline_hausdorff_source_px": 0.8427505168667284
+            },
+            {
+              "fit_ids": [
+                0,
+                53
+              ],
+              "center_distance_source_px": 0.7743350295831828,
+              "sampled_outline_hausdorff_source_px": 0.9123448868469642
+            },
+            {
+              "fit_ids": [
+                62,
+                43
+              ],
+              "center_distance_source_px": 1.6729093882641777,
+              "sampled_outline_hausdorff_source_px": 1.7871302313464568
+            },
+            {
+              "fit_ids": [
+                62,
+                4
+              ],
+              "center_distance_source_px": 0.7184334280521144,
+              "sampled_outline_hausdorff_source_px": 1.2581280188556323
+            },
+            {
+              "fit_ids": [
+                62,
+                12
+              ],
+              "center_distance_source_px": 1.2542523498341773,
+              "sampled_outline_hausdorff_source_px": 1.6280578048958252
+            },
+            {
+              "fit_ids": [
+                62,
+                19
+              ],
+              "center_distance_source_px": 1.0504282564068956,
+              "sampled_outline_hausdorff_source_px": 1.4098817877920795
+            },
+            {
+              "fit_ids": [
+                62,
+                53
+              ],
+              "center_distance_source_px": 1.7387053253247042,
+              "sampled_outline_hausdorff_source_px": 1.815710392118086
+            },
+            {
+              "fit_ids": [
+                43,
+                4
+              ],
+              "center_distance_source_px": 0.9583245409524311,
+              "sampled_outline_hausdorff_source_px": 1.601481509683317
+            },
+            {
+              "fit_ids": [
+                43,
+                12
+              ],
+              "center_distance_source_px": 0.4214524310940275,
+              "sampled_outline_hausdorff_source_px": 0.6856115334650907
+            },
+            {
+              "fit_ids": [
+                43,
+                19
+              ],
+              "center_distance_source_px": 0.6226213443598796,
+              "sampled_outline_hausdorff_source_px": 0.8742552804444806
+            },
+            {
+              "fit_ids": [
+                43,
+                53
+              ],
+              "center_distance_source_px": 0.9517706104051703,
+              "sampled_outline_hausdorff_source_px": 0.9900500520771057
+            },
+            {
+              "fit_ids": [
+                4,
+                12
+              ],
+              "center_distance_source_px": 0.5462060312158393,
+              "sampled_outline_hausdorff_source_px": 1.453765935991313
+            },
+            {
+              "fit_ids": [
+                4,
+                19
+              ],
+              "center_distance_source_px": 0.3372554157540098,
+              "sampled_outline_hausdorff_source_px": 1.2300956882650724
+            },
+            {
+              "fit_ids": [
+                4,
+                53
+              ],
+              "center_distance_source_px": 1.240587676923051,
+              "sampled_outline_hausdorff_source_px": 1.84619622834322
+            },
+            {
+              "fit_ids": [
+                12,
+                19
+              ],
+              "center_distance_source_px": 0.20982896202814028,
+              "sampled_outline_hausdorff_source_px": 0.2236702502062681
+            },
+            {
+              "fit_ids": [
+                12,
+                53
+              ],
+              "center_distance_source_px": 0.9136004350199554,
+              "sampled_outline_hausdorff_source_px": 1.2124519964479294
+            },
+            {
+              "fit_ids": [
+                19,
+                53
+              ],
+              "center_distance_source_px": 1.029284749755433,
+              "sampled_outline_hausdorff_source_px": 1.3180962139900747
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "sensitivity": [
+    {
+      "experiment": "center_and_size_sensitivity",
+      "ball_id": "bottom-black-second-left-ball",
+      "runs": 20,
+      "accepted_count": 1,
+      "status_reason_counts": {
+        "rejected:ambiguous_boundary": 19,
+        "accepted:None": 1
+      },
+      "accepted_center_pairwise_max_source_px": null,
+      "accepted_centers_source_px": [
+        [
+          362.57431709968216,
+          626.567313135787
+        ]
+      ],
+      "rejected_candidate_geometry_available": false
+    },
+    {
+      "experiment": "center_and_size_sensitivity",
+      "ball_id": "bottom-left-pocket-ball",
+      "runs": 20,
+      "accepted_count": 0,
+      "status_reason_counts": {
+        "rejected:ambiguous_boundary": 20
+      },
+      "accepted_center_pairwise_max_source_px": null,
+      "accepted_centers_source_px": [],
+      "rejected_candidate_geometry_available": false
+    },
+    {
+      "experiment": "center_and_size_sensitivity",
+      "ball_id": "bottom-middle-pocket-ball",
+      "runs": 20,
+      "accepted_count": 0,
+      "status_reason_counts": {
+        "rejected:ambiguous_boundary": 19,
+        "rejected:insufficient_boundary": 1
+      },
+      "accepted_center_pairwise_max_source_px": null,
+      "accepted_centers_source_px": [],
+      "rejected_candidate_geometry_available": false
+    },
+    {
+      "experiment": "center_and_size_sensitivity",
+      "ball_id": "bottom-right-pocket-ball",
+      "runs": 20,
+      "accepted_count": 0,
+      "status_reason_counts": {
+        "rejected:ambiguous_boundary": 11,
+        "rejected:inadequate_coverage": 4,
+        "rejected:insufficient_boundary": 4,
+        "rejected:unstable_center": 1
+      },
+      "accepted_center_pairwise_max_source_px": null,
+      "accepted_centers_source_px": [],
+      "rejected_candidate_geometry_available": false
+    },
+    {
+      "experiment": "center_and_size_sensitivity",
+      "ball_id": "bottom-yellow-second-right-ball",
+      "runs": 20,
+      "accepted_count": 0,
+      "status_reason_counts": {
+        "rejected:ambiguous_boundary": 20
+      },
+      "accepted_center_pairwise_max_source_px": null,
+      "accepted_centers_source_px": [],
+      "rejected_candidate_geometry_available": false
+    },
+    {
+      "experiment": "center_and_size_sensitivity",
+      "ball_id": "far-left-yellow-middle-row-ball",
+      "runs": 20,
+      "accepted_count": 0,
+      "status_reason_counts": {
+        "rejected:ambiguous_boundary": 20
+      },
+      "accepted_center_pairwise_max_source_px": null,
+      "accepted_centers_source_px": [],
+      "rejected_candidate_geometry_available": false
+    },
+    {
+      "experiment": "center_and_size_sensitivity",
+      "ball_id": "far-right-purple-middle-row-ball",
+      "runs": 20,
+      "accepted_count": 0,
+      "status_reason_counts": {
+        "rejected:ambiguous_boundary": 20
+      },
+      "accepted_center_pairwise_max_source_px": null,
+      "accepted_centers_source_px": [],
+      "rejected_candidate_geometry_available": false
+    },
+    {
+      "experiment": "center_and_size_sensitivity",
+      "ball_id": "interior-green-second-right-middle-row-ball",
+      "runs": 20,
+      "accepted_count": 0,
+      "status_reason_counts": {
+        "rejected:ambiguous_boundary": 20
+      },
+      "accepted_center_pairwise_max_source_px": null,
+      "accepted_centers_source_px": [],
+      "rejected_candidate_geometry_available": false
+    },
+    {
+      "experiment": "center_and_size_sensitivity",
+      "ball_id": "interior-purple-second-left-middle-row-ball",
+      "runs": 20,
+      "accepted_count": 0,
+      "status_reason_counts": {
+        "rejected:ambiguous_boundary": 20
+      },
+      "accepted_center_pairwise_max_source_px": null,
+      "accepted_centers_source_px": [],
+      "rejected_candidate_geometry_available": false
+    },
+    {
+      "experiment": "center_and_size_sensitivity",
+      "ball_id": "middle-row-center-ball",
+      "runs": 20,
+      "accepted_count": 0,
+      "status_reason_counts": {
+        "rejected:ambiguous_boundary": 20
+      },
+      "accepted_center_pairwise_max_source_px": null,
+      "accepted_centers_source_px": [],
+      "rejected_candidate_geometry_available": false
+    },
+    {
+      "experiment": "center_and_size_sensitivity",
+      "ball_id": "top-left-pocket-ball",
+      "runs": 20,
+      "accepted_count": 0,
+      "status_reason_counts": {
+        "rejected:insufficient_boundary": 20
+      },
+      "accepted_center_pairwise_max_source_px": null,
+      "accepted_centers_source_px": [],
+      "rejected_candidate_geometry_available": false
+    },
+    {
+      "experiment": "center_and_size_sensitivity",
+      "ball_id": "top-middle-pocket-ball",
+      "runs": 20,
+      "accepted_count": 0,
+      "status_reason_counts": {
+        "rejected:ambiguous_boundary": 20
+      },
+      "accepted_center_pairwise_max_source_px": null,
+      "accepted_centers_source_px": [],
+      "rejected_candidate_geometry_available": false
+    },
+    {
+      "experiment": "center_and_size_sensitivity",
+      "ball_id": "top-orange-solid-second-left-ball",
+      "runs": 20,
+      "accepted_count": 0,
+      "status_reason_counts": {
+        "rejected:ambiguous_boundary": 20
+      },
+      "accepted_center_pairwise_max_source_px": null,
+      "accepted_centers_source_px": [],
+      "rejected_candidate_geometry_available": false
+    },
+    {
+      "experiment": "center_and_size_sensitivity",
+      "ball_id": "top-red-striped-second-right-ball",
+      "runs": 20,
+      "accepted_count": 0,
+      "status_reason_counts": {
+        "rejected:ambiguous_boundary": 20
+      },
+      "accepted_center_pairwise_max_source_px": null,
+      "accepted_centers_source_px": [],
+      "rejected_candidate_geometry_available": false
+    },
+    {
+      "experiment": "center_and_size_sensitivity",
+      "ball_id": "top-right-cue-pocket-ball",
+      "runs": 20,
+      "accepted_count": 0,
+      "status_reason_counts": {
+        "rejected:ambiguous_boundary": 20
+      },
+      "accepted_center_pairwise_max_source_px": null,
+      "accepted_centers_source_px": [],
+      "rejected_candidate_geometry_available": false
+    },
+    {
+      "experiment": "fitting_seed_sensitivity",
+      "ball_id": "bottom-black-second-left-ball",
+      "runs": 16,
+      "accepted_count": 0,
+      "status_reason_counts": {
+        "rejected:ambiguous_boundary": 16
+      },
+      "accepted_center_pairwise_max_source_px": null,
+      "accepted_centers_source_px": [],
+      "rejected_candidate_geometry_available": false
+    },
+    {
+      "experiment": "fitting_seed_sensitivity",
+      "ball_id": "bottom-left-pocket-ball",
+      "runs": 16,
+      "accepted_count": 0,
+      "status_reason_counts": {
+        "rejected:ambiguous_boundary": 16
+      },
+      "accepted_center_pairwise_max_source_px": null,
+      "accepted_centers_source_px": [],
+      "rejected_candidate_geometry_available": false
+    },
+    {
+      "experiment": "fitting_seed_sensitivity",
+      "ball_id": "bottom-middle-pocket-ball",
+      "runs": 16,
+      "accepted_count": 0,
+      "status_reason_counts": {
+        "rejected:ambiguous_boundary": 16
+      },
+      "accepted_center_pairwise_max_source_px": null,
+      "accepted_centers_source_px": [],
+      "rejected_candidate_geometry_available": false
+    },
+    {
+      "experiment": "fitting_seed_sensitivity",
+      "ball_id": "bottom-right-pocket-ball",
+      "runs": 16,
+      "accepted_count": 0,
+      "status_reason_counts": {
+        "rejected:ambiguous_boundary": 6,
+        "rejected:inadequate_coverage": 8,
+        "rejected:insufficient_boundary": 2
+      },
+      "accepted_center_pairwise_max_source_px": null,
+      "accepted_centers_source_px": [],
+      "rejected_candidate_geometry_available": false
+    },
+    {
+      "experiment": "fitting_seed_sensitivity",
+      "ball_id": "bottom-yellow-second-right-ball",
+      "runs": 16,
+      "accepted_count": 0,
+      "status_reason_counts": {
+        "rejected:ambiguous_boundary": 16
+      },
+      "accepted_center_pairwise_max_source_px": null,
+      "accepted_centers_source_px": [],
+      "rejected_candidate_geometry_available": false
+    },
+    {
+      "experiment": "fitting_seed_sensitivity",
+      "ball_id": "far-left-yellow-middle-row-ball",
+      "runs": 16,
+      "accepted_count": 0,
+      "status_reason_counts": {
+        "rejected:ambiguous_boundary": 16
+      },
+      "accepted_center_pairwise_max_source_px": null,
+      "accepted_centers_source_px": [],
+      "rejected_candidate_geometry_available": false
+    },
+    {
+      "experiment": "fitting_seed_sensitivity",
+      "ball_id": "far-right-purple-middle-row-ball",
+      "runs": 16,
+      "accepted_count": 1,
+      "status_reason_counts": {
+        "rejected:ambiguous_boundary": 15,
+        "accepted:None": 1
+      },
+      "accepted_center_pairwise_max_source_px": null,
+      "accepted_centers_source_px": [
+        [
+          1197.2495511602283,
+          362.1882465667417
+        ]
+      ],
+      "rejected_candidate_geometry_available": false
+    },
+    {
+      "experiment": "fitting_seed_sensitivity",
+      "ball_id": "interior-green-second-right-middle-row-ball",
+      "runs": 16,
+      "accepted_count": 0,
+      "status_reason_counts": {
+        "rejected:ambiguous_boundary": 16
+      },
+      "accepted_center_pairwise_max_source_px": null,
+      "accepted_centers_source_px": [],
+      "rejected_candidate_geometry_available": false
+    },
+    {
+      "experiment": "fitting_seed_sensitivity",
+      "ball_id": "interior-purple-second-left-middle-row-ball",
+      "runs": 16,
+      "accepted_count": 3,
+      "status_reason_counts": {
+        "rejected:ambiguous_boundary": 13,
+        "accepted:None": 3
+      },
+      "accepted_center_pairwise_max_source_px": 0.6821706159019105,
+      "accepted_centers_source_px": [
+        [
+          357.888067159673,
+          363.7896847893966
+        ],
+        [
+          358.1771906874421,
+          363.86073134416637
+        ],
+        [
+          358.1541962811912,
+          364.41780264448425
+        ]
+      ],
+      "rejected_candidate_geometry_available": false
+    },
+    {
+      "experiment": "fitting_seed_sensitivity",
+      "ball_id": "middle-row-center-ball",
+      "runs": 16,
+      "accepted_count": 0,
+      "status_reason_counts": {
+        "rejected:ambiguous_boundary": 16
+      },
+      "accepted_center_pairwise_max_source_px": null,
+      "accepted_centers_source_px": [],
+      "rejected_candidate_geometry_available": false
+    },
+    {
+      "experiment": "fitting_seed_sensitivity",
+      "ball_id": "top-left-pocket-ball",
+      "runs": 16,
+      "accepted_count": 0,
+      "status_reason_counts": {
+        "rejected:insufficient_boundary": 16
+      },
+      "accepted_center_pairwise_max_source_px": null,
+      "accepted_centers_source_px": [],
+      "rejected_candidate_geometry_available": false
+    },
+    {
+      "experiment": "fitting_seed_sensitivity",
+      "ball_id": "top-middle-pocket-ball",
+      "runs": 16,
+      "accepted_count": 0,
+      "status_reason_counts": {
+        "rejected:ambiguous_boundary": 16
+      },
+      "accepted_center_pairwise_max_source_px": null,
+      "accepted_centers_source_px": [],
+      "rejected_candidate_geometry_available": false
+    },
+    {
+      "experiment": "fitting_seed_sensitivity",
+      "ball_id": "top-orange-solid-second-left-ball",
+      "runs": 16,
+      "accepted_count": 0,
+      "status_reason_counts": {
+        "rejected:ambiguous_boundary": 16
+      },
+      "accepted_center_pairwise_max_source_px": null,
+      "accepted_centers_source_px": [],
+      "rejected_candidate_geometry_available": false
+    },
+    {
+      "experiment": "fitting_seed_sensitivity",
+      "ball_id": "top-red-striped-second-right-ball",
+      "runs": 16,
+      "accepted_count": 0,
+      "status_reason_counts": {
+        "rejected:ambiguous_boundary": 16
+      },
+      "accepted_center_pairwise_max_source_px": null,
+      "accepted_centers_source_px": [],
+      "rejected_candidate_geometry_available": false
+    },
+    {
+      "experiment": "fitting_seed_sensitivity",
+      "ball_id": "top-right-cue-pocket-ball",
+      "runs": 16,
+      "accepted_count": 1,
+      "status_reason_counts": {
+        "rejected:ambiguous_boundary": 15,
+        "accepted:None": 1
+      },
+      "accepted_center_pairwise_max_source_px": null,
+      "accepted_centers_source_px": [
+        [
+          1195.3952578960248,
+          97.23338943287058
+        ]
+      ],
+      "rejected_candidate_geometry_available": false
+    }
+  ],
+  "nine_reference_method_comparison": {
+    "existing_segmentation_ellipse_centers": {
+      "point_ids": [
+        "middle-row-center-ball",
+        "far-right-purple-middle-row-ball",
+        "far-left-yellow-middle-row-ball",
+        "interior-purple-second-left-middle-row-ball",
+        "interior-green-second-right-middle-row-ball",
+        "top-orange-solid-second-left-ball",
+        "top-red-striped-second-right-ball",
+        "bottom-black-second-left-ball",
+        "bottom-yellow-second-right-ball"
+      ],
+      "count": 9,
+      "leave_one_out_errors_mm": {
+        "middle-row-center-ball": 9.150027779461478,
+        "far-right-purple-middle-row-ball": 2.8566056658212293,
+        "far-left-yellow-middle-row-ball": 12.27497377509591,
+        "interior-purple-second-left-middle-row-ball": 2.584528528868128,
+        "interior-green-second-right-middle-row-ball": 2.746917051388614,
+        "top-orange-solid-second-left-ball": 10.33379196062618,
+        "top-red-striped-second-right-ball": 7.8062368165501,
+        "bottom-black-second-left-ball": 13.982208151034866,
+        "bottom-yellow-second-right-ball": 7.878987336968919
+      },
+      "leave_one_out_predictions_mm": {
+        "middle-row-center-ball": [
+          1163.0471702150182,
+          571.3585067430652
+        ],
+        "far-right-purple-middle-row-ball": [
+          2305.38931620503,
+          574.3299009635678
+        ],
+        "far-left-yellow-middle-row-ball": [
+          16.59929974394845,
+          571.9810095478084
+        ],
+        "interior-purple-second-left-middle-row-ball": [
+          572.6078267084685,
+          577.0100605346622
+        ],
+        "interior-green-second-right-middle-row-ball": [
+          1745.316026005531,
+          572.0917373604557
+        ],
+        "top-orange-solid-second-left-ball": [
+          576.3114319220206,
+          35.13275582348365
+        ],
+        "top-red-striped-second-right-ball": [
+          1753.9392594554208,
+          27.228663391538475
+        ],
+        "bottom-black-second-left-ball": [
+          581.8348317671548,
+          1123.52130878098
+        ],
+        "bottom-yellow-second-right-ball": [
+          1749.0532675034005,
+          1134.488432131859
+        ]
+      },
+      "leave_one_out_rms_mm": 8.705609317078913,
+      "leave_one_out_p95_mm": 13.299314400659282,
+      "leave_one_out_max_mm": 13.982208151034866,
+      "training_residuals_mm": {
+        "middle-row-center-ball": 7.079492115218642,
+        "far-right-purple-middle-row-ball": 0.8976402344998483,
+        "far-left-yellow-middle-row-ball": 4.214337473278303,
+        "interior-purple-second-left-middle-row-ball": 2.036170137334211,
+        "interior-green-second-right-middle-row-ball": 2.166917245977764,
+        "top-orange-solid-second-left-ball": 3.725839127374918,
+        "top-red-striped-second-right-ball": 2.8405313109495647,
+        "bottom-black-second-left-ball": 5.080608602272514,
+        "bottom-yellow-second-right-ball": 3.33398316664017
+      },
+      "normalized_design_conditions_by_fold": [
+        6.062086900907548,
+        5.965605645794815,
+        5.97427622528791,
+        6.031882237464252,
+        6.028687369755881,
+        7.8617683138378025,
+        7.8717344912405,
+        7.847628214717825,
+        7.872364113145262
+      ],
+      "normalized_design_condition_all_points": 6.2298756519961325,
+      "diagnostic_homography_normalized": [
+        [
+          1.1326211755513722,
+          -0.007310053237326763,
+          -0.00880486901148605
+        ],
+        [
+          -7.947335837894561e-05,
+          1.1262687993931406,
+          -0.007433802299104491
+        ],
+        [
+          0.007248896713470107,
+          -0.024014858655612082,
+          1.0
+        ]
+      ],
+      "independently_validated_accuracy": false,
+      "reference_uncertainty_mm": null
+    },
+    "manual_proposal_midpoints": {
+      "point_ids": [
+        "middle-row-center-ball",
+        "far-right-purple-middle-row-ball",
+        "far-left-yellow-middle-row-ball",
+        "interior-purple-second-left-middle-row-ball",
+        "interior-green-second-right-middle-row-ball",
+        "top-orange-solid-second-left-ball",
+        "top-red-striped-second-right-ball",
+        "bottom-black-second-left-ball",
+        "bottom-yellow-second-right-ball"
+      ],
+      "count": 9,
+      "leave_one_out_errors_mm": {
+        "middle-row-center-ball": 8.642427036086405,
+        "far-right-purple-middle-row-ball": 5.977991598641687,
+        "far-left-yellow-middle-row-ball": 8.829740175592732,
+        "interior-purple-second-left-middle-row-ball": 2.5260402769460746,
+        "interior-green-second-right-middle-row-ball": 3.1031944550947936,
+        "top-orange-solid-second-left-ball": 8.521424252854159,
+        "top-red-striped-second-right-ball": 9.429884727017606,
+        "bottom-black-second-left-ball": 10.760002709229985,
+        "bottom-yellow-second-right-ball": 8.849411093759796
+      },
+      "leave_one_out_predictions_mm": {
+        "middle-row-center-ball": [
+          1163.3631066789214,
+          571.9812381030792
+        ],
+        "far-right-purple-middle-row-ball": [
+          2302.3437021984537,
+          575.7458500002139
+        ],
+        "far-left-yellow-middle-row-ball": [
+          19.9673808626128,
+          572.7069541788459
+        ],
+        "interior-purple-second-left-middle-row-ball": [
+          572.315389817405,
+          577.065819718512
+        ],
+        "interior-green-second-right-middle-row-ball": [
+          1745.5656359765626,
+          571.6482093383328
+        ],
+        "top-orange-solid-second-left-ball": [
+          574.5840621281388,
+          34.35763024697496
+        ],
+        "top-red-striped-second-right-ball": [
+          1755.3305936741585,
+          26.03225650336651
+        ],
+        "bottom-black-second-left-ball": [
+          578.4186915997896,
+          1123.3973937720066
+        ],
+        "bottom-yellow-second-right-ball": [
+          1751.9986838585987,
+          1133.8529053649888
+        ]
+      },
+      "leave_one_out_rms_mm": 7.888318140515235,
+      "leave_one_out_p95_mm": 10.227955516345034,
+      "leave_one_out_max_mm": 10.760002709229985,
+      "training_residuals_mm": {
+        "middle-row-center-ball": 6.654168121878381,
+        "far-right-purple-middle-row-ball": 1.929701581561929,
+        "far-left-yellow-middle-row-ball": 3.0463301128200726,
+        "interior-purple-second-left-middle-row-ball": 1.987165489073415,
+        "interior-green-second-right-middle-row-ball": 2.444837670641148,
+        "top-orange-solid-second-left-ball": 3.106118358496848,
+        "top-red-striped-second-right-ball": 3.343699990278343,
+        "bottom-black-second-left-ball": 3.849887619488663,
+        "bottom-yellow-second-right-ball": 3.3202273472543533
+      },
+      "normalized_design_conditions_by_fold": [
+        6.067423453918717,
+        5.970840385336497,
+        5.979410959194734,
+        6.037084876089165,
+        6.034046424453455,
+        7.872752406669774,
+        7.887200378983244,
+        7.8516077151992905,
+        7.873980216532881
+      ],
+      "normalized_design_condition_all_points": 6.2353668605073995,
+      "diagnostic_homography_normalized": [
+        [
+          1.1325513476086198,
+          -0.007303359313264634,
+          -0.008797628847665702
+        ],
+        [
+          -0.0001582037349953677,
+          1.1272890781243856,
+          -0.007341983709672859
+        ],
+        [
+          0.006619899883618137,
+          -0.024314746669865394,
+          1.0
+        ]
+      ],
+      "independently_validated_accuracy": false,
+      "reference_uncertainty_mm": null
+    },
+    "current_refiner": {
+      "accepted_count": 0,
+      "fit_status": "no_fit_no_accepted_correspondences",
+      "common_accepted_subset_with_other_methods": []
+    }
+  },
+  "nine_reference_point_rows": [
+    {
+      "ball_id": "middle-row-center-ball",
+      "reference_xy_mm": [
+        1171.575,
+        574.675
+      ],
+      "existing_segmentation_center_source_px": [
+        643.3856589825451,
+        361.29288023927984
+      ],
+      "manual_proposal_midpoint_source_px": [
+        643.5,
+        361.5
+      ],
+      "segmentation_to_proposal_distance_source_px": 0.23658500280743308,
+      "current_refiner_status": "rejected",
+      "current_refiner_center_source_px": null
+    },
+    {
+      "ball_id": "far-right-purple-middle-row-ball",
+      "reference_xy_mm": [
+        2308.225,
+        574.675
+      ],
+      "existing_segmentation_center_source_px": [
+        1199.2451582280867,
+        362.61345137334814
+      ],
+      "manual_proposal_midpoint_source_px": [
+        1198.5,
+        363.0
+      ],
+      "segmentation_to_proposal_distance_source_px": 0.8394525749866385,
+      "current_refiner_status": "rejected",
+      "current_refiner_center_source_px": null
+    },
+    {
+      "ball_id": "far-left-yellow-middle-row-ball",
+      "reference_xy_mm": [
+        28.575,
+        574.675
+      ],
+      "existing_segmentation_center_source_px": [
+        95.30802067588856,
+        361.88795889528853
+      ],
+      "manual_proposal_midpoint_source_px": [
+        95.5,
+        362.0
+      ],
+      "segmentation_to_proposal_distance_source_px": 0.22228196065189873,
+      "current_refiner_status": "rejected",
+      "current_refiner_center_source_px": null
+    },
+    {
+      "ball_id": "interior-purple-second-left-middle-row-ball",
+      "reference_xy_mm": [
+        571.5,
+        574.675
+      ],
+      "existing_segmentation_center_source_px": [
+        357.71427490207157,
+        363.5539811005509
+      ],
+      "manual_proposal_midpoint_source_px": [
+        357.5,
+        363.5
+      ],
+      "segmentation_to_proposal_distance_source_px": 0.22096989133016934,
+      "current_refiner_status": "rejected",
+      "current_refiner_center_source_px": null
+    },
+    {
+      "ball_id": "interior-green-second-right-middle-row-ball",
+      "reference_xy_mm": [
+        1746.25,
+        574.675
+      ],
+      "existing_segmentation_center_source_px": [
+        924.9670658471629,
+        361.7030726081094
+      ],
+      "manual_proposal_midpoint_source_px": [
+        925.0,
+        361.5
+      ],
+      "segmentation_to_proposal_distance_source_px": 0.205725891874225,
+      "current_refiner_status": "rejected",
+      "current_refiner_center_source_px": null
+    },
+    {
+      "ball_id": "top-orange-solid-second-left-ball",
+      "reference_xy_mm": [
+        568.325,
+        28.575
+      ],
+      "existing_segmentation_center_source_px": [
+        352.4402804892404,
+        96.57071794955338
+      ],
+      "manual_proposal_midpoint_source_px": [
+        352.0,
+        96.5
+      ],
+      "segmentation_to_proposal_distance_source_px": 0.4459236903269664,
+      "current_refiner_status": "rejected",
+      "current_refiner_center_source_px": null
+    },
+    {
+      "ball_id": "top-red-striped-second-right-ball",
+      "reference_xy_mm": [
+        1746.25,
+        28.575
+      ],
+      "existing_segmentation_center_source_px": [
+        927.8098799669336,
+        93.48016829891012
+      ],
+      "manual_proposal_midpoint_source_px": [
+        928.0,
+        93.5
+      ],
+      "segmentation_to_proposal_distance_source_px": 0.191151571642176,
+      "current_refiner_status": "rejected",
+      "current_refiner_center_source_px": null
+    },
+    {
+      "ball_id": "bottom-black-second-left-ball",
+      "reference_xy_mm": [
+        568.325,
+        1127.125
+      ],
+      "existing_segmentation_center_source_px": [
+        362.7044861832817,
+        627.4006627699337
+      ],
+      "manual_proposal_midpoint_source_px": [
+        362.0,
+        627.0
+      ],
+      "segmentation_to_proposal_distance_source_px": 0.8104513789523177,
+      "current_refiner_status": "rejected",
+      "current_refiner_center_source_px": null
+    },
+    {
+      "ball_id": "bottom-yellow-second-right-ball",
+      "reference_xy_mm": [
+        1746.25,
+        1127.125
+      ],
+      "existing_segmentation_center_source_px": [
+        924.5415622151071,
+        631.1078658538005
+      ],
+      "manual_proposal_midpoint_source_px": [
+        925.0,
+        630.5
+      ],
+      "segmentation_to_proposal_distance_source_px": 0.7613580621718766,
+      "current_refiner_status": "rejected",
+      "current_refiner_center_source_px": null
+    }
+  ],
+  "summary": {
+    "case_count": 33,
+    "accepted_count": 0,
+    "qualified_multi_candidate_iteration_count": 30,
+    "center_stable_outline_disagrees_iteration_count": 0,
+    "case_count_center_stable_outline_disagrees": 0
+  },
+  "limitations": [
+    "Manual proposal midpoints are not raw YOLO outputs; no saved detector batch establishes that comparison.",
+    "Same image, repeated trials and candidate fits are not independent ball placements.",
+    "Source center is projected local-view circle center, not a surveyed physical sphere-center label.",
+    "All plausible contours share image bias; pairwise agreement does not bound true error.",
+    "Candidate radius summary is distance from projected local center; off-axis projection produces varying radius and is not a physical ball diameter.",
+    "Sampled-outline Hausdorff can include angular discretization; it is not exact continuous-curve distance.",
+    "Current refiner has no accepted measured points; hypothetical candidates are not substituted into a production map.",
+    "Nine references have unknown uncertainty; fitted-homography errors mix mapping, reference and center bias.",
+    "Only three native-4K saved ball crops exist; no full-table independent native4K accuracy data.",
+    "Optics are frozen exploratory profiles here; new optics comparison belongs to separate audit.",
+    "Rejected perturbation runs lack full candidate traces; only outcomes and accepted-center sensitivity are available."
+  ]
+}
