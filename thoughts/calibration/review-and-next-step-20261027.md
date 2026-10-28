@@ -3,10 +3,12 @@
 ## Decision
 
 Fix and verify the native-crop estimator's acceptance stability using saved
-images before further camera/FPS tuning, calibration collection, or rollout.
-The immediate problem is demonstrated in software: identical pixels and boxes
-can change from accepted to rejected when only a detection index changes.
-Slower capture cannot fix that behavior.
+images before further camera/FPS tuning or rollout. The immediate problem is
+demonstrated in software: identical pixels and boxes can change from accepted
+to rejected when only a detection index changes. Slower capture cannot fix
+that behavior. A later saved-image mark-grid audit supplies a strong candidate
+table lattice, but the rail-to-cloth mapping and camera intrinsics remain
+unqualified. This geometry work does not block the estimator fix.
 
 This is work within ADR-0102's selected pipeline. It requires neither a new
 production mode nor another architecture decision. Preserve the verified GPU
@@ -26,6 +28,7 @@ decoder discovery independently of the estimator's outcome.
 | Physical reference evidence | Nine user-confirmed positions belong only to `table-grid-20261026-114241.jpg`. Older homography leave-one-position-out RMS was 8.71 mm; related local-normalization comparisons were about 8.01–8.95 mm. These discrepancies mix image localization, reference uncertainty, spatial coverage, and mapping error. They do not establish that the user's measurements are wrong. |
 | Reference limits | The nine positions occupy three rows. Six pocket-adjacent balls have no physical X/Y references. Other saved arrangements cannot inherit these nine coordinates. Known table marks and rail geometry are useful, but their reference definitions must be verified before treating them as ball-center correspondences. |
 | User constraints | Use existing images; no positioning jig or new pocket-ball measurements. Prefer a stable lower rate. Desired performance/accuracy numbers guide the work rather than overriding reliability. Useful verified discoveries can be adopted independently. |
+| Table-mark grid | The user identifies rail sights and felt dots as precisely measured table marks. Ten saved long-rail sights fit a one-eighth-length lattice at 0.57 px RMS / 0.99 px leave-one-out RMS. The [mark-grid audit](mark-grid-calibration-audit-20261027/README.md) shows why this is still provisional: direct rail-plane projection misses cloth dots by 10.57–11.00 px; the shared-plane-offset cross-check is 2.30–2.48 px. No new table or ball measurement was made. |
 
 ## What the current implementation establishes
 
@@ -128,13 +131,19 @@ Once image localization is stable, re-evaluate the nine matching physical
 references with the final estimator and report acceptance and leave-one-out
 mapping discrepancies. Resolve the nine-versus-twelve calibration contract
 explicitly before activating an asset. These references support a provisional
-diagnostic map, not an independently established 2 mm accuracy claim.
+diagnostic map, not an independently established 2 mm accuracy claim. The
+table-mark lattice can anchor a candidate coordinate frame, but the saved
+cloth-dot plane transfer and current camera intrinsics are not yet qualified.
+If needed, the next optics input is original JPEGs of the larger checkerboard
+described in `checkerboard-20x14in-capture.md`; no live camera access or ball
+measurements are required.
 
 Only then resume full-pipeline target qualification, initially at 4K/5 FPS,
 measuring fresh precise availability as well as latency and dropped work.
 Stills cannot establish temporal reliability, motion response, or sustained
 memory behavior. No additional user measurements are needed for the immediate
-estimator task.
+estimator task. The larger checkerboard images are useful later for optics
+qualification, not a prerequisite to fixing the proven index-sensitivity bug.
 
 ## Reproduction of the identity check
 

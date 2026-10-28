@@ -1,9 +1,10 @@
 {
   "schema_version": 1,
-  "recorded_at_utc": "2026-10-27T04:29:38.495893+00:00",
-  "scope": "Preserve established findings and independently verified capture code on local main. Unqualified localization implementation stays on experiment branch.",
+  "recorded_at_utc": "2026-10-28T14:48:47+00:00",
+  "scope": "Preserve established findings and independently verified capture code and checkerboard capture evidence on local main. Unqualified localization implementation stays on experiment branch.",
   "base_main_sha": "e9fb9a0f8402c1d5dd69657b0273d6fbc46b5e20",
-  "main_head_before_this_record_commit": "5787b56eb3064ae7c5718a17b7d3fe6f75341b92",
+  "main_head_before_this_record_commit": "0be449424d41a8ad5b70845c5efdf33b449ecbfb",
+  "latest_promoted_main_head": "0be449424d41a8ad5b70845c5efdf33b449ecbfb",
   "main_commits": [
     {
       "sha": "3e6799187a0ac869d2504fc6b9540c960ad34e1c",
@@ -32,6 +33,126 @@
       "subject": "docs(architecture): record estimator stability requirements",
       "files": [
         "docs/architecture/decisions/0102-use-native-frame-ball-localization-with-calibrated-2d-measurements.md"
+      ]
+    },
+    {
+      "sha": "da6bfce886a441e30610009d3d9bf81ece65b204",
+      "subject": "docs(calibration): promote table mark grid findings",
+      "files": [
+        "docs/architecture/decisions/0102-use-native-frame-ball-localization-with-calibrated-2d-measurements.md",
+        "output/pdf/ball-localization-checkerboard-20x14in.pdf",
+        "thoughts/calibration/capture_checkerboard.py",
+        "thoughts/calibration/checkerboard-20x14in-capture.md",
+        "thoughts/calibration/mark-grid-calibration-audit-20261027/README.md",
+        "thoughts/calibration/mark-grid-calibration-audit-20261027/summary.json",
+        "thoughts/calibration/native-ball-localization-next-steps-plan.md",
+        "thoughts/calibration/native-localization-corpus-v1.json",
+        "thoughts/calibration/native-resolution-ball-localization-status.md",
+        "thoughts/calibration/offline-mark-grid-calibration-audit-20261027.py",
+        "thoughts/calibration/offline-table-feature-registration-audit-20261027.py",
+        "thoughts/calibration/proven-findings-index.md",
+        "thoughts/calibration/review-and-next-step-20261027.md",
+        "thoughts/calibration/table-feature-registration-audit-20261027/README.md",
+        "thoughts/calibration/table-feature-registration-audit-20261027/summary.json"
+      ]
+    },
+    {
+      "sha": "860bce38f4b5381b2776ee53b1237cab6cc55621",
+      "subject": "docs(calibration): add letter-sized checkerboard tiles",
+      "files": [
+        "output/pdf/ball-localization-checkerboard-letter-tiles.pdf",
+        "thoughts/calibration/checkerboard-20x14in-capture.md",
+        "thoughts/calibration/generate_letter_checkerboard_tiles.py",
+        "thoughts/calibration/proven-findings-index.md"
+      ]
+    },
+    {
+      "sha": "04f9aa0b62926ed6fa81bae7cb96ffe073924cd6",
+      "subject": "calibration: capture centered 4k checkerboard view",
+      "files": [
+        "thoughts/calibration/capture_checkerboard.py",
+        "thoughts/calibration/checkerboard-20x14-session/README.md",
+        "thoughts/calibration/checkerboard-20x14-session/manifest.json",
+        "thoughts/calibration/checkerboard-20x14-session/view-001-annotated.png",
+        "thoughts/calibration/checkerboard-20x14-session/view-001-corners.json",
+        "thoughts/calibration/checkerboard-20x14-session/view-001.jpg"
+      ]
+    },
+    {
+      "sha": "4729703e490a07db96079ac1f258e1318ef9f04e",
+      "subject": "calibration: capture upper-left checkerboard view",
+      "files": [
+        "thoughts/calibration/checkerboard-20x14-session/README.md",
+        "thoughts/calibration/checkerboard-20x14-session/manifest.json",
+        "thoughts/calibration/checkerboard-20x14-session/view-002-annotated.png",
+        "thoughts/calibration/checkerboard-20x14-session/view-002-corners.json",
+        "thoughts/calibration/checkerboard-20x14-session/view-002.jpg"
+      ]
+    },
+    {
+      "sha": "18c844fa9839fe5c0e7f5e63262d883e387b7acd",
+      "subject": "calibration: capture tilted right checkerboard view",
+      "files": [
+        "thoughts/calibration/checkerboard-20x14-session/README.md",
+        "thoughts/calibration/checkerboard-20x14-session/manifest.json",
+        "thoughts/calibration/checkerboard-20x14-session/view-003-annotated.png",
+        "thoughts/calibration/checkerboard-20x14-session/view-003-corners.json",
+        "thoughts/calibration/checkerboard-20x14-session/view-003.jpg"
+      ]
+    },
+    {
+      "sha": "096e903bf48755e39155ed1c4531285d1afb3868",
+      "subject": "calibration: capture lower-left checkerboard view",
+      "files": [
+        "thoughts/calibration/checkerboard-20x14-session/README.md",
+        "thoughts/calibration/checkerboard-20x14-session/manifest.json",
+        "thoughts/calibration/checkerboard-20x14-session/view-004-annotated.png",
+        "thoughts/calibration/checkerboard-20x14-session/view-004-corners.json",
+        "thoughts/calibration/checkerboard-20x14-session/view-004.jpg"
+      ]
+    },
+    {
+      "sha": "c3d7876df3b4a17ad74c2696272bb0b886ed6bb3",
+      "subject": "calibration: capture lower-right checkerboard view",
+      "files": [
+        "thoughts/calibration/checkerboard-20x14-session/README.md",
+        "thoughts/calibration/checkerboard-20x14-session/manifest.json",
+        "thoughts/calibration/checkerboard-20x14-session/view-005-annotated.png",
+        "thoughts/calibration/checkerboard-20x14-session/view-005-corners.json",
+        "thoughts/calibration/checkerboard-20x14-session/view-005.jpg"
+      ]
+    },
+    {
+      "sha": "7d20359c171d4662a1f9a9e84eec051a8544224e",
+      "subject": "calibration: capture top-right checkerboard view",
+      "files": [
+        "thoughts/calibration/checkerboard-20x14-session/README.md",
+        "thoughts/calibration/checkerboard-20x14-session/manifest.json",
+        "thoughts/calibration/checkerboard-20x14-session/view-006-annotated.png",
+        "thoughts/calibration/checkerboard-20x14-session/view-006-corners.json",
+        "thoughts/calibration/checkerboard-20x14-session/view-006.jpg"
+      ]
+    },
+    {
+      "sha": "4d34a417ff124382d580831f9ee26968840a39c2",
+      "subject": "calibration: capture top-center checkerboard view",
+      "files": [
+        "thoughts/calibration/checkerboard-20x14-session/README.md",
+        "thoughts/calibration/checkerboard-20x14-session/manifest.json",
+        "thoughts/calibration/checkerboard-20x14-session/view-007-annotated.png",
+        "thoughts/calibration/checkerboard-20x14-session/view-007-corners.json",
+        "thoughts/calibration/checkerboard-20x14-session/view-007.jpg"
+      ]
+    },
+    {
+      "sha": "0be449424d41a8ad5b70845c5efdf33b449ecbfb",
+      "subject": "calibration: capture center-left checkerboard view",
+      "files": [
+        "thoughts/calibration/checkerboard-20x14-session/README.md",
+        "thoughts/calibration/checkerboard-20x14-session/manifest.json",
+        "thoughts/calibration/checkerboard-20x14-session/view-008-annotated.png",
+        "thoughts/calibration/checkerboard-20x14-session/view-008-corners.json",
+        "thoughts/calibration/checkerboard-20x14-session/view-008.jpg"
       ]
     }
   ],
@@ -168,6 +289,66 @@
         "16; 0; 0",
         "3; 0; 0"
       ]
+    },
+    {
+      "name": "saved-image table-feature registration audit",
+      "command": "/tmp/billiards-checkerboard-env/bin/python thoughts/calibration/offline-table-feature-registration-audit-20261027.py --self-test; /tmp/billiards-checkerboard-env/bin/python thoughts/calibration/offline-table-feature-registration-audit-20261027.py",
+      "result": "Passed synthetic registration checks and reproduced the saved report. Rail holdout RMS was 0.209 px and side-rail holdout RMS was 0.463 px for the measured-to-alternate frame pair; exact physical dot coordinates remain unavailable in the inspected files."
+    },
+    {
+      "name": "saved-image mark-grid audit",
+      "command": "/tmp/billiards-checkerboard-env/bin/python thoughts/calibration/offline-mark-grid-calibration-audit-20261027.py --output /tmp/mark-grid-reproduction-2",
+      "result": "Passed and exactly matched the committed JSON and report. Common rail-to-cloth separation was 52.830562764 mm with 1.2924 and 1.3877 px spot residuals; held-out one-spot predictions were 2.2961 and 2.4809 px. Nine box-midpoint ball references had 11.2857 mm RMS and are diagnostic only."
+    },
+    {
+      "name": "checkerboard capture utility",
+      "command": "/tmp/billiards-checkerboard-env/bin/python thoughts/calibration/capture_checkerboard.py --self-test",
+      "result": "Passed synthetic full-board detection, native pitch, cropped-board rejection, and 20 x 14 inch scale metadata checks."
+    },
+    {
+      "name": "centered 4K checkerboard snapshot",
+      "command": "Fetch the user-provided snapshot JPEG; run capture_checkerboard.py --file on the retained original; independently verify image hash, dimensions, corner count, and physical-verification state.",
+      "result": "Passed. Bright-paper ROI detection recorded 54/54 corners in the original 3840 x 2160 frame, with 71.64 px median and 66.93 px minimum neighboring-corner spacing. Print scale and flat backing remain pending; one view establishes no calibrated lens model or table X/Y accuracy."
+    },
+    {
+      "name": "upper-left checkerboard snapshot",
+      "command": "Capture the next user-indicated ready state from the user-provided snapshot endpoint; independently verify hash, 3840 x 2160 dimensions, corner count, and annotation.",
+      "result": "Passed. View 2 is a distinct upper-left 4K image with 54/54 corners, 75.19 px median and 71.73 px minimum neighboring-corner spacing. It adds field coverage but remains nearly front-facing; no calibration was fit or activated."
+    },
+    {
+      "name": "right-side tilted checkerboard snapshot",
+      "command": "Capture the user-indicated ready state from the user-provided snapshot endpoint; independently verify hash, 3840 x 2160 dimensions, corner count, annotation, and corrected angle note.",
+      "result": "Passed. View 3 is a distinct right-side 4K image with 54/54 corners, 80.02 px median and 73.05 px minimum neighboring-corner spacing. The user estimates about 30 degrees of tilt; the earlier 45-degree estimate was corrected. The image shows perspective foreshortening; no calibration was fit or activated."
+    },
+    {
+      "name": "lower-left checkerboard snapshot",
+      "command": "Capture the next user-indicated ready state from the user-provided snapshot endpoint; independently verify hash, 3840 x 2160 dimensions, corner count, annotation, and distinctness.",
+      "result": "Passed. View 4 is a distinct lower-left 4K image with 54/54 corners, 77.17 px median and 71.61 px minimum neighboring-corner spacing. It adds another position and tilted orientation; no calibration was fit or activated."
+    },
+    {
+      "name": "lower-right checkerboard snapshot",
+      "command": "Capture the next user-indicated ready state from the user-provided snapshot endpoint; independently verify hash, 3840 x 2160 dimensions, corner count, annotation, and distinctness.",
+      "result": "Passed. View 5 is a distinct lower-right 4K image with 54/54 corners, 69.64 px median and 42.00 px minimum neighboring-corner spacing. The full pattern is visible near the right edge; this adds opposite-side field coverage and another tilted perspective. No calibration was fit or activated."
+    },
+    {
+      "name": "top-right checkerboard snapshot",
+      "command": "Capture the next user-indicated ready state from the user-provided snapshot endpoint; independently verify hash, dimensions, corner count, annotation, and image-edge margin.",
+      "result": "Passed. View 6 is a distinct 3840 x 2160 image with 54/54 corners, 74.49 px median and 62.55 px minimum neighboring-corner spacing; the estimated pattern remains at least 147 px from the image edge. This adds top-right coverage in the opposite tilt orientation from view 3. No calibration was fit or activated."
+    },
+    {
+      "name": "top-center checkerboard snapshot",
+      "command": "Capture the next user-indicated ready state from the user-provided snapshot endpoint; independently verify hash, dimensions, corner count, annotation, and image-edge margin.",
+      "result": "Passed. View 7 is a distinct 3840 x 2160 image with 54/54 corners, 76.30 px median and 62.78 px minimum neighboring-corner spacing, with at least 671 px between the estimated pattern and image edge. This adds another pose with visible perspective; no calibration was fit or activated."
+    },
+    {
+      "name": "center-left checkerboard snapshot",
+      "command": "Capture the user-indicated ready state from the snapshot endpoint; independently verify the retained image hash, dimensions, corner count, annotation, and image-edge margin.",
+      "result": "Passed. View 8 is a distinct 3840 x 2160 image with 54/54 corners, 77.56 px median and 71.07 px minimum neighboring-corner spacing, with at least 596 px between the estimated pattern and image edge. It adds center-left field coverage and an alternate board orientation; the image appears close to front-facing and contributes limited new tilt information. Print scale and flat backing remain pending; no calibration was fit or activated."
+    },
+    {
+      "name": "four-page Letter checkerboard PDF",
+      "command": "/tmp/billiards-checkerboard-env/bin/python thoughts/calibration/generate_letter_checkerboard_tiles.py --self-test; pdfinfo output/pdf/ball-localization-checkerboard-letter-tiles.pdf; render pages at 72 dpi and reconstruct the 2 x 2 tile layout",
+      "result": "Passed. PDF has four 792 x 612 point Letter landscape pages. The rendered pages reconstruct a pixel-exact 20 x 14 inch 10 x 7 square pattern at 72 points per inch; each square is 2 inches. Pages were rendered and visually inspected."
     }
   ],
   "additional_checks_passed": [
@@ -175,14 +356,22 @@
     "make format-check",
     "make config-check on experiment checkpoint",
     "git diff --check",
-    "ADR validator: 4 records"
+    "ADR validator: 4 records",
+    "Python py_compile for checkerboard and both offline audits",
+    "PDF info/render check: one 22 x 16 inch page; rendered checkerboard visually inspected",
+    "copied audit outputs and inputs byte-compared against experiment-branch sources",
+    "Python py_compile for the Letter tile generator",
+    "Checkerboard capture utility self-test and retained 4K JPEG reproduction: 54/54 corners detected; hash and pending physical-verification state confirmed",
+    "git diff --check for the Letter tile and guide changes"
   ],
   "clean_checkout_prerequisite": "First isolated full camera-feature suite attempt lacked frontend/web/dist. Locked dependencies and ignored generated browser assets were built, then the full suite passed. No frontend source/dependency changes were committed.",
   "target_hardware_evidence": "thoughts/calibration/gpu-saved-frame-qualification-20261027.json",
-  "no_live_camera_used": true,
+  "no_live_camera_used": false,
+  "live_camera_access": "Fetched eight images from the user-provided snapshot endpoint after the user indicated the checkerboard was ready; camera settings were not changed.",
   "deployment_performed": false,
   "published_to_origin": false,
   "preexisting_main_ahead_of_origin_tracking_ref": 159,
+  "current_main_ahead_of_origin_tracking_ref": 183,
   "publication_note": "User requested committing to main. Main is advanced locally; no push was requested or performed, and unrelated preexisting unpushed history was not published.",
   "excluded_claims": [
     "native-ball accuracy qualification",
