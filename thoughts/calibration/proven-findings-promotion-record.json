@@ -1,10 +1,10 @@
 {
   "schema_version": 1,
-  "recorded_at_utc": "2026-10-28T02:25:42+00:00",
+  "recorded_at_utc": "2026-10-28T13:58:29+00:00",
   "scope": "Preserve established findings and independently verified capture code and checkerboard capture evidence on local main. Unqualified localization implementation stays on experiment branch.",
   "base_main_sha": "e9fb9a0f8402c1d5dd69657b0273d6fbc46b5e20",
-  "main_head_before_this_record_commit": "04f9aa0b62926ed6fa81bae7cb96ffe073924cd6",
-  "latest_promoted_main_head": "04f9aa0b62926ed6fa81bae7cb96ffe073924cd6",
+  "main_head_before_this_record_commit": "4729703e490a07db96079ac1f258e1318ef9f04e",
+  "latest_promoted_main_head": "4729703e490a07db96079ac1f258e1318ef9f04e",
   "main_commits": [
     {
       "sha": "3e6799187a0ac869d2504fc6b9540c960ad34e1c",
@@ -76,6 +76,17 @@
         "thoughts/calibration/checkerboard-20x14-session/view-001-annotated.png",
         "thoughts/calibration/checkerboard-20x14-session/view-001-corners.json",
         "thoughts/calibration/checkerboard-20x14-session/view-001.jpg"
+      ]
+    },
+    {
+      "sha": "4729703e490a07db96079ac1f258e1318ef9f04e",
+      "subject": "calibration: capture upper-left checkerboard view",
+      "files": [
+        "thoughts/calibration/checkerboard-20x14-session/README.md",
+        "thoughts/calibration/checkerboard-20x14-session/manifest.json",
+        "thoughts/calibration/checkerboard-20x14-session/view-002-annotated.png",
+        "thoughts/calibration/checkerboard-20x14-session/view-002-corners.json",
+        "thoughts/calibration/checkerboard-20x14-session/view-002.jpg"
       ]
     }
   ],
@@ -234,6 +245,11 @@
       "result": "Passed. Bright-paper ROI detection recorded 54/54 corners in the original 3840 x 2160 frame, with 71.64 px median and 66.93 px minimum neighboring-corner spacing. Print scale and flat backing remain pending; one view establishes no calibrated lens model or table X/Y accuracy."
     },
     {
+      "name": "upper-left checkerboard snapshot",
+      "command": "Capture the next user-indicated ready state from the user-provided snapshot endpoint; independently verify hash, 3840 x 2160 dimensions, corner count, and annotation.",
+      "result": "Passed. View 2 is a distinct upper-left 4K image with 54/54 corners, 75.19 px median and 71.73 px minimum neighboring-corner spacing. It adds field coverage but remains nearly front-facing; no calibration was fit or activated."
+    },
+    {
       "name": "four-page Letter checkerboard PDF",
       "command": "/tmp/billiards-checkerboard-env/bin/python thoughts/calibration/generate_letter_checkerboard_tiles.py --self-test; pdfinfo output/pdf/ball-localization-checkerboard-letter-tiles.pdf; render pages at 72 dpi and reconstruct the 2 x 2 tile layout",
       "result": "Passed. PDF has four 792 x 612 point Letter landscape pages. The rendered pages reconstruct a pixel-exact 20 x 14 inch 10 x 7 square pattern at 72 points per inch; each square is 2 inches. Pages were rendered and visually inspected."
@@ -255,11 +271,11 @@
   "clean_checkout_prerequisite": "First isolated full camera-feature suite attempt lacked frontend/web/dist. Locked dependencies and ignored generated browser assets were built, then the full suite passed. No frontend source/dependency changes were committed.",
   "target_hardware_evidence": "thoughts/calibration/gpu-saved-frame-qualification-20261027.json",
   "no_live_camera_used": false,
-  "live_camera_access": "Fetched one image from the user-provided snapshot endpoint to capture the newly placed checkerboard; camera settings were not changed.",
+  "live_camera_access": "Fetched two images from the user-provided snapshot endpoint after the user indicated the checkerboard was ready; camera settings were not changed.",
   "deployment_performed": false,
   "published_to_origin": false,
   "preexisting_main_ahead_of_origin_tracking_ref": 159,
-  "current_main_ahead_of_origin_tracking_ref": 169,
+  "current_main_ahead_of_origin_tracking_ref": 171,
   "publication_note": "User requested committing to main. Main is advanced locally; no push was requested or performed, and unrelated preexisting unpushed history was not published.",
   "excluded_claims": [
     "native-ball accuracy qualification",
