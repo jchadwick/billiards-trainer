@@ -378,6 +378,70 @@ projection constant when needed; the application remains X/Y-only and does
 not estimate or publish ball height/depth.
 
 
+## Follow-up — 2026-10-28: reopen architecture and validate observations first
+
+The user explicitly permits revisiting every prior architecture decision to
+solve accurate reliable table X/Y. This ADR records the current experiment;
+it does not constrain a replacement to local normalization, stochastic circle
+search, a unique-outline contract, a particular inference backend or the
+existing calibration eligibility count. Supersede consequential choices when
+a replacement is justified; preserve the evidence for past decisions.
+
+The eight new native4K larger-board captures are now evaluated in
+`thoughts/calibration/large-board-optics-20261028/` and
+`thoughts/calibration/large-board-dataset-table-20261028/`. Integrity and
+corner-count checks pass, but several view005 coordinates miss visible
+checker intersections, one by about 20 px. Source-only wider-window
+relocalization removes those gross errors without camera-model seeding or
+mutating the original manifest. Its k1 whole-view holdout RMS is 1.591 px,
+versus 2.083 px on raw observations. Neither result verifies assembled-board
+shape or calibration accuracy.
+
+The new radial fits do not generalize to the older prospective small-board
+view009: old frozen zero scores .2279 px, versus .2680 px for the new
+relocalized k1 candidate under approximate resolution transfer. The old
+nine-view aggregate contains eight training images and is not independent
+validation. Relocalized k1 also worsens rail-grid leave-one-sight-out RMS from
+1.013 to 8.352 px720 while improving the two cloth checks. Target construction,
+observation bias, approximate transfer and home-table mark assumptions remain
+confounded. Selecting the lowest larger-board residual would be unsupported.
+
+The center/outline audit at
+`thoughts/calibration/center-outline-audit-20261028/` finds zero of thirty
+multi-fit aiming iterations with stable centers and only outline disagreement.
+Removing the outline gate alone is therefore not selected. Standard-seed
+measurements remain unavailable for all nine referenced balls. Conditional
+map sensitivity is larger than candidate-center variation but establishes no
+true position-error bound. Neither the user's measurements nor any competing
+image outline is disproved by these diagnostics.
+
+**Decision:** this phase selects a discriminating experiment, rather than an
+unsupported replacement ball estimator. Prepare source-pixel-validated corner
+observations, then score two native4K images of the previously verified small
+single-piece rigid target at opposite image edges against frozen old/new
+models. Fit board pose only, not intrinsic parameters. The complete input,
+validation, rejection, test and interpretation specification is in
+`thoughts/calibration/next-localization-decision-20261028.md`. This tests whether
+an independent target supports a common optical correction before choosing a
+new localization architecture. The two views cannot qualify full-table X/Y.
+
+The table is covered. All work in this evaluation used saved files only.
+Before future camera access explain the needed two-view check and wait for
+the user's confirmation that the table is uncovered. No jig, new round-ball
+measurements, runtime flags, production calibration or deployment is introduced.
+GPU decoding remains independently useful; future complete-pipeline comparisons
+start at 4K/5 FPS and prioritize continuous fresh measurements.
+
+Verification: meaningful synthetic tests for all three new audit tools passed;
+18 optics, six dataset/table and two center-report artifacts reproduce exactly
+in separate directories. The input hash audit validates 47 references and all
+44 pre-existing calibration raster images remain unchanged. Runtime source and
+configuration are unchanged from the reconciled evaluation baseline. See
+`thoughts/calibration/evaluation-verification-20261028.json`. The benefits are a
+proven observation defect and reproducible limits; the cost is that spatial
+qualification remains incomplete and a small independent target test is still
+needed. An ADR or passing research test is not evidence of physical accuracy.
+
 ## Consequences
 
 ### Positive

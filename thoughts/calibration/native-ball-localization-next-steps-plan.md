@@ -47,6 +47,18 @@ path, manufacture exact physical references, or promote a metric asset.
 Performance qualification follows spatial feasibility; start future live
 comparison at 4K/5 FPS and measure continuous fresh availability.
 
+## Evaluation outcome — 2026-10-28
+
+The five-step offline evaluation above is complete. Dataset audit, optical
+comparison, source-only corner relocalization, cross-target frozen validation,
+registered table-mark sensitivity and center-versus-outline results are saved
+in the three `*-20261028` audit directories. Tests and separate-directory
+replays passed; no original source or production configuration changed.
+See `next-localization-decision-20261028.md` for exact findings, limits and the
+selected next discriminating experiment. No replacement runtime algorithm or
+calibration is selected. The historical implementation tasks below remain a
+record of the earlier branch work, not an instruction to repeat those tasks.
+
 ## 1. Verification strategy and completion definition
 
 The current next milestone is to qualify the table coordinate frame from the

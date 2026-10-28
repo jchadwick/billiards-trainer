@@ -9,23 +9,36 @@ proposal-order invariance is fixed; the current revision-2 estimator still
 rejects the nine measured positions at production seed 716, so no calibration
 fit or FPS selection has been made.
 
-## Offline evaluation in progress — 2026-10-28
+## Offline evaluation completed — 2026-10-28
 
-Eight larger-target 3840 × 2160 captures are retained with all 54 corners per
-view. These captures are now available on the experiment after merge
-`9ad0ca0`; print scale and flat backing for this assembled target remain
-unverified. Exploratory optical fits will retain that uncertainty explicitly.
-The user has covered the table. No live camera access or new physical work is
-needed for the current evaluation. Any later capture requires advance notice
-and confirmation that the table has been uncovered.
+The eight-image dataset, optics, table-transfer and center/outline audits are
+complete. See `next-localization-decision-20261028.md` for the selected next
+discriminating experiment and its implementation/validation specification.
 
-Detection-identity and diagnostic fixes and converged-candidate comparison
-are complete. Current 0/9 and 0/18 rejection results remain authoritative.
-Architecture is open for revision, including the unique-outline acceptance
-contract, stochastic search, image transformations, and calibration approach.
-The approved next task tests optics, table registration/transfer, and candidate
-center uncertainty on frozen images before selecting one next implementation.
-See the authoritative 2026-10-28 continuation at the top of the execution plan.
+- Source hashes, 54-corner counts and grid topology pass, but view 005 has a
+  demonstrated corner-location error of approximately 20 source pixels.
+  Source-only relocalization fixes the gross outliers in a separate record.
+- Original whole-view holdout RMS is 2.504/2.083/2.089 px for zero/k1/k1k2;
+  relocalized k1 reaches 1.591 px. Neither target construction nor these
+  optical candidates is qualified. On the old prospective view009, old zero
+  scores .2279 px versus .2680 for new relocalized k1 under approximate scale
+  transfer. New radial fits also degrade the rail-lattice checks.
+- Thirty multi-candidate aiming iterations across 33 saved cases contain no
+  center-stable/outline-only disagreement. Dropping the outline check alone
+  is unsupported. Conditional table-map sensitivity exceeds within-candidate
+  center spread; neither is independently measured accuracy.
+- Current production-seed acceptance remains 0/9 measured and 0/18 additional
+  saved proposals. No map, runtime setting, deployment or camera change was
+  made. The evaluation does not prove that the user's ball measurements were
+  wrong.
+- Next: prepare validated corner observations, then independently score two
+  native4K views of the earlier verified small rigid target with frozen optics.
+  This is a discriminating experiment, not a selected replacement estimator.
+  Every architectural decision remains open to revision on evidence.
+
+The table remains covered. No camera access occurred in this evaluation.
+Before either future capture, explain its purpose and wait for confirmation
+that the table is uncovered. The user has no physical task during this phase.
 
 ## Current executed state — 2026-10-27
 
