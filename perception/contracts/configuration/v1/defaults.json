@@ -145,6 +145,9 @@
           "irls_scale_floor_px": 0.25,
           "convergence_px": 0.01,
           "aiming_convergence_px": 1.5,
+          "seed_spacing_px": 1.5,
+          "seed_grid_radius": 1,
+          "minimum_seed_agreement": 2,
           "numerical_epsilon": 1e-9
         }
       },

@@ -318,8 +318,8 @@ fn audit_traces_the_same_fitting_results_with_bounded_events() {
     )
     .unwrap();
     assert_eq!(observations, baseline);
-    assert_eq!(BALL_LOCALIZATION_AUDIT_VERSION, 5);
-    assert_eq!(trace.schema_version, 5);
+    assert_eq!(BALL_LOCALIZATION_AUDIT_VERSION, 6);
+    assert_eq!(trace.schema_version, 6);
     assert_eq!(trace.dropped_events, 0);
     assert!(trace.retained_bytes <= trace.maximum_bytes);
     assert_eq!(trace.maximum_bytes, MAX_BALL_LOCALIZATION_AUDIT_BYTES);
@@ -882,6 +882,85 @@ fn known_noisy_quantized_circles_remain_stable_across_coarse_proposal_shifts() {
         for a in &centers {
             for b in &centers {
                 assert!((a[0] - b[0]).hypot(a[1] - b[1]) < 0.5);
+            }
+        }
+    }
+}
+
+/// These lossless RGB crops retain real quantized pocket/rail pixels. Their
+/// centers are not ground truth: this checks full-gate availability and source
+/// proposal sensitivity, separately from the known-center synthetic tests.
+#[test]
+fn frozen_gpu_pocket_pixels_require_complete_agreeing_seed_observations() {
+    let directory =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/ball-localization");
+    let cases = [
+        (
+            "top-left-pocket",
+            [39.0, 43.0],
+            [83.34375, 90.125, 122.65625, 123.875],
+        ),
+        (
+            "bottom-right-pocket",
+            [1126.0, 564.0],
+            [1171.0, 610.0, 1209.0, 647.0],
+        ),
+    ];
+    let cfg = BallLocalizationConfig {
+        reference_width_px: 384, // lossless128px crop preserves1280/3840 pixel scale
+        batch_budget_ms: 10_000,
+        proposal_budget_ms: 10_000,
+        ..Default::default()
+    };
+    for (name, origin, bbox) in cases {
+        let rgb = image::open(directory.join(format!("{name}.png")))
+            .unwrap()
+            .to_rgb8();
+        let k = CameraIntrinsics {
+            source_width_px: 128,
+            source_height_px: 128,
+            fx: 696.1731580029823,
+            fy: 695.3611772093032,
+            cx: 644.1755624688407 - origin[0],
+            cy: 349.67152391690104 - origin[1],
+        };
+        let mut centers = Vec::new();
+        for (index, shift) in [0.0, 0.1, -0.1].into_iter().enumerate() {
+            let p = BallProposal {
+                detection_index: index as u64,
+                bbox: [
+                    bbox[0] - origin[0] + shift,
+                    bbox[1] - origin[1],
+                    bbox[2] - origin[0] + shift,
+                    bbox[3] - origin[1],
+                ],
+            };
+            let result = refine_ball_batch(rgb.as_raw(), &k, &[p], &cfg).unwrap();
+            let result = &result[0];
+            assert_eq!(
+                result.status,
+                RefinementStatus::Accepted,
+                "{name} shift={shift}: {result:?}"
+            );
+            if index == 0 {
+                assert_eq!(result.quality.seed_observations, 10, "{result:?}");
+                assert!(
+                    result.quality.qualified_seed_observations >= 2,
+                    "{result:?}"
+                );
+                assert!(
+                    result.quality.seed_center_spread_px.unwrap() <= 0.5,
+                    "{result:?}"
+                );
+            }
+            centers.push(result.center_image_px.unwrap());
+        }
+        for a in &centers {
+            for b in &centers {
+                assert!(
+                    (a[0] - b[0]).hypot(a[1] - b[1]) <= 0.5,
+                    "{name}: {centers:?}"
+                );
             }
         }
     }

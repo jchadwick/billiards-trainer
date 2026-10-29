@@ -107,6 +107,12 @@ pub struct BallLocalizationConfig {
     /// Distinct from the numerical IRLS step tolerance and bounded by the
     /// independently checked source-center stability budget.
     pub aiming_convergence_px: f64,
+    /// Spacing of the source-fixed seed lattice, at reference source width.
+    pub seed_spacing_px: f64,
+    /// Complete square neighborhood evaluated after an unqualified first view.
+    pub seed_grid_radius: usize,
+    /// Independent, fully qualified seed observations required for consensus.
+    pub minimum_seed_agreement: usize,
     pub numerical_epsilon: f64,
 }
 impl Default for BallLocalizationConfig {
@@ -159,6 +165,9 @@ impl Default for BallLocalizationConfig {
             irls_scale_floor_px: 0.25,
             convergence_px: 0.01,
             aiming_convergence_px: 1.5,
+            seed_spacing_px: 1.5,
+            seed_grid_radius: 1,
+            minimum_seed_agreement: 2,
             numerical_epsilon: 1e-9,
         }
     }
@@ -201,6 +210,7 @@ impl BallLocalizationConfig {
             self.irls_scale_floor_px,
             self.convergence_px,
             self.aiming_convergence_px,
+            self.seed_spacing_px,
             self.numerical_epsilon,
             self.cyclic_continuity_weight,
         ];
@@ -259,6 +269,10 @@ impl BallLocalizationConfig {
                 .angular_samples
                 .checked_mul(self.candidates_per_ray)
                 .is_none()
+            || !(1..=2).contains(&self.seed_grid_radius)
+            || self.minimum_seed_agreement < 2
+            || self.minimum_seed_agreement > (2 * self.seed_grid_radius + 1).pow(2)
+            || self.seed_spacing_px <= self.numerical_epsilon
             || self.aiming_convergence_px > self.maximum_center_spread_px
             || self.numerical_epsilon >= self.convergence_px
             || !self.maximum_alternative_error_ratio.is_finite()
@@ -327,6 +341,9 @@ pub struct BallLocalizationQuality {
     /// Radial fit RMS after mapping measured edge points and fitted boundary
     /// points back into the native source image.
     pub source_residual_rms_px: Option<f64>,
+    pub seed_observations: usize,
+    pub qualified_seed_observations: usize,
+    pub seed_center_spread_px: Option<f64>,
     pub center_shift_px: Option<f64>,
     pub center_spread_px: Option<f64>,
     pub foreground_fraction: Option<f64>,
@@ -370,6 +387,7 @@ pub enum BallFitStage {
     CenterStability,
     Foreground,
     OutlineProjection,
+    SeedAgreement,
     Complete,
 }
 
@@ -387,6 +405,16 @@ pub struct BallLocalizationAuditEvent {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum BallLocalizationAuditEventData {
+    SeedStarted {
+        seed_index: usize,
+        axis_image_px: [f64; 2],
+        reused_initial: bool,
+    },
+    SeedConsensus {
+        evaluated: usize,
+        qualified: usize,
+        maximum_center_spread_px: f64,
+    },
     IterationStarted {
         axis_image_px: [f64; 2],
     },
@@ -454,7 +482,7 @@ pub const MAX_BALL_LOCALIZATION_AUDIT_EVENTS: usize = 8192;
 /// Trace storage is also bounded by bytes, independently of estimator/sample
 /// limits. This covers reserved event slots and owned variable-length arrays.
 pub const MAX_BALL_LOCALIZATION_AUDIT_BYTES: usize = 8 * 1024 * 1024;
-pub const BALL_LOCALIZATION_AUDIT_VERSION: u32 = 5;
+pub const BALL_LOCALIZATION_AUDIT_VERSION: u32 = 6;
 
 /// Per-audit limits control diagnostics only; they do not select a production
 /// algorithm or change estimator configuration. Both are capped independently.
@@ -517,7 +545,9 @@ impl BallLocalizationAuditTrace {
             BallLocalizationAuditEventData::CyclicHypothesis {
                 candidate_indices, ..
             } => candidate_indices.capacity() * std::mem::size_of::<usize>(),
-            BallLocalizationAuditEventData::RefinementStep { .. }
+            BallLocalizationAuditEventData::SeedStarted { .. }
+            | BallLocalizationAuditEventData::SeedConsensus { .. }
+            | BallLocalizationAuditEventData::RefinementStep { .. }
             | BallLocalizationAuditEventData::IterationStarted { .. }
             | BallLocalizationAuditEventData::BoundaryCandidate { .. }
             | BallLocalizationAuditEventData::SelectedInlier { .. } => 0,
@@ -1894,6 +1924,7 @@ fn refine_ball_batch_impl(
     scaled.irls_scale_floor_px *= scale;
     scaled.convergence_px *= scale;
     scaled.aiming_convergence_px *= scale;
+    scaled.seed_spacing_px *= scale;
     let batch_end = Instant::now() + Duration::from_millis(config.batch_budget_ms);
     let mut output = Vec::with_capacity(proposals.len());
     for proposal in proposals.iter().take(config.max_proposals) {
@@ -2014,7 +2045,177 @@ fn sampling_footprint_roi(
     Ok(roi)
 }
 
+/// Consensus is valid only after the complete configured lattice was visited.
+/// Pairwise diameter, rather than distance from a favored best fit, prevents a
+/// good-looking seed from hiding a conflicting fully qualified observation.
+fn seed_consensus_spread(
+    centers: &[[f64; 2]],
+    evaluated: usize,
+    cfg: &BallLocalizationConfig,
+    end: Instant,
+) -> Result<f64, RejectionReason> {
+    deadline(Instant::now(), end)?;
+    if evaluated != (2 * cfg.seed_grid_radius + 1).pow(2)
+        || centers.len() < cfg.minimum_seed_agreement
+        || centers.iter().flatten().any(|v| !v.is_finite())
+    {
+        return Err(RejectionReason::UnstableCenter);
+    }
+    let mut spread = 0.0_f64;
+    for a in centers {
+        for b in centers {
+            spread = spread.max(distance(*a, *b));
+        }
+    }
+    if spread > cfg.maximum_center_spread_px {
+        return Err(RejectionReason::UnstableCenter);
+    }
+    Ok(spread)
+}
+
+/// One bounded estimator: an ordinary first observation, followed when needed
+/// by a complete source-fixed lattice search. A failed first observation is not
+/// promoted; at least two independently qualified seed observations must agree.
 fn refine_one(
+    rgb: &[u8],
+    k: &CameraIntrinsics,
+    proposal: &BallProposal,
+    cfg: &BallLocalizationConfig,
+    end: Instant,
+    quality: &mut BallLocalizationQuality,
+    trace: &mut Option<&mut BallLocalizationAuditTrace>,
+) -> Result<([f64; 2], BallOutline), RejectionReason> {
+    let first = refine_seed(rgb, k, proposal, cfg, end, quality, trace);
+    quality.seed_observations = 1;
+    match first {
+        Ok(result) => {
+            quality.qualified_seed_observations = 1;
+            return Ok(result);
+        }
+        Err(
+            reason @ (RejectionReason::InvalidProposal
+            | RejectionReason::ProposalLimitExceeded
+            | RejectionReason::RoiTooLarge
+            | RejectionReason::DeadlineExceeded),
+        ) => return Err(reason),
+        Err(_) => {}
+    }
+    let original_quality = quality.clone();
+    quality.stage = BallFitStage::SeedAgreement;
+    let original_center = [
+        (proposal.bbox[0] + proposal.bbox[2]) / 2.0,
+        (proposal.bbox[1] + proposal.bbox[3]) / 2.0,
+    ];
+    let snapped = [
+        (original_center[0] / cfg.seed_spacing_px).round() * cfg.seed_spacing_px,
+        (original_center[1] / cfg.seed_spacing_px).round() * cfg.seed_spacing_px,
+    ];
+    let radius = cfg.seed_grid_radius as i32;
+    let mut accepted = Vec::new();
+    let mut evaluated = 0;
+    for y in -radius..=radius {
+        for x in -radius..=radius {
+            // A deadline makes the search incomplete, so it cannot be reported
+            // as consensus even if early seeds happened to agree.
+            deadline(Instant::now(), end)?;
+            let seed = [
+                snapped[0] + f64::from(x) * cfg.seed_spacing_px,
+                snapped[1] + f64::from(y) * cfg.seed_spacing_px,
+            ];
+            let offset = [seed[0] - original_center[0], seed[1] - original_center[1]];
+            let shifted = BallProposal {
+                detection_index: proposal.detection_index,
+                bbox: [
+                    proposal.bbox[0] + offset[0],
+                    proposal.bbox[1] + offset[1],
+                    proposal.bbox[2] + offset[0],
+                    proposal.bbox[3] + offset[1],
+                ],
+            };
+            let mut seed_quality = BallLocalizationQuality::default();
+            record_trace(trace, proposal.detection_index, &seed_quality, || {
+                BallLocalizationAuditEventData::SeedStarted {
+                    seed_index: evaluated,
+                    axis_image_px: seed,
+                    reused_initial: seed == original_center,
+                }
+            });
+            evaluated += 1;
+            quality.seed_observations = evaluated + 1;
+            // Exact same source pixels and view were already rejected above.
+            // Reuse that result while still visiting the complete lattice.
+            if seed == original_center {
+                continue;
+            }
+            match refine_seed(rgb, k, &shifted, cfg, end, &mut seed_quality, trace) {
+                Ok((center, outline)) => {
+                    // Search geometry cannot relax the original proposal's
+                    // center displacement contract.
+                    if within_center_shift_budget(
+                        distance(center, original_center),
+                        proposal.bbox[2] - proposal.bbox[0],
+                        proposal.bbox[3] - proposal.bbox[1],
+                        cfg.maximum_center_shift_fraction,
+                    ) {
+                        accepted.push((center, outline, seed_quality));
+                        quality.qualified_seed_observations = accepted.len();
+                    }
+                }
+                Err(RejectionReason::DeadlineExceeded) => {
+                    return Err(RejectionReason::DeadlineExceeded)
+                }
+                Err(_) => {}
+            }
+        }
+    }
+    deadline(Instant::now(), end)?;
+    let mut spread = 0.0_f64;
+    for a in &accepted {
+        for b in &accepted {
+            spread = spread.max(distance(a.0, b.0));
+        }
+    }
+    *quality = original_quality;
+    quality.stage = BallFitStage::SeedAgreement;
+    quality.seed_observations = evaluated + 1;
+    quality.qualified_seed_observations = accepted.len();
+    quality.seed_center_spread_px = Some(spread);
+    record_trace(trace, proposal.detection_index, quality, || {
+        BallLocalizationAuditEventData::SeedConsensus {
+            evaluated,
+            qualified: accepted.len(),
+            maximum_center_spread_px: spread,
+        }
+    });
+    seed_consensus_spread(
+        &accepted
+            .iter()
+            .map(|observation| observation.0)
+            .collect::<Vec<_>>(),
+        evaluated,
+        cfg,
+        end,
+    )?;
+    // Publish a real fully qualified observation. Deterministic residual order
+    // chooses its representative; no center or contour is averaged/fabricated.
+    accepted.sort_by(|a, b| {
+        a.2.source_residual_rms_px
+            .unwrap_or(f64::INFINITY)
+            .total_cmp(&b.2.source_residual_rms_px.unwrap_or(f64::INFINITY))
+            .then_with(|| a.0[0].total_cmp(&b.0[0]))
+            .then_with(|| a.0[1].total_cmp(&b.0[1]))
+    });
+    let (center, outline, selected_quality) = accepted.remove(0);
+    *quality = selected_quality;
+    quality.seed_observations = evaluated + 1;
+    quality.qualified_seed_observations = accepted.len() + 1;
+    quality.seed_center_spread_px = Some(spread);
+    quality.center_shift_px = Some(distance(center, original_center));
+    quality.center_spread_px = Some(quality.center_spread_px.unwrap_or(0.0).max(spread));
+    Ok((center, outline))
+}
+
+fn refine_seed(
     rgb: &[u8],
     k: &CameraIntrinsics,
     proposal: &BallProposal,
@@ -2494,6 +2695,39 @@ mod diagnostic_tests {
     use std::time::{Duration, Instant};
 
     #[test]
+    fn seed_consensus_requires_complete_grid_all_centers_and_freshness() {
+        let cfg = BallLocalizationConfig {
+            maximum_center_spread_px: 0.5,
+            aiming_convergence_px: 0.5,
+            ..BallLocalizationConfig::default()
+        };
+        let end = Instant::now() + Duration::from_secs(1);
+        assert!(super::seed_consensus_spread(&[[0.0, 0.0]], 9, &cfg, end).is_err());
+        assert!(super::seed_consensus_spread(&[[0.0, 0.0], [0.2, 0.0]], 8, &cfg, end).is_err());
+        assert!(
+            super::seed_consensus_spread(&[[0.0, 0.0], [0.2, 0.0], [0.6, 0.0]], 9, &cfg, end)
+                .is_err()
+        );
+        assert!(
+            super::seed_consensus_spread(&[[0.0, 0.0], [f64::NAN, 0.0]], 9, &cfg, end).is_err()
+        );
+        assert!(
+            (super::seed_consensus_spread(&[[0.0, 0.0], [0.2, 0.0]], 9, &cfg, end).unwrap() - 0.2)
+                .abs()
+                < 1e-12
+        );
+        assert!(matches!(
+            super::seed_consensus_spread(
+                &[[0.0, 0.0], [0.2, 0.0]],
+                9,
+                &cfg,
+                Instant::now() - Duration::from_secs(1)
+            ),
+            Err(RejectionReason::DeadlineExceeded)
+        ));
+    }
+
+    #[test]
     fn off_axis_annulus_uses_native_pixels_beyond_detector_padded_crop() {
         let k = CameraIntrinsics {
             source_width_px: 1280,
@@ -2617,7 +2851,7 @@ mod diagnostic_tests {
             source_residual_rms_px: 0.2,
         })
         .unwrap();
-        assert_eq!(BALL_LOCALIZATION_AUDIT_VERSION, 5);
+        assert_eq!(BALL_LOCALIZATION_AUDIT_VERSION, 6);
         assert_eq!(value["kind"], "cyclic_hypothesis");
         assert_eq!(value["candidate_indices"], serde_json::json!([11, 29, 47]));
     }

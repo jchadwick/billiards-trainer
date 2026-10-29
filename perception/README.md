@@ -44,3 +44,16 @@ coverage, alternative-boundary, and center-stability gates remain authoritative.
 `aiming_convergence_px` is a source-pixel geometric stopping budget, separate from
 the numerical IRLS `convergence_px`; it cannot exceed the center-stability budget
 and is checked only after the complete candidate qualification passes.
+
+Refiner revision 9 uses a bounded source-fixed seed lattice when the first view
+cannot qualify a measurement. Every configured lattice position must be visited
+before its existing deadline; identical initial views reuse their result. At
+least `minimum_seed_agreement` fully pixel-qualified observations must agree,
+and the pairwise spread of **all** qualified centers must fit the existing
+center-stability budget. A conflicting qualified seed invalidates consensus.
+The selected center and outline come from one real qualified observation;
+averaging does not manufacture a contour. Each seed also retains the original
+proposal's center-displacement bound. `seed_spacing_px` uses the declared
+reference-width pixel scale; the configured grid and consensus count are bounded
+before allocation. The default grid contains nine positions. Audit version 6
+records seed visits, reuse, and consensus separately from circle candidates.

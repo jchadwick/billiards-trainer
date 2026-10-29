@@ -28,7 +28,7 @@ const MAX_PROFILE_ID_CHARACTERS: usize = 128;
 const MAX_PROVENANCE_CHARACTERS: usize = 2048;
 pub const PLAYING_AREA_WIDTH_MM: f64 = 2336.8;
 pub const PLAYING_AREA_HEIGHT_MM: f64 = 1155.7;
-pub const BALL_REFINER_REVISION: u64 = 8;
+pub const BALL_REFINER_REVISION: u64 = 9;
 
 /// Runtime settings. Missing assets indicate unavailable precision, rather than
 /// selecting a different localization algorithm or manufacturing coordinates.
