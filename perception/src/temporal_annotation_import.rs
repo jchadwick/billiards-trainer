@@ -1521,7 +1521,7 @@ mod tests {
         config.ffprobe_executable = directory.path().join("ffprobe-overflow.sh");
         fs::write(
             &config.ffprobe_executable,
-            "#!/bin/sh\nhead -c 4096 /dev/zero\n",
+            "#!/bin/sh\nprintf %s 0123456789012345678901234567890123456789012345678901234567890123\n",
         )
         .unwrap();
         let mut permissions = fs::metadata(&config.ffprobe_executable)
@@ -1529,7 +1529,9 @@ mod tests {
             .permissions();
         permissions.set_mode(0o755);
         fs::set_permissions(&config.ffprobe_executable, permissions).unwrap();
-        config.ffprobe_timeout = Duration::from_secs(2);
+        // This scenario checks bytes, not process-start latency (which can
+        // include executable scanning on the host). Timeout is tested above.
+        config.ffprobe_timeout = Duration::from_secs(10);
         config.maximum_ffprobe_output_bytes = 32;
         let error = execute_ffprobe(&config).unwrap_err();
         assert!(error.to_string().contains("size bound"), "{error:#}");
