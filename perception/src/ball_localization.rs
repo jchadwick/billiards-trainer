@@ -103,6 +103,10 @@ pub struct BallLocalizationConfig {
     pub irls_tuning: f64,
     pub irls_scale_floor_px: f64,
     pub convergence_px: f64,
+    /// Source-pixel update below which a fully qualified viewing axis is settled.
+    /// Distinct from the numerical IRLS step tolerance and bounded by the
+    /// independently checked source-center stability budget.
+    pub aiming_convergence_px: f64,
     pub numerical_epsilon: f64,
 }
 impl Default for BallLocalizationConfig {
@@ -154,6 +158,7 @@ impl Default for BallLocalizationConfig {
             irls_tuning: 2.5,
             irls_scale_floor_px: 0.25,
             convergence_px: 0.01,
+            aiming_convergence_px: 1.5,
             numerical_epsilon: 1e-9,
         }
     }
@@ -195,6 +200,7 @@ impl BallLocalizationConfig {
             self.irls_tuning,
             self.irls_scale_floor_px,
             self.convergence_px,
+            self.aiming_convergence_px,
             self.numerical_epsilon,
             self.cyclic_continuity_weight,
         ];
@@ -253,6 +259,7 @@ impl BallLocalizationConfig {
                 .angular_samples
                 .checked_mul(self.candidates_per_ray)
                 .is_none()
+            || self.aiming_convergence_px > self.maximum_center_spread_px
             || self.numerical_epsilon >= self.convergence_px
             || !self.maximum_alternative_error_ratio.is_finite()
             || self.maximum_alternative_error_ratio < 1.0
@@ -1045,6 +1052,22 @@ struct CandidateAttempt {
     rejection: Option<RejectionReason>,
 }
 
+/// Observed angular background field around the proposal. A pocket ball may
+/// border both cloth and rail hardware; collapsing those colors into one global
+/// median discards visible silhouette arcs. Each ray uses only its own sampled
+/// annulus pixels, never a guessed or interpolated occluded background.
+struct AngularBackground {
+    colors: Vec<Option<[f64; 3]>>,
+}
+impl AngularBackground {
+    fn at(&self, point: [f64; 2]) -> Option<[f64; 3]> {
+        let angle = point[1].atan2(point[0]).rem_euclid(std::f64::consts::TAU);
+        let ray = (angle / std::f64::consts::TAU * self.colors.len() as f64).round() as usize
+            % self.colors.len();
+        self.colors[ray]
+    }
+}
+
 #[derive(Clone, Copy)]
 struct CandidateEvaluationContext<'a> {
     candidates: &'a [Candidate],
@@ -1054,7 +1077,7 @@ struct CandidateEvaluationContext<'a> {
     proposal_radius_px: f64,
     bbox_width_px: f64,
     bbox_height_px: f64,
-    background_rgb: [f64; 3],
+    background: &'a AngularBackground,
     sample: &'a dyn Fn([f64; 2]) -> Option<[f64; 3]>,
     config: &'a BallLocalizationConfig,
     deadline: Instant,
@@ -1396,7 +1419,7 @@ fn evaluate_candidate(
         proposal_radius_px,
         bbox_width_px,
         bbox_height_px,
-        background_rgb,
+        background,
         sample,
         config: cfg,
         deadline: end,
@@ -1536,9 +1559,9 @@ fn evaluate_candidate(
                 fit.center[0] + (fit.radius + cfg.background_probe_px) * angle.cos(),
                 fit.center[1] + (fit.radius + cfg.background_probe_px) * angle.sin(),
             ];
-            if let Some(color) = sample(point) {
+            if let (Some(color), Some(bg)) = (sample(point), background.at(point)) {
                 outer_available += 1;
-                if color_distance(color, background_rgb) <= cfg.maximum_outer_background_distance {
+                if color_distance(color, bg) <= cfg.maximum_outer_background_distance {
                     outer_supported += 1;
                 }
             }
@@ -1602,14 +1625,13 @@ fn evaluate_candidate(
             deadline(Instant::now(), end)?;
             let angle = std::f64::consts::TAU * ray as f64 / cfg.angular_samples as f64;
             let radius = fit.radius * cfg.radius_min_fraction;
-            if let Some(color) = sample([
+            let point = [
                 fit.center[0] + radius * angle.cos(),
                 fit.center[1] + radius * angle.sin(),
-            ]) {
+            ];
+            if let (Some(color), Some(bg)) = (sample(point), background.at(point)) {
                 foreground_available += 1;
-                if color_distance(color, background_rgb)
-                    >= cfg.minimum_foreground_background_contrast
-                {
+                if color_distance(color, bg) >= cfg.minimum_foreground_background_contrast {
                     foreground += 1;
                 }
             }
@@ -1871,6 +1893,7 @@ fn refine_ball_batch_impl(
     scaled.maximum_same_boundary_outline_disagreement_px *= scale;
     scaled.irls_scale_floor_px *= scale;
     scaled.convergence_px *= scale;
+    scaled.aiming_convergence_px *= scale;
     let batch_end = Instant::now() + Duration::from_millis(config.batch_budget_ms);
     let mut output = Vec::with_capacity(proposals.len());
     for proposal in proposals.iter().take(config.max_proposals) {
@@ -2063,47 +2086,52 @@ fn refine_one(
             view.source(k, p).and_then(|p| bilinear(rgb, k, p, roi))
         };
         quality.stage = BallFitStage::BackgroundSampling;
-        let mut background = [Vec::new(), Vec::new(), Vec::new()];
+        let mut observed_background = Vec::with_capacity(2 * cfg.angular_samples);
+        let mut background = AngularBackground {
+            colors: Vec::with_capacity(cfg.angular_samples),
+        };
         for ray in 0..cfg.angular_samples {
             deadline(Instant::now(), end)?;
             let angle = std::f64::consts::TAU * ray as f64 / cfg.angular_samples as f64;
+            let mut channels = [
+                Vec::with_capacity(2),
+                Vec::with_capacity(2),
+                Vec::with_capacity(2),
+            ];
             for factor in [cfg.annulus_inner_factor, cfg.annulus_outer_factor] {
                 if let Some(rgb) =
                     sample([angle.cos() * radius * factor, angle.sin() * radius * factor])
                 {
+                    observed_background.push((ray, rgb));
                     for ch in 0..3 {
-                        background[ch].push(rgb[ch]);
+                        channels[ch].push(rgb[ch]);
                     }
                 }
             }
+            background.colors.push((!channels[0].is_empty()).then(|| {
+                [
+                    median(&mut channels[0]),
+                    median(&mut channels[1]),
+                    median(&mut channels[2]),
+                ]
+            }));
         }
-        let sampled_fraction = background[0].len() as f64 / (2 * cfg.angular_samples) as f64;
+        let sampled_fraction = observed_background.len() as f64 / (2 * cfg.angular_samples) as f64;
         quality.background_sample_fraction = Some(sampled_fraction);
-        if sampled_fraction < cfg.minimum_background_supported_fraction {
+        if sampled_fraction < cfg.minimum_background_supported_fraction
+            || observed_background.len() < cfg.minimum_inliers
+        {
             return Err(RejectionReason::InsufficientBoundary);
         }
-        if background[0].len() < cfg.minimum_inliers {
-            return Err(RejectionReason::InsufficientBoundary);
-        }
-        // Count actual agreement with the robust annulus color, not merely
-        // availability of pixels. This rejects a background largely occupied
-        // by rail/jaw/neighbor contamination even when samples are in-bounds.
-        let original_background = background.clone();
-        let bg = [
-            median(&mut background[0]),
-            median(&mut background[1]),
-            median(&mut background[2]),
-        ];
-        let supported_background = (0..original_background[0].len())
-            .filter(|&i| {
-                color_distance(
-                    [
-                        original_background[0][i],
-                        original_background[1][i],
-                        original_background[2][i],
-                    ],
-                    bg,
-                ) <= cfg.maximum_outer_background_distance
+        // Verify observed colors against their local annulus estimate. Distinct
+        // cloth/rail regions are allowed, while incompatible samples on the same
+        // viewing ray still fail the unchanged distance/support thresholds.
+        let supported_background = observed_background
+            .iter()
+            .filter(|(ray, color)| {
+                background.colors[*ray].is_some_and(|bg| {
+                    color_distance(*color, bg) <= cfg.maximum_outer_background_distance
+                })
             })
             .count();
         let supported_fraction = supported_background as f64 / (2 * cfg.angular_samples) as f64;
@@ -2117,6 +2145,9 @@ fn refine_one(
             deadline(Instant::now(), end)?;
             let angle = std::f64::consts::TAU * ray as f64 / cfg.angular_samples as f64;
             let direction = [angle.cos(), angle.sin()];
+            let Some(bg) = background.colors[ray] else {
+                continue;
+            };
             let mut ray_candidates = Vec::new();
             for step in 0..cfg.radial_samples {
                 deadline(Instant::now(), end)?;
@@ -2263,7 +2294,7 @@ fn refine_one(
             proposal_radius_px: radius,
             bbox_width_px: right - left,
             bbox_height_px: bottom - top,
-            background_rgb: bg,
+            background: &background,
             sample: &sample,
             config: cfg,
             deadline: end,
@@ -2380,7 +2411,11 @@ fn refine_one(
         quality.qualified_candidate_count = qualified_indices.len();
         quality.candidate_search_truncated = false;
         final_fit = Some((center, outline));
-        if change < cfg.convergence_px {
+        // Aiming is a geometric coordinate choice, not an IRLS update. Once
+        // every candidate/pixel/stability gate passes and the axis update is
+        // below the declared source-center precision budget, resampling again
+        // adds no warranted precision and may swap quantized edge candidates.
+        if change <= cfg.aiming_convergence_px {
             break;
         }
     }

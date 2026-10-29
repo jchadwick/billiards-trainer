@@ -36,3 +36,11 @@ access region is clipped to the source image and checked against the configured
 ROI limit; the bilinear sampler still rejects missing pixels. This geometry
 correction changes no color, support, coverage, or center-stability threshold.
 Optics and ball-center assets must explicitly match the current refiner revision.
+
+The angular background field uses only observed annulus pixels on each viewing
+ray, so visible cloth/rail boundaries can support the same ball contour. Missing
+background observations are unavailable; they are not interpolated. Pixel color,
+coverage, alternative-boundary, and center-stability gates remain authoritative.
+`aiming_convergence_px` is a source-pixel geometric stopping budget, separate from
+the numerical IRLS `convergence_px`; it cannot exceed the center-stability budget
+and is checked only after the complete candidate qualification passes.

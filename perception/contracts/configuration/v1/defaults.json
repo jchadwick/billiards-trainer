@@ -144,6 +144,7 @@
           "irls_tuning": 2.5,
           "irls_scale_floor_px": 0.25,
           "convergence_px": 0.01,
+          "aiming_convergence_px": 1.5,
           "numerical_epsilon": 1e-9
         }
       },

@@ -445,6 +445,7 @@
                     "irls_tuning": { "type": "number", "exclusiveMinimum": 0 },
                     "irls_scale_floor_px": { "type": "number", "exclusiveMinimum": 0 },
                     "convergence_px": { "type": "number", "exclusiveMinimum": 0 },
+                    "aiming_convergence_px": { "type": "number", "exclusiveMinimum": 0 },
                     "numerical_epsilon": { "type": "number", "exclusiveMinimum": 0 }
                   },
                   "required": [
@@ -459,7 +460,7 @@
                     "minimum_foreground_background_contrast", "maximum_outer_background_distance", "inlier_threshold_px",
                     "minimum_inliers", "angular_sectors", "minimum_coverage", "maximum_gap_fraction", "maximum_residual_px",
                     "maximum_center_shift_fraction", "maximum_center_spread_px", "minimum_foreground_fraction", "irls_tuning",
-                    "irls_scale_floor_px", "convergence_px", "numerical_epsilon"
+                    "irls_scale_floor_px", "convergence_px", "aiming_convergence_px", "numerical_epsilon"
                   ],
                   "additionalProperties": false
                 }

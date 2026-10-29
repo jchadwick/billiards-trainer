@@ -34,6 +34,15 @@ fn config() -> BallLocalizationConfig {
 /// Render a 2D contour by the same documented camera-ray coordinate rotation;
 /// estimator receives only RGB and a coarse bounding proposal, never depth.
 fn image(center: [f64; 2], striped: bool, shadow: bool) -> (Vec<u8>, BallProposal) {
+    image_with_split_background(center, striped, shadow, false)
+}
+
+fn image_with_split_background(
+    center: [f64; 2],
+    striped: bool,
+    shadow: bool,
+    split: bool,
+) -> (Vec<u8>, BallProposal) {
     let k = intrinsics();
     let mut rgb = vec![0; 480 * 300 * 3];
     let radius = 19.0;
@@ -67,7 +76,11 @@ fn image(center: [f64; 2], striped: bool, shadow: bool) -> (Vec<u8>, BallProposa
             let q = [k.fx * local[0] / local[2], k.fy * local[1] / local[2]];
             let distance = q[0].hypot(q[1]);
             let alpha = (radius + 0.5 - distance).clamp(0., 1.);
-            let bg = [24., 145., 118.];
+            let bg = if split && q[0] < 0.0 {
+                [18., 20., 22.]
+            } else {
+                [24., 145., 118.]
+            };
             let color = if striped && q[1].abs() < 4. {
                 [235., 235., 235.]
             } else {
@@ -98,6 +111,79 @@ fn image(center: [f64; 2], striped: bool, shadow: bool) -> (Vec<u8>, BallProposa
         },
     )
 }
+#[test]
+fn observed_cloth_and_dark_rail_backgrounds_preserve_true_center_and_outer_rim() {
+    for center in [[240.0, 150.0], [75.0, 145.0], [405.0, 145.0]] {
+        let (rgb, p) = image_with_split_background(center, true, true, true);
+        let result = refine_ball_batch(&rgb, &intrinsics(), &[p], &config()).unwrap();
+        let result = &result[0];
+        assert_eq!(
+            result.status,
+            RefinementStatus::Accepted,
+            "{center:?}: {result:?}"
+        );
+        let observed = result.center_image_px.unwrap();
+        assert!(
+            (observed[0] - center[0]).hypot(observed[1] - center[1]) < 0.5,
+            "{result:?}"
+        );
+        assert!(
+            (result.outline.as_ref().unwrap().local_radius_px - 19.0).abs() < 0.5,
+            "{result:?}"
+        );
+    }
+}
+
+#[test]
+fn geometric_aiming_stop_preserves_known_center_across_proposal_shifts() {
+    let truth = [240.0, 150.0];
+    let (rgb, proposal) = image_with_split_background(truth, true, true, true);
+    let cfg = BallLocalizationConfig {
+        aiming_convergence_px: 0.5,
+        maximum_center_spread_px: 0.5,
+        ..config()
+    };
+    let mut observed = Vec::new();
+    for (index, shift) in [-1.0, -0.2, 0.0, 0.2, 1.0].into_iter().enumerate() {
+        let p = BallProposal {
+            detection_index: index as u64,
+            bbox: [
+                proposal.bbox[0] + shift,
+                proposal.bbox[1],
+                proposal.bbox[2] + shift,
+                proposal.bbox[3],
+            ],
+        };
+        let result = refine_ball_batch(&rgb, &intrinsics(), &[p], &cfg).unwrap();
+        let result = &result[0];
+        assert_eq!(
+            result.status,
+            RefinementStatus::Accepted,
+            "shift={shift}: {result:?}"
+        );
+        let center = result.center_image_px.unwrap();
+        assert!(
+            (center[0] - truth[0]).hypot(center[1] - truth[1]) < 0.5,
+            "{result:?}"
+        );
+        if shift.abs() <= 0.2 {
+            assert_eq!(result.quality.iterations, 1, "{result:?}");
+        }
+        observed.push(center);
+    }
+    for a in &observed {
+        for b in &observed {
+            assert!((a[0] - b[0]).hypot(a[1] - b[1]) < 0.5);
+        }
+    }
+    let invalid = BallLocalizationConfig {
+        aiming_convergence_px: 0.6,
+        maximum_center_spread_px: 0.5,
+        ..cfg
+    };
+    assert!(invalid.validate().is_err());
+}
+
 #[test]
 fn recovers_native_source_centers_for_perspective_circles() {
     for center in [[240., 150.], [75., 145.], [405., 145.]] {
