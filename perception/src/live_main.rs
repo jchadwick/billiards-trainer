@@ -76,7 +76,7 @@ impl From<ImageSpaceArgument> for ImageSpace {
     long_about = "Consumes one exact capture-settings JSON request from stdin and runs the live detector, tracker and protocol-v3 scene transport. A platform capture adapter must be compiled into this executable before it can open a camera."
 )]
 struct Arguments {
-    /// Explicit ONNX export for CPU, auto, and OpenVINO providers.
+    /// Explicit ONNX export for CPU, auto, and OpenVINO GPU providers.
     #[arg(long)]
     onnx: Option<PathBuf>,
 
@@ -104,7 +104,7 @@ struct Arguments {
     #[arg(long)]
     coral_maximum_worker_restarts_per_frame: usize,
 
-    /// Select ONNX Runtime CPU, native OpenVINO CPU, or ONNX Runtime's max-efficiency policy.
+    /// Select ONNX Runtime CPU, native OpenVINO GPU, ONNX Runtime's max-efficiency policy, or Coral Edge TPU.
     #[arg(long, value_enum)]
     provider: ProviderArgument,
 

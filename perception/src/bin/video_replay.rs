@@ -93,7 +93,7 @@ struct Arguments {
     #[arg(long)]
     source_checkpoint: PathBuf,
 
-    /// Select ONNX Runtime CPU, native OpenVINO CPU, or ONNX Runtime's max-efficiency policy.
+    /// Select ONNX Runtime CPU, native OpenVINO GPU, or ONNX Runtime's max-efficiency policy.
     #[arg(long, value_enum)]
     provider: ProviderArgument,
 

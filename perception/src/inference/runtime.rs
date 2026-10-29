@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fs::{self, File, OpenOptions};
 use std::io::{BufRead, BufReader, BufWriter, Read, Seek, SeekFrom, Write};
@@ -10,7 +11,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::{bail, ensure, Context, Result};
 use image::RgbImage;
-use openvino::{Core, DeviceType, ElementType, InferRequest, RwPropertyKey, Tensor};
+use openvino::{Core, DeviceType, ElementType, InferRequest, PropertyKey, Tensor};
 use ort::environment::Environment;
 use ort::ep::{ExecutionProvider, CPU};
 use ort::session::{
@@ -86,7 +87,7 @@ const MAXIMUM_VIDEO_CHILD_STDERR_BYTES: usize = 16 * 1024;
 /// passes one immutable RGB image to the inference engine.
 #[derive(Debug, Clone)]
 pub struct FrameInferenceOptions {
-    /// ONNX model used by CPU, auto, and OpenVINO backends. Coral uses the
+    /// ONNX model used by CPU, auto, and OpenVINO GPU backends. Coral uses the
     /// separately compiled TensorFlow Lite artifact instead.
     pub onnx_path: Option<PathBuf>,
     pub source_checkpoint_path: PathBuf,
@@ -105,6 +106,8 @@ pub struct FrameInferenceOptions {
     pub confidence: f32,
     pub iou: f32,
     pub max_detections: usize,
+    /// Intra-op thread hint for ONNX Runtime or Coral providers. Native
+    /// OpenVINO GPU inference does not apply CPU thread tuning.
     pub intra_op_threads: Option<usize>,
 }
 
@@ -706,7 +709,7 @@ pub enum ProviderSelection {
     Cpu,
     /// Let ONNX Runtime choose its max-efficiency device policy.
     Auto,
-    /// Explicitly request the native OpenVINO Runtime CPU backend.
+    /// Explicitly request the native OpenVINO Runtime GPU backend.
     #[serde(rename = "openvino")]
     Openvino,
     /// Run a compiled TensorFlow Lite model through the Coral Edge TPU delegate.
@@ -718,7 +721,7 @@ impl ProviderSelection {
         match self {
             Self::Cpu => CPU::NAME,
             Self::Auto => "AutoDevicePolicy::MaxEfficiency",
-            Self::Openvino => "OpenVINO CPU (native)",
+            Self::Openvino => "OpenVINO GPU (native)",
             Self::Coral => "Coral Edge TPU (TFLite delegate)",
         }
     }
@@ -728,7 +731,7 @@ impl ProviderSelection {
             Self::Openvino => (
                 "openvino-rs",
                 "0.11.1",
-                "Native OpenVINO CPU backend selected and invoked; this API does not expose per-node fallback assignment, so node counts are unavailable",
+                "Native OpenVINO GPU backend explicitly selected; runtime EXECUTION_DEVICES is checked to confirm GPU execution, and per-node assignment is unavailable",
             ),
             Self::Coral => (
                 "tflite_runtime",
@@ -1867,7 +1870,9 @@ pub fn run_video_audit_with_schedule(
             confidence: audit.confidence,
             iou: audit.iou,
             max_detections: audit.max_detections,
-            intra_op_threads: audit.intra_op_threads,
+            intra_op_threads: audit
+                .intra_op_threads
+                .filter(|_| audit.provider != ProviderSelection::Openvino),
             warmup_runs: audit.warmup_runs,
             source_image_space: audit.source_image_space,
             maximum_video_bytes: options.maximum_video_bytes,
@@ -3580,7 +3585,7 @@ fn create_session_for_model(
             profiling_path.is_none(),
             "ONNX Runtime profiling cannot be requested for the native OpenVINO backend"
         );
-        return OpenVinoSession::new(onnx_path, intra_op_threads).map(InferenceSession::Openvino);
+        return OpenVinoSession::new(onnx_path).map(InferenceSession::Openvino);
     }
 
     let builder = SessionBuilder::new(environment)?;
@@ -3991,6 +3996,7 @@ struct OpenVinoSession {
     output_name: String,
     input_shape: Vec<i64>,
     output_shape: Vec<i64>,
+    execution_devices: Vec<String>,
     _compiled_model: openvino::CompiledModel,
     // Keep Core alive until after the compiled model and infer request are dropped.
     _core: Core,
@@ -4079,7 +4085,7 @@ fn versioned_openvino_library_version(
 }
 
 impl OpenVinoSession {
-    fn new(onnx_path: &Path, intra_op_threads: Option<usize>) -> Result<Self> {
+    fn new(onnx_path: &Path) -> Result<Self> {
         let onnx_path = onnx_path
             .to_str()
             .context("OpenVINO requires a UTF-8 ONNX model path")?;
@@ -4087,21 +4093,30 @@ impl OpenVinoSession {
         let mut core = Core::new().context(
             "failed to load OpenVINO Runtime; install the matching OpenVINO runtime and set its platform library path",
         )?;
-        if let Some(threads) = intra_op_threads {
-            let thread_count = threads.to_string();
-            core.set_property(
-                &DeviceType::CPU,
-                &RwPropertyKey::InferenceNumThreads,
-                &thread_count,
-            )
-            .context("failed to configure OpenVINO CPU inference thread count")?;
-        }
+        let available_devices = core.available_devices().context(
+            "failed to enumerate OpenVINO devices; GPU inference requires the OpenVINO GPU plugin",
+        )?;
+        let has_gpu = available_devices
+            .iter()
+            .any(|device| is_openvino_gpu_device(device.as_ref()));
+        ensure!(
+            has_gpu,
+            "OpenVINO GPU inference was selected, but no GPU device is available; available devices: {:?}",
+            available_devices
+                .iter()
+                .map(|device| device.as_ref())
+                .collect::<Vec<_>>()
+        );
         let model = core
             .read_model_from_file(onnx_path, "")
             .with_context(|| format!("OpenVINO could not read ONNX model {onnx_path}"))?;
-        let mut compiled_model = core
-            .compile_model(&model, DeviceType::CPU)
-            .context("OpenVINO could not compile the ONNX model for CPU")?;
+        let mut compiled_model = core.compile_model(&model, DeviceType::GPU).context(
+            "OpenVINO could not compile the ONNX model for GPU; no CPU fallback is configured",
+        )?;
+        let execution_devices = compiled_model
+            .get_property(&PropertyKey::Other(Cow::Borrowed("EXECUTION_DEVICES")))
+            .context("OpenVINO GPU compiled model did not expose EXECUTION_DEVICES")?;
+        let execution_devices = parse_openvino_execution_devices(&execution_devices)?;
         ensure!(
             compiled_model.get_input_size()? == 1,
             "OpenVINO model must have one input"
@@ -4137,10 +4152,33 @@ impl OpenVinoSession {
             output_name,
             input_shape,
             output_shape,
+            execution_devices,
             _compiled_model: compiled_model,
             _core: core,
         })
     }
+}
+
+fn is_openvino_gpu_device(device: &str) -> bool {
+    device == "GPU" || device.starts_with("GPU.")
+}
+
+fn parse_openvino_execution_devices(value: &str) -> Result<Vec<String>> {
+    let devices = value
+        .split(',')
+        .map(str::trim)
+        .filter(|device| !device.is_empty())
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    ensure!(
+        !devices.is_empty(),
+        "OpenVINO GPU compiled model reported an empty EXECUTION_DEVICES value"
+    );
+    ensure!(
+        devices.iter().all(|device| is_openvino_gpu_device(device)),
+        "OpenVINO GPU backend reported unexpected execution devices {devices:?}; CPU fallback or a non-GPU device is not permitted"
+    );
+    Ok(devices)
 }
 
 fn validate_session(
@@ -4268,6 +4306,10 @@ fn profile_provider(
             "OpenVINO output signature is unexpected: {output_shape:?}"
         );
         let session_init_ms = elapsed_ms(init_start);
+        let execution_devices = match &session {
+            InferenceSession::Openvino(session) => session.execution_devices.clone(),
+            _ => unreachable!("native OpenVINO session construction returned above"),
+        };
         let inference_start = Instant::now();
         let (actual_output_shape, _) = run_session(
             &mut session,
@@ -4282,7 +4324,7 @@ fn profile_provider(
         );
         return Ok((
             ProviderEvidence {
-                observed_providers: vec!["OpenVINO CPU (native)".to_owned()],
+                observed_providers: execution_devices,
                 event_count: 0,
                 node_counts: BTreeMap::new(),
             },
@@ -4431,7 +4473,7 @@ fn run_session(
             session
                 .request
                 .infer()
-                .context("OpenVINO CPU inference failed")?;
+                .context("OpenVINO GPU inference failed")?;
             let output = session
                 .request
                 .get_output_tensor()
@@ -4565,17 +4607,18 @@ mod tests {
     use super::{
         build_detection_batch, calibration_latency_summary, calibration_report_for_batch,
         checked_duration_from_seconds, completed_after_source_deadline, expected_anchor_count,
-        find_versioned_openvino_c_library, latest_due_source_index, load_and_verify_coral_manifest,
-        load_and_verify_manifest, nchw_to_nhwc, open_detection_batch_sink,
-        open_scene_snapshot_output, paced_source_to_calibration_latency_ms, parse_provider_profile,
-        percentile_summary, run_bounded_command, sha256_file, timeline_media_duration,
-        validate_batch_identifier, validate_frame_inference_options, validate_inference_parameters,
-        validate_scene_calibration_context, versioned_openvino_library_version,
-        write_detection_batch_line, write_scene_snapshot_line, AuditOptions, BatchOutputOptions,
-        CalibrationAuditOptions, CalibrationStatus, CoralSession, CoralSessionOptions,
-        FrameInferenceEngine, FrameInferenceOptions, PacedReplayMeasurementWindow,
-        ProviderSelection, SceneSnapshotOutputDestination, SceneSnapshotOutputOptions,
-        VideoReplayMode, VideoTimeline,
+        find_versioned_openvino_c_library, is_openvino_gpu_device, latest_due_source_index,
+        load_and_verify_coral_manifest, load_and_verify_manifest, nchw_to_nhwc,
+        open_detection_batch_sink, open_scene_snapshot_output,
+        paced_source_to_calibration_latency_ms, parse_openvino_execution_devices,
+        parse_provider_profile, percentile_summary, run_bounded_command, sha256_file,
+        timeline_media_duration, validate_batch_identifier, validate_frame_inference_options,
+        validate_inference_parameters, validate_scene_calibration_context,
+        versioned_openvino_library_version, write_detection_batch_line, write_scene_snapshot_line,
+        AuditOptions, BatchOutputOptions, CalibrationAuditOptions, CalibrationStatus, CoralSession,
+        CoralSessionOptions, FrameInferenceEngine, FrameInferenceOptions,
+        PacedReplayMeasurementWindow, ProviderSelection, SceneSnapshotOutputDestination,
+        SceneSnapshotOutputOptions, VideoReplayMode, VideoTimeline,
     };
     use crate::ball_localization_profile::BallLocalizationSettings;
     use crate::detection_batch::{decode_detection_batch_v1, DetectionBatchV1, ImageSpace};
@@ -4892,7 +4935,11 @@ mod tests {
             32,
             Duration::from_secs(1),
         );
-        assert!(short.unwrap_err().to_string().contains("expected 9 bytes"));
+        let short_error = short.unwrap_err().to_string();
+        assert!(
+            short_error.contains("expected 9 bytes"),
+            "unexpected short decode error: {short_error}"
+        );
 
         let extra = super::decode_video_to_spool(
             &fake_ffmpeg,
@@ -5046,7 +5093,7 @@ mod tests {
         );
         assert_eq!(
             ProviderSelection::Openvino.requested_provider_name(),
-            "OpenVINO CPU (native)"
+            "OpenVINO GPU (native)"
         );
         assert_eq!(
             ProviderSelection::Coral.requested_provider_name(),
@@ -5057,7 +5104,7 @@ mod tests {
             (
                 "openvino-rs",
                 "0.11.1",
-                "Native OpenVINO CPU backend selected and invoked; this API does not expose per-node fallback assignment, so node counts are unavailable"
+                "Native OpenVINO GPU backend explicitly selected; runtime EXECUTION_DEVICES is checked to confirm GPU execution, and per-node assignment is unavailable"
             )
         );
         assert_eq!(
@@ -5065,6 +5112,23 @@ mod tests {
             "ort",
             "portable CPU inference remains on ONNX Runtime"
         );
+    }
+
+    #[test]
+    fn openvino_execution_device_checks_require_gpu_only() {
+        assert!(is_openvino_gpu_device("GPU"));
+        assert!(is_openvino_gpu_device("GPU.0"));
+        assert!(!is_openvino_gpu_device("CPU"));
+        assert!(!is_openvino_gpu_device("GPU_FALLBACK"));
+
+        assert_eq!(
+            parse_openvino_execution_devices("GPU.0, GPU.1").unwrap(),
+            ["GPU.0", "GPU.1"]
+        );
+        assert_eq!(parse_openvino_execution_devices("GPU").unwrap(), ["GPU"]);
+        assert!(parse_openvino_execution_devices("").is_err());
+        assert!(parse_openvino_execution_devices("CPU").is_err());
+        assert!(parse_openvino_execution_devices("GPU.0, CPU").is_err());
     }
 
     #[test]
