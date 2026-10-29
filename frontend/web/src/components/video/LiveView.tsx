@@ -5,6 +5,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { observer } from 'mobx-react-lite';
 import { apiClient } from '../../api/client';
+import { observedBallOutline } from './ball-outline';
 import { getConfiguredLiveStreamUrl } from './live-stream-url';
 import {
   frameIdentityMatches,
@@ -21,6 +22,8 @@ import {
 import { canonicalToImagePoint, normalizeImageExtentToCanonical, normalizeImagePointToCanonical } from '../../utils/coordinates';
 import type {
   GameType,
+  ImageOutline,
+  ObservationIdentity,
   ObservationStatus,
   PerceptionState,
   PositionRetentionStatus,
@@ -28,6 +31,8 @@ import type {
 import { useRootStore } from '../../stores/context';
 
 interface Ball {
+  outline?: ImageOutline;
+  source_observation?: ObservationIdentity;
   id: string | number;
   position: { x: number; y: number; scale: [number, number] };
   radius: number;
@@ -792,9 +797,17 @@ export const LiveView: React.FC<LiveViewProps> = observer(({ className = '', aut
       const radius = Math.max(radiusX, radiusY);
       const isObserved = ball.is_observed !== false && !isObservationStale;
 
-      // Draw ball circle
+      // Preserve an accepted off-axis silhouette instead of forcing a circle.
+      const outline = isObserved && spatialOverlayFrameValid
+        ? observedBallOutline(ball, displayedMjpegFrame ?? null, videoSize) : null;
       ctx.beginPath();
-      ctx.ellipse(x, y, radius, radius, 0, 0, 2 * Math.PI);
+      if (outline) {
+        ctx.moveTo(outline[0].x * scaleX, outline[0].y * scaleY);
+        outline.slice(1).forEach((point) => ctx.lineTo(point.x * scaleX, point.y * scaleY));
+        ctx.closePath();
+      } else {
+        ctx.ellipse(x, y, radius, radius, 0, 0, 2 * Math.PI);
+      }
 
       // Set ball color based on type
       const colors = {
