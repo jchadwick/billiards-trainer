@@ -530,3 +530,9 @@ contour propagation and overdetermined calibration validation now implemented.
 The zero-acceptance and twelve-point statements above describe earlier revisions;
 they are preserved as history, not current blockers. Hardware assignments and
 source-frame ownership in this ADR remain in effect.
+
+## Follow-up — 2026-10-29: inference placement revised
+
+ADR-0104 replaces the Coral assignment with explicit Intel GPU inference after
+actual target measurements showed 69.68 ms GPU versus 1551.04 ms Coral inference
+p95 on saved pixels. Other native-frame and measurement contracts remain valid.
