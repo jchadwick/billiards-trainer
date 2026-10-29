@@ -816,6 +816,10 @@ fn timestamp_key(timestamp: &Timestamp) -> Result<ObservationTimestamp, StateLif
 fn mark_payload_stale(payload: &mut SceneStatePayload, reason: Option<&str>) {
     for ball in &mut payload.balls {
         ball.is_observed = false;
+        // A native contour describes one accepted source observation. Cached
+        // position visibility must never promote that old contour to current
+        // frame geometry after expiry or health degradation.
+        ball.outline = None;
         ball.confidence = 0.0;
         ball.confidence_kind = "unavailable".to_owned();
     }
