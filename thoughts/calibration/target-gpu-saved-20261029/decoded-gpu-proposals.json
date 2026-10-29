@@ -1,0 +1,227 @@
+[
+  {
+    "class_id": 1,
+    "class_name": "ball",
+    "confidence": 0.9536133,
+    "bbox_xyxy_px": [
+      75.46875,
+      346.0,
+      117.28125,
+      380.0
+    ],
+    "center_xy_px": [
+      96.375,
+      363.0
+    ]
+  },
+  {
+    "class_id": 1,
+    "class_name": "ball",
+    "confidence": 0.8701172,
+    "bbox_xyxy_px": [
+      83.34375,
+      90.125,
+      122.65625,
+      123.875
+    ],
+    "center_xy_px": [
+      103.0,
+      107.0
+    ]
+  },
+  {
+    "class_id": 1,
+    "class_name": "ball",
+    "confidence": 0.93603516,
+    "bbox_xyxy_px": [
+      85.84375,
+      600.25,
+      127.65625,
+      635.75
+    ],
+    "center_xy_px": [
+      106.75,
+      618.0
+    ]
+  },
+  {
+    "class_id": 1,
+    "class_name": "ball",
+    "confidence": 0.9394531,
+    "bbox_xyxy_px": [
+      333.625,
+      79.125,
+      371.375,
+      115.875
+    ],
+    "center_xy_px": [
+      352.5,
+      97.5
+    ]
+  },
+  {
+    "class_id": 1,
+    "class_name": "ball",
+    "confidence": 0.8925781,
+    "bbox_xyxy_px": [
+      342.125,
+      347.5,
+      375.875,
+      381.5
+    ],
+    "center_xy_px": [
+      359.0,
+      364.5
+    ]
+  },
+  {
+    "class_id": 1,
+    "class_name": "ball",
+    "confidence": 0.9243164,
+    "bbox_xyxy_px": [
+      344.875,
+      609.5,
+      380.125,
+      643.5
+    ],
+    "center_xy_px": [
+      362.5,
+      626.5
+    ]
+  },
+  {
+    "class_id": 1,
+    "class_name": "ball",
+    "confidence": 0.9291992,
+    "bbox_xyxy_px": [
+      624.0,
+      80.0,
+      660.0,
+      116.0
+    ],
+    "center_xy_px": [
+      642.0,
+      98.0
+    ]
+  },
+  {
+    "class_id": 1,
+    "class_name": "ball",
+    "confidence": 0.87890625,
+    "bbox_xyxy_px": [
+      625.25,
+      612.5,
+      658.75,
+      646.5
+    ],
+    "center_xy_px": [
+      642.0,
+      629.5
+    ]
+  },
+  {
+    "class_id": 1,
+    "class_name": "ball",
+    "confidence": 0.9301758,
+    "bbox_xyxy_px": [
+      628.25,
+      345.5,
+      659.75,
+      378.5
+    ],
+    "center_xy_px": [
+      644.0,
+      362.0
+    ]
+  },
+  {
+    "class_id": 1,
+    "class_name": "ball",
+    "confidence": 0.65625,
+    "bbox_xyxy_px": [
+      909.0,
+      346.0,
+      941.0,
+      380.0
+    ],
+    "center_xy_px": [
+      925.0,
+      363.0
+    ]
+  },
+  {
+    "class_id": 1,
+    "class_name": "ball",
+    "confidence": 0.94970703,
+    "bbox_xyxy_px": [
+      906.5,
+      612.75,
+      945.5,
+      649.25
+    ],
+    "center_xy_px": [
+      926.0,
+      631.0
+    ]
+  },
+  {
+    "class_id": 1,
+    "class_name": "ball",
+    "confidence": 0.93359375,
+    "bbox_xyxy_px": [
+      910.0,
+      76.0,
+      947.0,
+      113.0
+    ],
+    "center_xy_px": [
+      928.5,
+      94.5
+    ]
+  },
+  {
+    "class_id": 1,
+    "class_name": "ball",
+    "confidence": 0.73095703,
+    "bbox_xyxy_px": [
+      1171.0,
+      610.0,
+      1209.0,
+      647.0
+    ],
+    "center_xy_px": [
+      1190.0,
+      628.5
+    ]
+  },
+  {
+    "class_id": 1,
+    "class_name": "ball",
+    "confidence": 0.9316406,
+    "bbox_xyxy_px": [
+      1174.0,
+      78.25,
+      1218.0,
+      115.75
+    ],
+    "center_xy_px": [
+      1196.0,
+      97.0
+    ]
+  },
+  {
+    "class_id": 1,
+    "class_name": "ball",
+    "confidence": 0.94628906,
+    "bbox_xyxy_px": [
+      1177.5,
+      346.25,
+      1218.5,
+      379.75
+    ],
+    "center_xy_px": [
+      1198.0,
+      363.0
+    ]
+  }
+]

@@ -1,0 +1,47 @@
+{
+  "scope": "saved input comparison, no camera capture",
+  "openvino_version": "2026.4.1-22982-e213a147257-releases/2026/4",
+  "available_devices": [
+    "CPU",
+    "GPU"
+  ],
+  "onnx_sha256": "63acdbd2bf8952150d4178a3a095ff1914545d858553ce42ef2d7cda231a032b",
+  "devices": {
+    "CPU": {
+      "status": "success",
+      "compile_ms": 245.4995120000376,
+      "times_ms": [
+        172.46155800000906,
+        175.22096799996234,
+        173.91947400005847,
+        178.83410100000674,
+        172.3348299999543
+      ],
+      "p95_ms": 178.11147439999786,
+      "output_shape": [
+        1,
+        6,
+        33600
+      ],
+      "execution_devices": "['CPU']"
+    },
+    "GPU": {
+      "status": "success",
+      "compile_ms": 2140.9448780000275,
+      "times_ms": [
+        69.66556199995466,
+        69.55250800001522,
+        69.42866099996081,
+        69.28876200004197,
+        69.67964599994048
+      ],
+      "p95_ms": 69.67682919994331,
+      "output_shape": [
+        1,
+        6,
+        33600
+      ],
+      "execution_devices": "['GPU.0']"
+    }
+  }
+}
