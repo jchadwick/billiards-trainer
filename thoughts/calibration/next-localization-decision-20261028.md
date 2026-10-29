@@ -1,6 +1,16 @@
 # Localization decision after the larger-board evaluation — 2026-10-28
 
-## Decision
+## Superseding user direction — 2026-10-29
+
+Continue localization implementation from saved data. Do not request or take
+new images. The two-view suggestion below is historical and no longer the
+active next action. Implement and verify the deterministic runtime replacement,
+then revisit actual reference eligibility and integration. Architecture is
+revisable and lack of independently certified millimeter truth does not block
+correctness, robustness or usable-system implementation work. Preserve honest
+measurement limitations in the final report.
+
+## Historical decision
 
 The saved evidence does not select a qualified replacement ball-localization
 algorithm or a production calibration. The selected next step is a small frozen-model test on an independently

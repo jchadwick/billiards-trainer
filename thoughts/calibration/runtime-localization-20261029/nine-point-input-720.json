@@ -1,0 +1,118 @@
+{
+  "schema_version": 1,
+  "calibration_revision": 20261029,
+  "camera_profile_id": "saved-mokose-720",
+  "optics_profile_id": "saved-zero-radial-720",
+  "optics_revision": 1,
+  "refiner_revision": 4,
+  "table_revision": 1,
+  "rectification_revision": 0,
+  "image_space": "raw",
+  "source_width_px": 1280,
+  "source_height_px": 720,
+  "table_width_mm": 2336.8,
+  "table_height_mm": 1155.7,
+  "ball_diameter_mm": 57.15,
+  "provenance": "Existing nine user reference positions; no new measurement or image. Coordinate quality is empirical reference consistency, not independent certified millimeter accuracy.",
+  "correspondences": [
+    {
+      "image_point_px": {
+        "x_px": 642.8246817656703,
+        "y_px": 361.2445352150713
+      },
+      "center_table_mm": {
+        "x_mm": 3.175,
+        "y_mm": -3.175
+      },
+      "provenance": "middle-row-center-ball; source table-grid-20261026-114241.jpg; real detector boxes; runtime refiner4; original user physical references, uncertainty unknown; trace SHA256 cd9a986ecfd200f3a2f0180f1b62a7780fd13f5957be1410849c97f38b5ed3b7"
+    },
+    {
+      "image_point_px": {
+        "x_px": 1197.1348619320065,
+        "y_px": 361.9567387993849
+      },
+      "center_table_mm": {
+        "x_mm": 1139.825,
+        "y_mm": -3.175
+      },
+      "provenance": "far-right-purple-middle-row-ball; source table-grid-20261026-114241.jpg; real detector boxes; runtime refiner4; original user physical references, uncertainty unknown; trace SHA256 ad5930c4eb77bc4dd0c4b7d04089eab9d25d47c520b30bf62d0bfdcf58c901f7"
+    },
+    {
+      "image_point_px": {
+        "x_px": 95.90954489448472,
+        "y_px": 362.0152634513174
+      },
+      "center_table_mm": {
+        "x_mm": -1139.825,
+        "y_mm": -3.175
+      },
+      "provenance": "far-left-yellow-middle-row-ball; source table-grid-20261026-114241.jpg; real detector boxes; runtime refiner4; original user physical references, uncertainty unknown; trace SHA256 b0a3d7d7cc0ac4d3e632ceeb17941b2bd2a60c0c89ad300b80f1d07fd8731605"
+    },
+    {
+      "image_point_px": {
+        "x_px": 358.1793986062772,
+        "y_px": 363.6618854851502
+      },
+      "center_table_mm": {
+        "x_mm": -596.9,
+        "y_mm": -3.175
+      },
+      "provenance": "interior-purple-second-left-middle-row-ball; source table-grid-20261026-114241.jpg; real detector boxes; runtime refiner4; original user physical references, uncertainty unknown; trace SHA256 88e1ee353e55d61c66c42b70341bb6652a5bb866540a3b19b663db7d72a051ad"
+    },
+    {
+      "image_point_px": {
+        "x_px": 924.5037362974449,
+        "y_px": 361.737647215029
+      },
+      "center_table_mm": {
+        "x_mm": 577.85,
+        "y_mm": -3.175
+      },
+      "provenance": "interior-green-second-right-middle-row-ball; source table-grid-20261026-114241.jpg; real detector boxes; runtime refiner4; original user physical references, uncertainty unknown; trace SHA256 29473be353f4cb471e534bf1e7a42a2c658d412da6a62c518b39cbe6d4c06ff2"
+    },
+    {
+      "image_point_px": {
+        "x_px": 352.5231040246121,
+        "y_px": 96.79814761718129
+      },
+      "center_table_mm": {
+        "x_mm": -600.075,
+        "y_mm": -549.275
+      },
+      "provenance": "top-orange-solid-second-left-ball; source table-grid-20261026-114241.jpg; real detector boxes; runtime refiner4; original user physical references, uncertainty unknown; trace SHA256 85ddf4bfa551f1d68b72955992211e33dbe30710cb40145f576f2bd3ee720a93"
+    },
+    {
+      "image_point_px": {
+        "x_px": 927.5653051374779,
+        "y_px": 93.67396047942711
+      },
+      "center_table_mm": {
+        "x_mm": 577.85,
+        "y_mm": -549.275
+      },
+      "provenance": "top-red-striped-second-right-ball; source table-grid-20261026-114241.jpg; real detector boxes; runtime refiner4; original user physical references, uncertainty unknown; trace SHA256 55d300104c75165521f61d4d0d76d058b7c81e72ba9f140859a129b8c2aaad9f"
+    },
+    {
+      "image_point_px": {
+        "x_px": 362.1222517741477,
+        "y_px": 626.723780124247
+      },
+      "center_table_mm": {
+        "x_mm": -600.075,
+        "y_mm": 549.275
+      },
+      "provenance": "bottom-black-second-left-ball; source table-grid-20261026-114241.jpg; real detector boxes; runtime refiner4; original user physical references, uncertainty unknown; trace SHA256 7d2ee8329e8e3c2d849ef1dec17338699ff396f7d566a49e89664ba1830450a4"
+    },
+    {
+      "image_point_px": {
+        "x_px": 925.2585539376928,
+        "y_px": 630.0792204634972
+      },
+      "center_table_mm": {
+        "x_mm": 577.85,
+        "y_mm": 549.275
+      },
+      "provenance": "bottom-yellow-second-right-ball; source table-grid-20261026-114241.jpg; real detector boxes; runtime refiner4; original user physical references, uncertainty unknown; trace SHA256 b8e2f6e39aa9d6ce748565ac4eb1331a4761226e480b1a849d0b870a4314e9c8"
+    }
+  ]
+}

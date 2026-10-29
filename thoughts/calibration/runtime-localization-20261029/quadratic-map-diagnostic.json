@@ -1,0 +1,18 @@
+{
+  "scope": "Single predeclared degree2 polynomial mapping comparison on existing nine accepted centres; diagnostic only, not independent true accuracy",
+  "loo_errors_mm": [
+    9.770989767893017,
+    2.2676407114713566,
+    5.572877225013217,
+    7.579922868947426,
+    3.449130016965164,
+    2.6747888415301415,
+    2.8313331029300524,
+    2.7679731376256567,
+    2.747616029575454
+  ],
+  "loo_rms_mm": 5.070668772480768,
+  "train_rms_mm": 2.530430170511821,
+  "rank": 6,
+  "condition": 4.569959313723903
+}

@@ -1,3 +1,35 @@
+## Active result — 2026-10-29, refiner revision 6
+
+Production fixes are committed through `af1f9055`; exact-frame frontend contour
+rendering is also committed. Frozen actual detector boxes accept **13/15**, with
+**9/9** measured references accepted. No new capture or physical work was used.
+The previous 0-acceptance results below remain historical evidence.
+
+A complete CPU ONNX Rust replay of the measured frozen image at 5 source FPS
+produced 12 precise table centers and source contours on all 11 scheduled detector
+calls; 9 other source frames were intentional phase-schedule skips, with zero
+overload skips, obsolete results or inference deadline misses. Detector backend
+proposal differences mean this is not the same experiment as the 13/15 PyTorch
+proposal audit, and neither is target Coral numerical qualification. Repeated
+still frames prove integration/repeatability, not independent accuracy.
+
+Default no-trace refiner replay p95 on the development Mac: 103.51 ms for the
+15-ball measured scene, 99.35 ms for 15 alternate proposals, 23.38 ms for the
+three-ball native4K scene. Budgets are 150 ms/batch and 30 ms/proposal, configurable.
+These figures exclude inference and do not select target FPS.
+
+The two pocket failures implicate a single felt-background appearance assumption:
+visible silhouette sections against dark pocket hardware are discarded. Research
+is continuing on bounded local-background evidence while preserving actual
+geometric qualification. Extra fit iterations alone did not restore acceptance.
+
+Revision-bound diagnostic X/Y mappings and full replay records are preserved in
+`runtime-localization-20261029/`. Unknown physical-reference uncertainty and
+extrapolated corners remain explicit; no independent 2 mm claim is justified.
+Target SSH was unreachable during this continuation, so nothing was deployed.
+
+---
+
 # Native-resolution 2D ball localization: implementation record
 
 Last updated: 2026-10-28
@@ -8,6 +40,20 @@ Current execution plan and latest next step:
 proposal-order invariance is fixed; the current revision-2 estimator still
 rejects the nine measured positions at production seed 716, so no calibration
 fit or FPS selection has been made.
+
+## Active correction — 2026-10-29
+
+The user explicitly directs continuing with all existing saved data and no
+further checkerboard or other camera images. This supersedes the earlier
+suggestion of two new independent-target captures. Physical capture is not a
+prerequisite to this software work. Runtime correction now replaces stochastic
+boundary-hypothesis generation with bounded deterministic cyclic paths, retaining
+full pixel qualification and aiming. The earlier offline-only path comparison
+is not a production acceptance result. Actual detector replay supplies genuine
+15-ball proposals for the measured image; the unchanged refiner rejects 0/15
+accepted. New code must be evaluated against those inputs, not only manual boxes.
+The twelve-reference eligibility rule is also under review for replacement by
+justified rank/coverage checks, without manufacturing physical accuracy claims.
 
 ## Offline evaluation completed — 2026-10-28
 
