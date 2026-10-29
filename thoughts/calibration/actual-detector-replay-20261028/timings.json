@@ -1,0 +1,239 @@
+{
+  "scope": "Development-host source-checkpoint timing only; nondeterministic per-run telemetry",
+  "records": [
+    {
+      "source_id": "measured-grid-720",
+      "elapsed_seconds": 0.08834641706198454,
+      "ultralytics_speed_ms": {
+        "preprocess": 3.6901249550282955,
+        "inference": 78.07916589081287,
+        "postprocess": 0.9565423242747784
+      }
+    },
+    {
+      "source_id": "measured-grid-720-repeat",
+      "elapsed_seconds": 0.06525783287361264,
+      "ultralytics_speed_ms": {
+        "preprocess": 1.5852502547204494,
+        "inference": 62.68920795992017,
+        "postprocess": 0.8844593539834023
+      }
+    },
+    {
+      "source_id": "alternate-grid-720",
+      "elapsed_seconds": 0.0636008339934051,
+      "ultralytics_speed_ms": {
+        "preprocess": 1.6349577344954014,
+        "inference": 61.021917033940554,
+        "postprocess": 0.8535832166671753
+      }
+    },
+    {
+      "source_id": "alternate-grid-720-repeat",
+      "elapsed_seconds": 0.06365687493234873,
+      "ultralytics_speed_ms": {
+        "preprocess": 1.6097500920295715,
+        "inference": 61.151583679020405,
+        "postprocess": 0.8199168369174004
+      }
+    },
+    {
+      "source_id": "framing-after-4k",
+      "elapsed_seconds": 0.06735229212790728,
+      "ultralytics_speed_ms": {
+        "preprocess": 2.441166900098324,
+        "inference": 64.14133310317993,
+        "postprocess": 0.6673750467598438
+      }
+    },
+    {
+      "source_id": "framing-after-4k-repeat",
+      "elapsed_seconds": 0.0661020833067596,
+      "ultralytics_speed_ms": {
+        "preprocess": 2.5102500803768635,
+        "inference": 62.848708126693964,
+        "postprocess": 0.6514168344438076
+      }
+    },
+    {
+      "source_id": "demo3-frame-0",
+      "elapsed_seconds": 0.07132920809090137,
+      "ultralytics_speed_ms": {
+        "preprocess": 2.688041888177395,
+        "inference": 67.6695411093533,
+        "postprocess": 0.8410001173615456
+      }
+    },
+    {
+      "source_id": "demo3-frame-6",
+      "elapsed_seconds": 0.0694342078641057,
+      "ultralytics_speed_ms": {
+        "preprocess": 2.6023341342806816,
+        "inference": 65.90387504547834,
+        "postprocess": 0.7925420068204403
+      }
+    },
+    {
+      "source_id": "demo3-frame-12",
+      "elapsed_seconds": 0.07178958272561431,
+      "ultralytics_speed_ms": {
+        "preprocess": 2.6609590277075768,
+        "inference": 68.14804067835212,
+        "postprocess": 0.8455417118966579
+      }
+    },
+    {
+      "source_id": "demo3-frame-18",
+      "elapsed_seconds": 0.06948704225942492,
+      "ultralytics_speed_ms": {
+        "preprocess": 2.459833864122629,
+        "inference": 66.01666565984488,
+        "postprocess": 0.8967500180006027
+      }
+    },
+    {
+      "source_id": "demo3-frame-24",
+      "elapsed_seconds": 0.0704594156704843,
+      "ultralytics_speed_ms": {
+        "preprocess": 2.55716685205698,
+        "inference": 66.92858319729567,
+        "postprocess": 0.8525000885128975
+      }
+    },
+    {
+      "source_id": "demo3-frame-30",
+      "elapsed_seconds": 0.06591266673058271,
+      "ultralytics_speed_ms": {
+        "preprocess": 2.375082578510046,
+        "inference": 62.540833838284016,
+        "postprocess": 0.8791252039372921
+      }
+    },
+    {
+      "source_id": "demo3-frame-36",
+      "elapsed_seconds": 0.064796082675457,
+      "ultralytics_speed_ms": {
+        "preprocess": 2.439625095576048,
+        "inference": 61.40312505885959,
+        "postprocess": 0.8300421759486198
+      }
+    },
+    {
+      "source_id": "demo3-frame-42",
+      "elapsed_seconds": 0.0651517091318965,
+      "ultralytics_speed_ms": {
+        "preprocess": 2.5942502543330193,
+        "inference": 61.629083938896656,
+        "postprocess": 0.8103330619633198
+      }
+    },
+    {
+      "source_id": "demo3-frame-48",
+      "elapsed_seconds": 0.06851950008422136,
+      "ultralytics_speed_ms": {
+        "preprocess": 2.6764171198010445,
+        "inference": 64.81154076755047,
+        "postprocess": 0.9141657501459122
+      }
+    },
+    {
+      "source_id": "demo3-frame-54",
+      "elapsed_seconds": 0.0681893341243267,
+      "ultralytics_speed_ms": {
+        "preprocess": 2.4499171413481236,
+        "inference": 64.78312518447638,
+        "postprocess": 0.8365418761968613
+      }
+    },
+    {
+      "source_id": "demo3-frame-60",
+      "elapsed_seconds": 0.06774604227393866,
+      "ultralytics_speed_ms": {
+        "preprocess": 2.697416115552187,
+        "inference": 64.14212519302964,
+        "postprocess": 0.7919170893728733
+      }
+    },
+    {
+      "source_id": "demo3-frame-66",
+      "elapsed_seconds": 0.06878287484869361,
+      "ultralytics_speed_ms": {
+        "preprocess": 2.4724998511373997,
+        "inference": 65.35037467256188,
+        "postprocess": 0.8427496068179607
+      }
+    },
+    {
+      "source_id": "demo3-frame-72",
+      "elapsed_seconds": 0.06837374996393919,
+      "ultralytics_speed_ms": {
+        "preprocess": 2.4136248975992203,
+        "inference": 65.07066590711474,
+        "postprocess": 0.7864166982471943
+      }
+    },
+    {
+      "source_id": "demo3-frame-78",
+      "elapsed_seconds": 0.06931445794180036,
+      "ultralytics_speed_ms": {
+        "preprocess": 3.880708012729883,
+        "inference": 64.42433269694448,
+        "postprocess": 0.8817911148071289
+      }
+    },
+    {
+      "source_id": "demo3-frame-84",
+      "elapsed_seconds": 0.0681999591179192,
+      "ultralytics_speed_ms": {
+        "preprocess": 2.423957921564579,
+        "inference": 64.86070808023214,
+        "postprocess": 0.810832716524601
+      }
+    },
+    {
+      "source_id": "demo3-frame-90",
+      "elapsed_seconds": 0.06746208295226097,
+      "ultralytics_speed_ms": {
+        "preprocess": 2.622624859213829,
+        "inference": 63.941000029444695,
+        "postprocess": 0.7957089692354202
+      }
+    },
+    {
+      "source_id": "demo3-frame-96",
+      "elapsed_seconds": 0.06879379181191325,
+      "ultralytics_speed_ms": {
+        "preprocess": 3.60308401286602,
+        "inference": 64.28541708737612,
+        "postprocess": 0.7857917807996273
+      }
+    },
+    {
+      "source_id": "demo3-frame-102",
+      "elapsed_seconds": 0.06861245818436146,
+      "ultralytics_speed_ms": {
+        "preprocess": 2.468000166118145,
+        "inference": 65.1588337495923,
+        "postprocess": 0.8797920309007168
+      }
+    },
+    {
+      "source_id": "demo3-frame-108",
+      "elapsed_seconds": 0.0688284169882536,
+      "ultralytics_speed_ms": {
+        "preprocess": 3.5542496480047703,
+        "inference": 64.36483329162002,
+        "postprocess": 0.7985406555235386
+      }
+    },
+    {
+      "source_id": "demo3-frame-114",
+      "elapsed_seconds": 0.06853900011628866,
+      "ultralytics_speed_ms": {
+        "preprocess": 2.50804191455245,
+        "inference": 65.07825013250113,
+        "postprocess": 0.8291252888739109
+      }
+    }
+  ]
+}
