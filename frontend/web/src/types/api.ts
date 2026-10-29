@@ -36,7 +36,14 @@ export interface PositionWithScale {
   scale: [number, number];
 }
 
+export interface ImageOutline {
+  points: { x: number; y: number }[];
+  scale: [number, number];
+}
+
 export interface BallData {
+  outline?: ImageOutline;
+  source_observation?: ObservationIdentity;
   id: string | number;
   number?: number | null;
   type?: 'cue' | 'solid' | 'stripe' | 'eight' | 'unknown';
