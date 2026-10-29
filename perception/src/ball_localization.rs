@@ -389,6 +389,16 @@ pub enum BallLocalizationAuditEventData {
         point_image_px: Option<[f64; 2]>,
         strength: f64,
     },
+    RefinementStep {
+        fit_id: usize,
+        round: usize,
+        previous_support: usize,
+        selected_support: usize,
+        membership_stable: bool,
+        center_source_step_px: f64,
+        maximum_source_outline_step_px: f64,
+        geometry_stable: bool,
+    },
     CyclicHypothesis {
         fit_id: usize,
         path_cost: f64,
@@ -437,7 +447,7 @@ pub const MAX_BALL_LOCALIZATION_AUDIT_EVENTS: usize = 8192;
 /// Trace storage is also bounded by bytes, independently of estimator/sample
 /// limits. This covers reserved event slots and owned variable-length arrays.
 pub const MAX_BALL_LOCALIZATION_AUDIT_BYTES: usize = 8 * 1024 * 1024;
-pub const BALL_LOCALIZATION_AUDIT_VERSION: u32 = 4;
+pub const BALL_LOCALIZATION_AUDIT_VERSION: u32 = 5;
 
 /// Per-audit limits control diagnostics only; they do not select a production
 /// algorithm or change estimator configuration. Both are capped independently.
@@ -500,7 +510,8 @@ impl BallLocalizationAuditTrace {
             BallLocalizationAuditEventData::CyclicHypothesis {
                 candidate_indices, ..
             } => candidate_indices.capacity() * std::mem::size_of::<usize>(),
-            BallLocalizationAuditEventData::IterationStarted { .. }
+            BallLocalizationAuditEventData::RefinementStep { .. }
+            | BallLocalizationAuditEventData::IterationStarted { .. }
             | BallLocalizationAuditEventData::BoundaryCandidate { .. }
             | BallLocalizationAuditEventData::SelectedInlier { .. } => 0,
         };
@@ -1308,6 +1319,24 @@ fn has_distinct_qualified_alternative(
     Ok(false)
 }
 
+/// Stop numerical membership churn only within the already-declared source
+/// position and outline stability budgets. Matched outline movement is a
+/// conservative correspondence test; it includes radius drift as well as
+/// center motion. This is not a new image-noise or acceptance threshold.
+fn refinement_geometry_is_stable(
+    center_step: f64,
+    outline_step: f64,
+    cfg: &BallLocalizationConfig,
+) -> bool {
+    center_step.is_finite()
+        && outline_step.is_finite()
+        && center_step <= cfg.maximum_center_spread_px
+        && outline_step
+            <= cfg
+                .maximum_center_spread_px
+                .min(cfg.maximum_same_boundary_outline_disagreement_px)
+}
+
 fn evaluate_candidate(
     raw: &RawHypothesis,
     context: &CandidateEvaluationContext<'_>,
@@ -1344,8 +1373,10 @@ fn evaluate_candidate(
             return Err(RejectionReason::InsufficientBoundary);
         }
         let mut converged = false;
-        for _round in 0..cfg.maximum_inlier_reselection_rounds {
+        let mut previous_geometry_stable = false;
+        for round in 0..cfg.maximum_inlier_reselection_rounds {
             deadline(Instant::now(), end)?;
+            let previous_fit = fit;
             let previous = selected;
             let points: Vec<[f64; 2]> = previous.iter().map(|candidate| candidate.point).collect();
             fit = irls(fit, &points, cfg, end)?;
@@ -1353,10 +1384,49 @@ fn evaluate_candidate(
             if selected.len() < cfg.minimum_inliers {
                 return Err(RejectionReason::InsufficientBoundary);
             }
-            if same_inlier_set(&previous, &selected) {
+            let center_source_step_px = distance(
+                view.source(k, previous_fit.center)
+                    .ok_or(RejectionReason::NumericalFailure)?,
+                view.source(k, fit.center)
+                    .ok_or(RejectionReason::NumericalFailure)?,
+            );
+            let before_outline =
+                source_outline_points(k, view, previous_fit, cfg.outline_samples, end)?;
+            let after_outline = source_outline_points(k, view, fit, cfg.outline_samples, end)?;
+            let maximum_source_outline_step_px = before_outline
+                .iter()
+                .zip(&after_outline)
+                .map(|(&a, &b)| distance(a, b))
+                .fold(0., f64::max);
+            let geometry_stable = refinement_geometry_is_stable(
+                center_source_step_px,
+                maximum_source_outline_step_px,
+                cfg,
+            );
+            record_trace(trace, detection_index, &quality, || {
+                BallLocalizationAuditEventData::RefinementStep {
+                    fit_id: raw.fit_id,
+                    round,
+                    previous_support: previous.len(),
+                    selected_support: selected.len(),
+                    membership_stable: same_inlier_set(&previous, &selected),
+                    center_source_step_px,
+                    maximum_source_outline_step_px,
+                    geometry_stable,
+                }
+            });
+            // A hard residual cutoff can exchange points while the measured
+            // geometry has settled. Require two consecutive bounded updates,
+            // in source pixels, rather than labeling point-membership churn
+            // as a second physical boundary. All pixel support, residual,
+            // coverage and independent quadrant-refit checks still follow.
+            if same_inlier_set(&previous, &selected)
+                || (previous_geometry_stable && geometry_stable)
+            {
                 converged = true;
                 break;
             }
+            previous_geometry_stable = geometry_stable;
         }
         if !converged {
             return Err(RejectionReason::AmbiguousBoundary);
@@ -2292,7 +2362,7 @@ mod diagnostic_tests {
             source_residual_rms_px: 0.2,
         })
         .unwrap();
-        assert_eq!(BALL_LOCALIZATION_AUDIT_VERSION, 4);
+        assert_eq!(BALL_LOCALIZATION_AUDIT_VERSION, 5);
         assert_eq!(value["kind"], "cyclic_hypothesis");
         assert_eq!(value["candidate_indices"], serde_json::json!([11, 29, 47]));
     }
@@ -2737,5 +2807,57 @@ mod ambiguity_tests {
                 ]
             })
             .collect()
+    }
+}
+
+#[cfg(test)]
+mod reselection_stability_tests {
+    use super::*;
+    #[test]
+    fn threshold_membership_churn_is_distinct_from_geometric_motion() {
+        let cfg = BallLocalizationConfig {
+            inlier_threshold_px: 0.5,
+            maximum_center_spread_px: 0.5,
+            maximum_same_boundary_outline_disagreement_px: 0.5,
+            ..Default::default()
+        };
+        let a = Circle {
+            center: [0., 0.],
+            radius: 10.,
+        };
+        let b = Circle {
+            center: [0.01, 0.],
+            radius: 10.01,
+        };
+        let points = [
+            Candidate {
+                point: [9.5, 0.],
+                ray: 0,
+                strength: 1.,
+            },
+            Candidate {
+                point: [0., 10.],
+                ray: 1,
+                strength: 1.,
+            },
+            Candidate {
+                point: [-10., 0.],
+                ray: 2,
+                strength: 1.,
+            },
+        ];
+        assert!(!same_inlier_set(
+            &select(&points, a, &cfg),
+            &select(&points, b, &cfg)
+        ));
+        assert!(refinement_geometry_is_stable(
+            distance(a.center, b.center),
+            0.02,
+            &cfg
+        ));
+        // A shared center does not make concentric shadow/ball rims equivalent.
+        assert!(!refinement_geometry_is_stable(0., 3., &cfg));
+        assert!(!refinement_geometry_is_stable(1., 1., &cfg));
+        assert!(!refinement_geometry_is_stable(f64::NAN, 0., &cfg));
     }
 }

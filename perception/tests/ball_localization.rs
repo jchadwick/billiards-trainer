@@ -232,8 +232,8 @@ fn audit_traces_the_same_fitting_results_with_bounded_events() {
     )
     .unwrap();
     assert_eq!(observations, baseline);
-    assert_eq!(BALL_LOCALIZATION_AUDIT_VERSION, 4);
-    assert_eq!(trace.schema_version, 4);
+    assert_eq!(BALL_LOCALIZATION_AUDIT_VERSION, 5);
+    assert_eq!(trace.schema_version, 5);
     assert_eq!(trace.dropped_events, 0);
     assert!(trace.retained_bytes <= trace.maximum_bytes);
     assert_eq!(trace.maximum_bytes, MAX_BALL_LOCALIZATION_AUDIT_BYTES);
@@ -761,4 +761,42 @@ fn accepted_refined_center_uses_its_matching_ball_center_calibration_for_xy() {
     assert!((actual[0] - expected_x).abs() < 0.01);
     assert!((actual[1] - expected_y).abs() < 0.01);
     assert_eq!(selected.calibration_revision, Some(4));
+}
+
+#[test]
+fn known_noisy_quantized_circles_remain_stable_across_coarse_proposal_shifts() {
+    // Fixed source-pixel noise and independently shifted proposal seeds exercise
+    // threshold membership changes without changing the true rendered center.
+    // This is a center recovery test, not a claim about real-image uncertainty.
+    for center in [[75., 145.], [240., 150.], [405., 145.]] {
+        let (mut rgb, proposal) = image(center, true, false);
+        for (index, value) in rgb.iter_mut().enumerate() {
+            let noise = ((index.wrapping_mul(37).wrapping_add(11)) % 5) as i16 - 2;
+            *value = (*value as i16 + noise).clamp(0, 255) as u8;
+        }
+        let mut centers = Vec::new();
+        for offset in [-0.5, 0., 0.5] {
+            let mut shifted = proposal.clone();
+            shifted.bbox[0] += offset;
+            shifted.bbox[2] += offset;
+            let result = refine_ball_batch(&rgb, &intrinsics(), &[shifted], &config()).unwrap();
+            assert_eq!(
+                result[0].status,
+                RefinementStatus::Accepted,
+                "{center:?}: {:?}",
+                result[0]
+            );
+            let found = result[0].center_image_px.unwrap();
+            assert!(
+                (found[0] - center[0]).hypot(found[1] - center[1]) < 0.5,
+                "{found:?}"
+            );
+            centers.push(found);
+        }
+        for a in &centers {
+            for b in &centers {
+                assert!((a[0] - b[0]).hypot(a[1] - b[1]) < 0.5);
+            }
+        }
+    }
 }
