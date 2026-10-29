@@ -522,3 +522,11 @@ then release one qualified implementation or discard the experiment.
   error and acceptance rates, including difficult boundary conditions. The
   limited initial manual measurements are diagnostic evidence, not release
   qualification.
+
+## Follow-up — 2026-10-29: implementation defects corrected
+
+ADR-0103 records the deterministic geometry, complete sampling ROI, exact-frame
+contour propagation and overdetermined calibration validation now implemented.
+The zero-acceptance and twelve-point statements above describe earlier revisions;
+they are preserved as history, not current blockers. Hardware assignments and
+source-frame ownership in this ADR remain in effect.
