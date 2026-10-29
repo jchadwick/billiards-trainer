@@ -117,7 +117,8 @@
           "radial_samples": 96,
           "candidates_per_ray": 3,
           "max_iterations": 3,
-          "ransac_iterations": 128,
+          "maximum_cyclic_paths": 8,
+          "cyclic_continuity_weight": 1.0,
           "irls_iterations": 10,
           "outline_samples": 48,
           "radius_min_fraction": 0.6,
@@ -143,8 +144,7 @@
           "irls_tuning": 2.5,
           "irls_scale_floor_px": 0.25,
           "convergence_px": 0.01,
-          "numerical_epsilon": 1e-9,
-          "seed": 716
+          "numerical_epsilon": 1e-9
         }
       },
       "table_visibility": {

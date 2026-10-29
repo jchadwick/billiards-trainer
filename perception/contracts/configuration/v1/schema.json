@@ -418,7 +418,8 @@
                     "radial_samples": { "type": "integer", "minimum": 3, "maximum": 512 },
                     "candidates_per_ray": { "type": "integer", "minimum": 1, "maximum": 8 },
                     "max_iterations": { "type": "integer", "minimum": 1, "maximum": 3 },
-                    "ransac_iterations": { "type": "integer", "minimum": 1, "maximum": 1024 },
+                    "maximum_cyclic_paths": { "type": "integer", "minimum": 1, "maximum": 16 },
+                    "cyclic_continuity_weight": { "type": "number", "exclusiveMinimum": 0 },
                     "irls_iterations": { "type": "integer", "minimum": 1, "maximum": 64 },
                     "outline_samples": { "type": "integer", "minimum": 4, "maximum": 512 },
                     "radius_min_fraction": { "type": "number", "exclusiveMinimum": 0 },
@@ -444,8 +445,7 @@
                     "irls_tuning": { "type": "number", "exclusiveMinimum": 0 },
                     "irls_scale_floor_px": { "type": "number", "exclusiveMinimum": 0 },
                     "convergence_px": { "type": "number", "exclusiveMinimum": 0 },
-                    "numerical_epsilon": { "type": "number", "exclusiveMinimum": 0 },
-                    "seed": { "type": "integer", "minimum": 0, "maximum": 18446744073709551615 }
+                    "numerical_epsilon": { "type": "number", "exclusiveMinimum": 0 }
                   },
                   "required": [
                     "max_proposals", "reference_width_px", "patch_size_px", "minimum_supported_ray_fraction",
@@ -453,13 +453,13 @@
                     "maximum_alternative_error_ratio", "maximum_alternative_residual_tolerance_px",
                     "maximum_same_boundary_outline_disagreement_px", "minimum_background_supported_fraction",
                     "batch_budget_ms", "proposal_budget_ms", "max_roi_side_px", "roi_padding_factor", "angular_samples",
-                    "radial_samples", "candidates_per_ray", "max_iterations", "ransac_iterations", "irls_iterations",
+                    "radial_samples", "candidates_per_ray", "max_iterations", "maximum_cyclic_paths", "cyclic_continuity_weight", "irls_iterations",
                     "outline_samples", "radius_min_fraction", "radius_max_fraction", "minimum_radius_px", "maximum_radius_px",
                     "gradient_step_px", "background_probe_px", "annulus_inner_factor", "annulus_outer_factor", "minimum_gradient",
                     "minimum_foreground_background_contrast", "maximum_outer_background_distance", "inlier_threshold_px",
                     "minimum_inliers", "angular_sectors", "minimum_coverage", "maximum_gap_fraction", "maximum_residual_px",
                     "maximum_center_shift_fraction", "maximum_center_spread_px", "minimum_foreground_fraction", "irls_tuning",
-                    "irls_scale_floor_px", "convergence_px", "numerical_epsilon", "seed"
+                    "irls_scale_floor_px", "convergence_px", "numerical_epsilon"
                   ],
                   "additionalProperties": false
                 }

@@ -232,8 +232,8 @@ fn audit_traces_the_same_fitting_results_with_bounded_events() {
     )
     .unwrap();
     assert_eq!(observations, baseline);
-    assert_eq!(BALL_LOCALIZATION_AUDIT_VERSION, 3);
-    assert_eq!(trace.schema_version, 3);
+    assert_eq!(BALL_LOCALIZATION_AUDIT_VERSION, 4);
+    assert_eq!(trace.schema_version, 4);
     assert_eq!(trace.dropped_events, 0);
     assert!(trace.retained_bytes <= trace.maximum_bytes);
     assert_eq!(trace.maximum_bytes, MAX_BALL_LOCALIZATION_AUDIT_BYTES);
@@ -250,16 +250,14 @@ fn audit_traces_the_same_fitting_results_with_bounded_events() {
     )));
     assert!(trace.events.iter().any(|e| matches!(
         e.data,
-        BallLocalizationAuditEventData::RawHypothesis {
+        BallLocalizationAuditEventData::CyclicHypothesis {
             center_image_px: Some(_),
             ..
         }
     )));
     for hypothesis in &trace.events {
-        let BallLocalizationAuditEventData::RawHypothesis {
-            sampled_candidate_indices,
-            sampled_candidate_rays,
-            ..
+        let BallLocalizationAuditEventData::CyclicHypothesis {
+            candidate_indices, ..
         } = &hypothesis.data
         else {
             continue;
@@ -273,12 +271,12 @@ fn audit_traces_the_same_fitting_results_with_bounded_events() {
                 _ => None,
             })
             .collect::<Vec<_>>();
-        for slot in 0..3 {
-            assert_eq!(
-                candidate_rays[sampled_candidate_indices[slot]],
-                sampled_candidate_rays[slot]
-            );
-        }
+        let path_rays = candidate_indices
+            .iter()
+            .map(|&index| candidate_rays[index])
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(path_rays.len(), candidate_indices.len());
+        assert!(candidate_indices.len() >= config().minimum_inliers);
     }
     assert!(trace.events.iter().any(|e| matches!(
         e.data,
@@ -522,7 +520,7 @@ fn absolute_resource_ceilings_reject_pathological_settings_before_allocation() {
     c.candidates_per_ray = usize::MAX;
     cases.push(c);
     let mut c = defaults.clone();
-    c.ransac_iterations = usize::MAX;
+    c.maximum_cyclic_paths = usize::MAX;
     cases.push(c);
     let mut c = defaults.clone();
     c.irls_iterations = usize::MAX;

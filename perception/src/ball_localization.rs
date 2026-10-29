@@ -6,6 +6,8 @@
 //! proposal receives an explicit accepted/rejected result; fit diagnostics are
 //! sensitivity measures, never calibrated confidence or physical uncertainty.
 
+mod cyclic;
+
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
 use std::time::{Duration, Instant};
@@ -74,7 +76,8 @@ pub struct BallLocalizationConfig {
     pub radial_samples: usize,
     pub candidates_per_ray: usize,
     pub max_iterations: usize,
-    pub ransac_iterations: usize,
+    pub maximum_cyclic_paths: usize,
+    pub cyclic_continuity_weight: f64,
     pub irls_iterations: usize,
     pub outline_samples: usize,
     pub radius_min_fraction: f64,
@@ -101,7 +104,6 @@ pub struct BallLocalizationConfig {
     pub irls_scale_floor_px: f64,
     pub convergence_px: f64,
     pub numerical_epsilon: f64,
-    pub seed: u64,
 }
 impl Default for BallLocalizationConfig {
     fn default() -> Self {
@@ -125,7 +127,8 @@ impl Default for BallLocalizationConfig {
             radial_samples: 96,
             candidates_per_ray: 3,
             max_iterations: 3,
-            ransac_iterations: 128,
+            maximum_cyclic_paths: 8,
+            cyclic_continuity_weight: 1.0,
             irls_iterations: 10,
             outline_samples: 48,
             radius_min_fraction: 0.6,
@@ -152,7 +155,6 @@ impl Default for BallLocalizationConfig {
             irls_scale_floor_px: 0.25,
             convergence_px: 0.01,
             numerical_epsilon: 1e-9,
-            seed: 716,
         }
     }
 }
@@ -164,7 +166,6 @@ const MAX_ROI_SIDE: u32 = 2048;
 const MAX_ANGULAR_SAMPLES: usize = 512;
 const MAX_RADIAL_SAMPLES: usize = 512;
 const MAX_CANDIDATES_PER_RAY: usize = 8;
-const MAX_RANSAC_ITERATIONS: usize = 1024;
 const MAX_IRLS_ITERATIONS: usize = 64;
 const MAX_OUTLINE_SAMPLES: usize = 512;
 const MAX_ANGULAR_SECTORS: usize = 128;
@@ -195,6 +196,7 @@ impl BallLocalizationConfig {
             self.irls_scale_floor_px,
             self.convergence_px,
             self.numerical_epsilon,
+            self.cyclic_continuity_weight,
         ];
         let fractions = [
             self.minimum_alternative_support_fraction,
@@ -215,7 +217,7 @@ impl BallLocalizationConfig {
             || self.angular_samples > MAX_ANGULAR_SAMPLES
             || self.radial_samples > MAX_RADIAL_SAMPLES
             || self.candidates_per_ray > MAX_CANDIDATES_PER_RAY
-            || self.ransac_iterations > MAX_RANSAC_ITERATIONS
+            || self.maximum_cyclic_paths > 16
             || self.maximum_refined_candidates == 0
             || self.maximum_refined_candidates > 16
             || self.maximum_inlier_reselection_rounds == 0
@@ -239,7 +241,7 @@ impl BallLocalizationConfig {
             || self.candidates_per_ray > self.radial_samples
             || self.max_iterations == 0
             || self.max_iterations > 3
-            || self.ransac_iterations == 0
+            || self.maximum_cyclic_paths == 0
             || self.irls_iterations == 0
             || self.outline_samples < 4
             || self.radius_min_fraction >= self.radius_max_fraction
@@ -387,15 +389,15 @@ pub enum BallLocalizationAuditEventData {
         point_image_px: Option<[f64; 2]>,
         strength: f64,
     },
-    RawHypothesis {
+    CyclicHypothesis {
         fit_id: usize,
-        sampled_candidate_indices: [usize; 3],
-        sampled_candidate_rays: [usize; 3],
+        path_cost: f64,
+        candidate_indices: Vec<usize>,
         center_local_px: [f64; 2],
         center_image_px: Option<[f64; 2]>,
         radius_local_px: f64,
         support: usize,
-        squared_error_local_px: f64,
+        source_residual_rms_px: f64,
     },
     SelectedInlier {
         fit_id: usize,
@@ -435,7 +437,7 @@ pub const MAX_BALL_LOCALIZATION_AUDIT_EVENTS: usize = 8192;
 /// Trace storage is also bounded by bytes, independently of estimator/sample
 /// limits. This covers reserved event slots and owned variable-length arrays.
 pub const MAX_BALL_LOCALIZATION_AUDIT_BYTES: usize = 8 * 1024 * 1024;
-pub const BALL_LOCALIZATION_AUDIT_VERSION: u32 = 3;
+pub const BALL_LOCALIZATION_AUDIT_VERSION: u32 = 4;
 
 /// Per-audit limits control diagnostics only; they do not select a production
 /// algorithm or change estimator configuration. Both are capped independently.
@@ -495,9 +497,11 @@ impl BallLocalizationAuditTrace {
             BallLocalizationAuditEventData::Outcome { outline: None, .. } => {
                 std::mem::size_of::<BallLocalizationQuality>()
             }
+            BallLocalizationAuditEventData::CyclicHypothesis {
+                candidate_indices, ..
+            } => candidate_indices.capacity() * std::mem::size_of::<usize>(),
             BallLocalizationAuditEventData::IterationStarted { .. }
             | BallLocalizationAuditEventData::BoundaryCandidate { .. }
-            | BallLocalizationAuditEventData::RawHypothesis { .. }
             | BallLocalizationAuditEventData::SelectedInlier { .. } => 0,
         };
         let Some(retained_bytes) = self.retained_bytes.checked_add(extra) else {
@@ -1524,22 +1528,6 @@ fn evaluate_candidate(
         rejection,
     }
 }
-fn three_circle(a: [f64; 2], b: [f64; 2], c: [f64; 2], eps: f64) -> Option<Circle> {
-    let b = [b[0] - a[0], b[1] - a[1]];
-    let c = [c[0] - a[0], c[1] - a[1]];
-    let det = 2.0 * (b[0] * c[1] - b[1] * c[0]);
-    if det.abs() <= eps {
-        return None;
-    }
-    let bn = b[0] * b[0] + b[1] * b[1];
-    let cn = c[0] * c[0] + c[1] * c[1];
-    let d = [(bn * c[1] - cn * b[1]) / det, (b[0] * cn - c[0] * bn) / det];
-    let circle = Circle {
-        center: [a[0] + d[0], a[1] + d[1]],
-        radius: d[0].hypot(d[1]),
-    };
-    circle.radius.is_finite().then_some(circle)
-}
 fn solve(mut m: [[f64; 3]; 3], mut y: [f64; 3], eps: f64) -> Option<[f64; 3]> {
     for i in 0..3 {
         let pivot = (i..3).max_by(|&a, &b| m[a][i].abs().total_cmp(&m[b][i].abs()))?;
@@ -1643,14 +1631,6 @@ fn coverage(points: &[Candidate], center: [f64; 2], cfg: &BallLocalizationConfig
         largest / std::f64::consts::TAU,
     )
 }
-fn next_random(state: &mut u64, n: usize) -> usize {
-    // Numerical Recipes LCG: algorithm constants, not camera/config parameters.
-    *state = state
-        .wrapping_mul(6364136223846793005)
-        .wrapping_add(1442695040888963407);
-    ((*state >> 32) as usize) % n
-}
-
 /// Refine a complete proposal list. Batch-level input errors are explicit;
 /// ordinary fit/coverage/budget failures return one rejected observation each.
 pub fn refine_ball_batch(
@@ -2037,24 +2017,18 @@ fn refine_one(
             return Err(RejectionReason::InsufficientBoundary);
         }
         quality.stage = BallFitStage::HypothesisGeneration;
-        // Sampling belongs to the crop and configuration. Detection identity
-        // is metadata only and must not change the geometry we estimate.
-        let mut seed = cfg.seed;
+        // A complete cyclic contour uses global angular continuity, rather
+        // than independent random triplets. Pixel qualification below is still
+        // required: minimum objective cost does not identify physical truth.
         let mut hypotheses = Vec::new();
-        for _ in 0..cfg.ransac_iterations {
+        let mut hypothesis_paths: Vec<Vec<Candidate>> = Vec::new();
+        for path in cyclic::paths(&candidates, cfg, end)? {
             deadline(Instant::now(), end)?;
-            let sampled_candidate_indices = [
-                next_random(&mut seed, candidates.len()),
-                next_random(&mut seed, candidates.len()),
-                next_random(&mut seed, candidates.len()),
-            ];
-            let [a, b, c] = sampled_candidate_indices.map(|index| candidates[index]);
-            if a.ray == b.ray || a.ray == c.ray || b.ray == c.ray {
-                continue;
-            }
-            let Some(fit) = three_circle(a.point, b.point, c.point, cfg.numerical_epsilon) else {
+            let points: Vec<_> = path.indices.iter().map(|&i| candidates[i].point).collect();
+            let Some(initial_fit) = cyclic::initialize(&points, cfg.numerical_epsilon) else {
                 continue;
             };
+            let fit = irls(initial_fit, &points, cfg, end)?;
             if !within_refined_radius_bounds(fit.radius, radius, cfg) {
                 continue;
             }
@@ -2069,17 +2043,13 @@ fn refine_one(
             ) {
                 continue;
             }
-            let selected = select(&candidates, fit, cfg);
-            if selected.len() < cfg.minimum_inliers {
-                continue;
-            }
-            let residual_rms_px = (selected
+            let path_candidates: Vec<_> = path
+                .indices
                 .iter()
-                .map(|c| (distance(c.point, fit.center) - fit.radius).powi(2))
-                .sum::<f64>()
-                / selected.len() as f64)
-                .sqrt();
-            if !residual_rms_px.is_finite() {
+                .map(|&index| candidates[index])
+                .collect();
+            let selected = select(&path_candidates, fit, cfg);
+            if selected.len() < cfg.minimum_inliers {
                 continue;
             }
             let source_residual_rms_px = source_residual_rms_px(&selected, fit, view, k, end)?;
@@ -2091,16 +2061,17 @@ fn refine_one(
                 source_residual_rms_px,
                 center_image_px,
             });
+            hypothesis_paths.push(path_candidates);
             record_trace(trace, proposal.detection_index, quality, || {
-                BallLocalizationAuditEventData::RawHypothesis {
+                BallLocalizationAuditEventData::CyclicHypothesis {
                     fit_id,
-                    sampled_candidate_indices,
-                    sampled_candidate_rays: [a.ray, b.ray, c.ray],
+                    path_cost: path.cost,
+                    candidate_indices: path.indices,
                     center_local_px: fit.center,
                     center_image_px: Some(center_image_px),
                     radius_local_px: fit.radius,
                     support: selected.len(),
-                    squared_error_local_px: residual_rms_px.powi(2) * selected.len() as f64,
+                    source_residual_rms_px,
                 }
             });
         }
@@ -2136,8 +2107,14 @@ fn refine_one(
         let mut first_rejection: Option<(RejectionReason, BallLocalizationQuality)> = None;
         for (attempt_index, representative) in representatives.iter().enumerate() {
             deadline(Instant::now(), end)?;
-            let mut attempt =
-                evaluate_candidate(&representative.hypothesis, &candidate_context, trace);
+            // Qualification must preserve the globally coherent path. Selecting
+            // nearest transitions from all rays would undo the graph search and
+            // can oscillate between mutually incompatible local edge families.
+            let path_context = CandidateEvaluationContext {
+                candidates: &hypothesis_paths[representative.hypothesis.fit_id],
+                ..candidate_context
+            };
+            let mut attempt = evaluate_candidate(&representative.hypothesis, &path_context, trace);
             attempt.quality.candidate_representatives_evaluated = attempt_index + 1;
             attempt.quality.candidate_search_truncated = search_truncated;
             let attempt_deadline_exceeded =
@@ -2303,29 +2280,21 @@ mod diagnostic_tests {
     use std::time::{Duration, Instant};
 
     #[test]
-    fn raw_hypothesis_audit_serializes_sampled_triplet_provenance() {
-        let value = serde_json::to_value(BallLocalizationAuditEventData::RawHypothesis {
+    fn cyclic_hypothesis_audit_preserves_complete_path_provenance() {
+        let value = serde_json::to_value(BallLocalizationAuditEventData::CyclicHypothesis {
             fit_id: 4,
-            sampled_candidate_indices: [11, 29, 47],
-            sampled_candidate_rays: [3, 8, 12],
+            path_cost: 2.5,
+            candidate_indices: vec![11, 29, 47],
             center_local_px: [0.25, -0.5],
-            center_image_px: Some([101.0, 202.0]),
+            center_image_px: Some([101., 202.]),
             radius_local_px: 12.5,
-            support: 90,
-            squared_error_local_px: 2.0,
+            support: 3,
+            source_residual_rms_px: 0.2,
         })
         .unwrap();
-
-        assert_eq!(BALL_LOCALIZATION_AUDIT_VERSION, 3);
-        assert_eq!(value["kind"], "raw_hypothesis");
-        assert_eq!(
-            value["sampled_candidate_indices"],
-            serde_json::json!([11, 29, 47])
-        );
-        assert_eq!(
-            value["sampled_candidate_rays"],
-            serde_json::json!([3, 8, 12])
-        );
+        assert_eq!(BALL_LOCALIZATION_AUDIT_VERSION, 4);
+        assert_eq!(value["kind"], "cyclic_hypothesis");
+        assert_eq!(value["candidate_indices"], serde_json::json!([11, 29, 47]));
     }
 
     #[test]
