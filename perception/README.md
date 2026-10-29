@@ -28,3 +28,11 @@ Build and verify through the root Makefile. The current workflows are described
 in the [architecture](../docs/ARCHITECTURE.md) and
 [performance audit](../docs/PERFORMANCE_AUDIT.md) guides. Rust unit, contract,
 fixture, camera-feature, and browser tests are the supported regression suite.
+
+Ball refiner revision 6 computes its native sampling ROI from the projected
+local annulus and boundary-probe footprint on every aiming iteration. A padded
+proposal box alone can exclude valid off-axis background pixels. The resulting
+access region is clipped to the source image and checked against the configured
+ROI limit; the bilinear sampler still rejects missing pixels. This geometry
+correction changes no color, support, coverage, or center-stability threshold.
+Optics and ball-center assets must explicitly match the current refiner revision.

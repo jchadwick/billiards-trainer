@@ -1942,6 +1942,55 @@ fn refine_ball_batch_impl(
     Ok(output)
 }
 
+/// Enclose the actual local sampling footprint in the native source image.
+/// A rotated local annulus is not enclosed by a padded detector-space box.
+/// Projecting a square that encloses every sampled point is conservative: with
+/// positive projective denominators its image is a convex quadrilateral, whose
+/// coordinate extrema occur at its corners. No image copy or extra queue exists.
+fn sampling_footprint_roi(
+    k: &CameraIntrinsics,
+    view: View,
+    radius: f64,
+    initial_roi: [f64; 4],
+    cfg: &BallLocalizationConfig,
+    end: Instant,
+) -> Result<[f64; 4], RejectionReason> {
+    deadline(Instant::now(), end)?;
+    let furthest_boundary_probe =
+        radius * cfg.radius_max_fraction + cfg.background_probe_px.max(cfg.gradient_step_px);
+    let extent = (radius * cfg.annulus_outer_factor)
+        .max(furthest_boundary_probe)
+        .min(f64::from(cfg.patch_size_px - 1) / 2.0);
+    let mut roi = initial_roi;
+    for point in [
+        [-extent, -extent],
+        [extent, -extent],
+        [extent, extent],
+        [-extent, extent],
+    ] {
+        deadline(Instant::now(), end)?;
+        let source = view
+            .source(k, point)
+            .ok_or(RejectionReason::NumericalFailure)?;
+        roi[0] = roi[0].min(source[0]);
+        roi[1] = roi[1].min(source[1]);
+        roi[2] = roi[2].max(source[0]);
+        roi[3] = roi[3].max(source[1]);
+    }
+    // Pixels outside the source remain unavailable. Clipping this access bound
+    // does not clamp or fabricate any sampled point; bilinear still rejects it.
+    roi[0] = roi[0].max(0.0);
+    roi[1] = roi[1].max(0.0);
+    roi[2] = roi[2].min(f64::from(k.source_width_px - 1));
+    roi[3] = roi[3].min(f64::from(k.source_height_px - 1));
+    if roi[2] - roi[0] > f64::from(cfg.max_roi_side_px)
+        || roi[3] - roi[1] > f64::from(cfg.max_roi_side_px)
+    {
+        return Err(RejectionReason::RoiTooLarge);
+    }
+    Ok(roi)
+}
+
 fn refine_one(
     rgb: &[u8],
     k: &CameraIntrinsics,
@@ -1969,7 +2018,7 @@ fn refine_one(
     if half * 2.0 > f64::from(cfg.max_roi_side_px) {
         return Err(RejectionReason::RoiTooLarge);
     }
-    let roi = [
+    let initial_roi = [
         initial[0] - half,
         initial[1] - half,
         initial[0] + half,
@@ -2005,6 +2054,7 @@ fn refine_one(
         if radius < cfg.minimum_radius_px || radius > cfg.maximum_radius_px {
             return Err(RejectionReason::InsufficientBoundary);
         }
+        let roi = sampling_footprint_roi(k, view, radius, initial_roi, cfg, end)?;
         let sample = |p: [f64; 2]| {
             let limit = f64::from(cfg.patch_size_px - 1) / 2.0;
             if p[0].abs() > limit || p[1].abs() > limit {
@@ -2401,12 +2451,123 @@ fn outline_from_source_points(
 #[cfg(test)]
 mod diagnostic_tests {
     use super::{
-        project_outline, start_iteration, BallFitStage, BallLocalizationAuditEvent,
-        BallLocalizationAuditEventData, BallLocalizationAuditTrace, BallLocalizationConfig,
-        BallLocalizationQuality, CameraIntrinsics, Circle, RejectionReason, View,
-        BALL_LOCALIZATION_AUDIT_VERSION,
+        project_outline, sampling_footprint_roi, start_iteration, BallFitStage,
+        BallLocalizationAuditEvent, BallLocalizationAuditEventData, BallLocalizationAuditTrace,
+        BallLocalizationConfig, BallLocalizationQuality, CameraIntrinsics, Circle, RejectionReason,
+        View, BALL_LOCALIZATION_AUDIT_VERSION,
     };
     use std::time::{Duration, Instant};
+
+    #[test]
+    fn off_axis_annulus_uses_native_pixels_beyond_detector_padded_crop() {
+        let k = CameraIntrinsics {
+            source_width_px: 1280,
+            source_height_px: 720,
+            fx: 696.1731580029823,
+            fy: 695.3611772093032,
+            cx: 644.1755624688407,
+            cy: 349.67152391690104,
+        };
+        let axis = [1170.0, 640.0];
+        let view = View::new(&k, axis);
+        let original = [
+            axis[0] - 36.0,
+            axis[1] - 36.0,
+            axis[0] + 36.0,
+            axis[1] + 36.0,
+        ];
+        let cfg = BallLocalizationConfig::default();
+        let radius = 12.5;
+        let roi = sampling_footprint_roi(
+            &k,
+            view,
+            radius,
+            original,
+            &cfg,
+            Instant::now() + Duration::from_secs(1),
+        )
+        .unwrap();
+        let rgb = vec![77u8; (k.source_width_px * k.source_height_px * 3) as usize];
+        let mut recovered = 0;
+        for ray in 0..cfg.angular_samples {
+            let angle = std::f64::consts::TAU * ray as f64 / cfg.angular_samples as f64;
+            for factor in [cfg.annulus_inner_factor, cfg.annulus_outer_factor] {
+                let p = view
+                    .source(
+                        &k,
+                        [angle.cos() * radius * factor, angle.sin() * radius * factor],
+                    )
+                    .unwrap();
+                assert!(p[0] >= roi[0] && p[0] <= roi[2] && p[1] >= roi[1] && p[1] <= roi[3]);
+                if p[0] < original[0]
+                    || p[0] > original[2]
+                    || p[1] < original[1]
+                    || p[1] > original[3]
+                {
+                    assert!(super::bilinear(&rgb, &k, p, original).is_none());
+                    let pixel = super::bilinear(&rgb, &k, p, roi).unwrap();
+                    assert!(pixel.iter().all(|v| (*v - 77.0 / 255.0).abs() < 1e-12));
+                    recovered += 1;
+                }
+            }
+        }
+        assert!(
+            recovered > 0,
+            "off-axis annulus must expose the original crop defect"
+        );
+    }
+
+    #[test]
+    fn sampling_footprint_is_frame_clipped_resource_bounded_and_deadline_checked() {
+        let k = CameraIntrinsics {
+            source_width_px: 640,
+            source_height_px: 360,
+            fx: 500.0,
+            fy: 500.0,
+            cx: 320.0,
+            cy: 180.0,
+        };
+        let cfg = BallLocalizationConfig::default();
+        let view = View::new(&k, [2.0, 2.0]);
+        let roi = sampling_footprint_roi(
+            &k,
+            view,
+            15.0,
+            [-20.0, -20.0, 30.0, 30.0],
+            &cfg,
+            Instant::now() + Duration::from_secs(1),
+        )
+        .unwrap();
+        assert_eq!([roi[0], roi[1]], [0.0, 0.0]);
+        let rgb = vec![0u8; (k.source_width_px * k.source_height_px * 3) as usize];
+        assert!(super::bilinear(&rgb, &k, [-0.1, 2.0], roi).is_none());
+        let small = BallLocalizationConfig {
+            max_roi_side_px: 20,
+            ..cfg.clone()
+        };
+        assert!(matches!(
+            sampling_footprint_roi(
+                &k,
+                view,
+                15.0,
+                [0.0, 0.0, 10.0, 10.0],
+                &small,
+                Instant::now() + Duration::from_secs(1)
+            ),
+            Err(RejectionReason::RoiTooLarge)
+        ));
+        assert!(matches!(
+            sampling_footprint_roi(
+                &k,
+                view,
+                15.0,
+                roi,
+                &cfg,
+                Instant::now() - Duration::from_secs(1)
+            ),
+            Err(RejectionReason::DeadlineExceeded)
+        ));
+    }
 
     #[test]
     fn cyclic_hypothesis_audit_preserves_complete_path_provenance() {
