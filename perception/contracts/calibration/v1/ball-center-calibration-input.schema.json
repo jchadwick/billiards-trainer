@@ -42,7 +42,7 @@
     "solver_policy": { "$ref": "#/$defs/solverPolicy" },
     "correspondences": {
       "type": "array",
-      "minItems": 12,
+      "minItems": 6,
       "maxItems": 4096,
       "items": { "$ref": "#/$defs/correspondence" }
     }
@@ -100,8 +100,8 @@
         "maximum_fit_rms_mm"
       ],
       "properties": {
-        "minimum_correspondences": { "type": "integer", "minimum": 12, "maximum": 4096 },
-        "maximum_correspondences": { "type": "integer", "minimum": 12, "maximum": 4096 },
+        "minimum_correspondences": { "type": "integer", "minimum": 6, "maximum": 4096 },
+        "maximum_correspondences": { "type": "integer", "minimum": 6, "maximum": 4096 },
         "relative_rank_tolerance": { "type": "number", "exclusiveMinimum": 0, "exclusiveMaximum": 1 },
         "maximum_condition_number": { "type": "number", "minimum": 1 },
         "numerical_tolerance": { "type": "number", "exclusiveMinimum": 0, "exclusiveMaximum": 1 },

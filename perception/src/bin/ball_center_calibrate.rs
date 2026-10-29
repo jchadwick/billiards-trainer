@@ -119,11 +119,12 @@ fn main() -> Result<()> {
             .context("could not serialize calibration residual report")?
     );
     eprintln!(
-        "wrote {} correspondences to {} (RMS {:.3} mm, max {:.3} mm); this is fit error, not independent accuracy",
+        "wrote {} correspondences to {} (training RMS {:.3} mm, max {:.3} mm; leave-one-out RMS {:.3} mm); reference uncertainty remains external",
         calibration.correspondences.len(),
         arguments.output.display(),
         calibration.fit_report.rms_mm,
         calibration.fit_report.maximum_residual_mm,
+        calibration.fit_report.leave_one_out_rms_mm,
     );
     Ok(())
 }

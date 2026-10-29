@@ -19,6 +19,8 @@ pub const MAX_BALL_CENTER_CORRESPONDENCES: usize = 4096;
 const MAX_SAFE_JSON_INTEGER: u64 = 9_007_199_254_740_991;
 const MAX_PROVENANCE_BYTES: usize = 4096;
 const PARAMETER_COUNT: usize = 8;
+// Each leave-one-out fit must itself be overdetermined: 2*(N-1)>8.
+const MINIMUM_WITH_OVERDETERMINED_HOLDOUT: usize = PARAMETER_COUNT / 2 + 2;
 type Matrix3 = [[f64; 3]; 3];
 
 struct NormalizedPointSet {
@@ -43,7 +45,7 @@ pub struct BallCenterCalibrationSolverPolicy {
 impl Default for BallCenterCalibrationSolverPolicy {
     fn default() -> Self {
         Self {
-            minimum_correspondences: 12,
+            minimum_correspondences: MINIMUM_WITH_OVERDETERMINED_HOLDOUT,
             maximum_correspondences: 1024,
             relative_rank_tolerance: 1e-10,
             maximum_condition_number: 1e8,
@@ -55,7 +57,7 @@ impl Default for BallCenterCalibrationSolverPolicy {
 
 impl BallCenterCalibrationSolverPolicy {
     pub fn validate(&self) -> Result<(), BallCenterCalibrationError> {
-        if self.minimum_correspondences < 12
+        if self.minimum_correspondences < MINIMUM_WITH_OVERDETERMINED_HOLDOUT
             || self.maximum_correspondences < self.minimum_correspondences
             || self.maximum_correspondences > MAX_BALL_CENTER_CORRESPONDENCES
             || !self.relative_rank_tolerance.is_finite()
@@ -100,7 +102,7 @@ pub struct BallCenterCalibrationResidual {
     pub distance_mm: f64,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct BallCenterCalibrationFitReport {
     /// Frobenius condition number of the normalized, pivoted QR triangular
@@ -109,6 +111,17 @@ pub struct BallCenterCalibrationFitReport {
     pub rms_mm: f64,
     pub maximum_residual_mm: f64,
     pub residuals: Vec<BallCenterCalibrationResidual>,
+    pub leave_one_out_rms_mm: f64,
+    pub leave_one_out_maximum_residual_mm: f64,
+    pub leave_one_out: Vec<BallCenterCalibrationHoldout>,
+    /// Fractions of the entire source-image and physical-table rectangles.
+    /// Coverage is reported, not converted into an arbitrary pass threshold.
+    pub source_hull_area_fraction: f64,
+    pub table_hull_area_fraction: f64,
+    pub source_reference_hull_px: Vec<[f64; 2]>,
+    pub table_reference_hull_mm: Vec<[f64; 2]>,
+    pub source_image_corners_extrapolated: [bool; 4],
+    pub physical_table_corners_extrapolated: [bool; 4],
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -134,6 +147,19 @@ pub struct BallCenterCalibrationV1 {
     pub solver_policy: BallCenterCalibrationSolverPolicy,
     pub correspondences: Vec<BallCenterCorrespondence>,
     pub fit_report: BallCenterCalibrationFitReport,
+}
+
+/// An observation excluded from both parameter fitting and conditioning checks.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BallCenterCalibrationHoldout {
+    pub held_out_index: usize,
+    pub training_correspondences: usize,
+    pub normalized_design_condition_number: f64,
+    pub projected_table_mm: [f64; 2],
+    pub error_mm: [f64; 2],
+    pub distance_mm: f64,
+    pub source_point_extrapolated: bool,
 }
 
 /// Immutable load-validated asset for allocation-free per-ball projection.
@@ -209,6 +235,7 @@ pub enum BallCenterCalibrationError {
     TooFewCorrespondences,
     TooManyCorrespondences,
     InvalidCorrespondence,
+    DuplicateCorrespondence,
     DegenerateGeometry,
     IllConditioned,
     InvalidHomography,
@@ -317,6 +344,14 @@ impl BallCenterCalibrationV1 {
         if self.correspondences.len() > self.solver_policy.maximum_correspondences {
             return Err(BallCenterCalibrationError::TooManyCorrespondences);
         }
+        let key = |x: f64, y: f64| {
+            (
+                if x == 0.0 { 0 } else { x.to_bits() },
+                if y == 0.0 { 0 } else { y.to_bits() },
+            )
+        };
+        let mut source_seen = std::collections::BTreeSet::new();
+        let mut target_seen = std::collections::BTreeSet::new();
         for point in &self.correspondences {
             self.validate_image_point(point.image_point_px)?;
             if !finite_point(point.center_table_mm)
@@ -324,6 +359,11 @@ impl BallCenterCalibrationV1 {
                 || point.center_table_mm.y_mm.abs() > self.table_height_mm / 2.0
             {
                 return Err(BallCenterCalibrationError::InvalidCorrespondence);
+            }
+            if !source_seen.insert(key(point.image_point_px.x_px, point.image_point_px.y_px))
+                || !target_seen.insert(key(point.center_table_mm.x_mm, point.center_table_mm.y_mm))
+            {
+                return Err(BallCenterCalibrationError::DuplicateCorrespondence);
             }
             if !valid_text(&point.provenance) {
                 return Err(BallCenterCalibrationError::InvalidProvenance);
@@ -378,28 +418,20 @@ impl BallCenterCalibrationV1 {
         {
             return Err(BallCenterCalibrationError::InvalidFitReport);
         }
-        let expected = residuals(self)?;
+        let expected = complete_report(self)?;
         let close = |a: f64, b: f64| {
             a.is_finite()
                 && b.is_finite()
                 && (a - b).abs()
                     <= self.solver_policy.numerical_tolerance * (1.0 + a.abs().max(b.abs()))
         };
-        if !close(report.rms_mm, expected.rms_mm)
-            || !close(report.maximum_residual_mm, expected.maximum_residual_mm)
-            || report
-                .residuals
-                .iter()
-                .zip(expected.residuals.iter())
-                .any(|(a, b)| {
-                    a.correspondence_index != b.correspondence_index
-                        || !close(a.projected_table_mm.x_mm, b.projected_table_mm.x_mm)
-                        || !close(a.projected_table_mm.y_mm, b.projected_table_mm.y_mm)
-                        || !close(a.error_x_mm, b.error_x_mm)
-                        || !close(a.error_y_mm, b.error_y_mm)
-                        || !close(a.distance_mm, b.distance_mm)
-                })
-        {
+        if !report_values_match(
+            &serde_json::to_value(report)
+                .map_err(|_| BallCenterCalibrationError::InvalidFitReport)?,
+            &serde_json::to_value(&expected)
+                .map_err(|_| BallCenterCalibrationError::InvalidFitReport)?,
+            &close,
+        ) {
             return Err(BallCenterCalibrationError::InvalidFitReport);
         }
         if self
@@ -575,6 +607,7 @@ fn residuals(
         rms_mm: rms,
         maximum_residual_mm: maximum,
         residuals: values,
+        ..BallCenterCalibrationFitReport::default()
     })
 }
 
@@ -719,6 +752,41 @@ fn qr_solve(
     Ok((result, condition))
 }
 
+fn fit_homography(
+    correspondences: &[BallCenterCorrespondence],
+    policy: &BallCenterCalibrationSolverPolicy,
+) -> Result<(Matrix3, f64), BallCenterCalibrationError> {
+    let source: Vec<_> = correspondences
+        .iter()
+        .map(|p| [p.image_point_px.x_px, p.image_point_px.y_px])
+        .collect();
+    let target: Vec<_> = correspondences
+        .iter()
+        .map(|p| [p.center_table_mm.x_mm, p.center_table_mm.y_mm])
+        .collect();
+    let source = normalize_points(&source, policy.relative_rank_tolerance)?;
+    let target = normalize_points(&target, policy.relative_rank_tolerance)?;
+    let mut rows = Vec::with_capacity(source.points.len() * 2);
+    let mut rhs = Vec::with_capacity(source.points.len() * 2);
+    for ([x, y], [u, v]) in source
+        .points
+        .iter()
+        .copied()
+        .zip(target.points.iter().copied())
+    {
+        rows.push([x, y, 1.0, 0.0, 0.0, 0.0, -u * x, -u * y]);
+        rhs.push(u);
+        rows.push([0.0, 0.0, 0.0, x, y, 1.0, -v * x, -v * y]);
+        rhs.push(v);
+    }
+    let (h, condition) = qr_solve(&rows, &rhs, policy)?;
+    let normalized = [[h[0], h[1], h[2]], [h[3], h[4], h[5]], [h[6], h[7], 1.0]];
+    Ok((
+        multiply(target.inverse, multiply(normalized, source.transform)),
+        condition,
+    ))
+}
+
 pub fn solve_ball_center_calibration(
     input: BallCenterCalibrationSolverInput,
 ) -> Result<BallCenterCalibrationV1, BallCenterCalibrationError> {
@@ -742,14 +810,126 @@ pub fn solve_ball_center_calibration(
         provenance: input.provenance,
         solver_policy: input.solver_policy,
         correspondences: input.correspondences,
-        fit_report: BallCenterCalibrationFitReport {
-            normalized_design_condition_number: 1.0,
-            rms_mm: 0.0,
-            maximum_residual_mm: 0.0,
-            residuals: Vec::new(),
-        },
+        fit_report: BallCenterCalibrationFitReport::default(),
     };
     asset.validate_metadata()?;
+    asset.image_to_table_mm = fit_homography(&asset.correspondences, &asset.solver_policy)?.0;
+    asset.fit_report = complete_report(&asset)?;
+    asset.validate()?;
+    Ok(asset)
+}
+
+fn report_values_match(
+    actual: &serde_json::Value,
+    expected: &serde_json::Value,
+    close: &impl Fn(f64, f64) -> bool,
+) -> bool {
+    use serde_json::Value;
+    match (actual, expected) {
+        (Value::Number(a), Value::Number(b)) => {
+            if a.is_u64() && b.is_u64() {
+                a.as_u64() == b.as_u64()
+            } else {
+                a.as_f64().zip(b.as_f64()).is_some_and(|(a, b)| close(a, b))
+            }
+        }
+        (Value::Array(a), Value::Array(b)) => {
+            a.len() == b.len()
+                && a.iter()
+                    .zip(b)
+                    .all(|(a, b)| report_values_match(a, b, close))
+        }
+        (Value::Object(a), Value::Object(b)) => {
+            a.len() == b.len()
+                && a.iter().all(|(key, value)| {
+                    b.get(key)
+                        .is_some_and(|b| report_values_match(value, b, close))
+                })
+        }
+        _ => actual == expected,
+    }
+}
+
+fn cross(a: [f64; 2], b: [f64; 2], c: [f64; 2]) -> f64 {
+    (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
+}
+
+/// A deterministic counter-clockwise hull; collinear edge points add no area.
+fn convex_hull(points: &[[f64; 2]]) -> Vec<[f64; 2]> {
+    let mut sorted = points.to_vec();
+    sorted.sort_by(|a, b| a[0].total_cmp(&b[0]).then_with(|| a[1].total_cmp(&b[1])));
+    sorted.dedup();
+    if sorted.len() < 3 {
+        return sorted;
+    }
+    let mut lower = Vec::new();
+    for &point in &sorted {
+        while lower.len() >= 2 && cross(lower[lower.len() - 2], lower[lower.len() - 1], point) <= 0.
+        {
+            lower.pop();
+        }
+        lower.push(point);
+    }
+    let mut upper = Vec::new();
+    for &point in sorted.iter().rev() {
+        while upper.len() >= 2 && cross(upper[upper.len() - 2], upper[upper.len() - 1], point) <= 0.
+        {
+            upper.pop();
+        }
+        upper.push(point);
+    }
+    lower.pop();
+    upper.pop();
+    lower.extend(upper);
+    lower
+}
+fn hull_area(hull: &[[f64; 2]]) -> f64 {
+    (0..hull.len())
+        .map(|i| {
+            hull[i][0] * hull[(i + 1) % hull.len()][1] - hull[i][1] * hull[(i + 1) % hull.len()][0]
+        })
+        .sum::<f64>()
+        .abs()
+        / 2.
+}
+fn inside_hull(hull: &[[f64; 2]], point: [f64; 2], tolerance: f64) -> bool {
+    if hull.len() < 3 {
+        return false;
+    }
+    let scale = hull
+        .iter()
+        .map(|p| (p[0] - point[0]).abs().max((p[1] - point[1]).abs()))
+        .fold(1., f64::max);
+    (0..hull.len())
+        .all(|i| cross(hull[i], hull[(i + 1) % hull.len()], point) >= -tolerance * scale * scale)
+}
+
+/// Recompute all numerical eligibility and diagnostics from the source data.
+/// The serialized condition number is never trusted to establish rank/quality.
+fn complete_report(
+    asset: &BallCenterCalibrationV1,
+) -> Result<BallCenterCalibrationFitReport, BallCenterCalibrationError> {
+    let policy = &asset.solver_policy;
+    let (fitted, condition) = fit_homography(&asset.correspondences, policy)?;
+    // Homogeneous scale is arbitrary. Compare canonical matrices so externally
+    // supplied assets cannot claim this solver's report for a different map.
+    let close = |a: f64, b: f64| {
+        a.is_finite()
+            && b.is_finite()
+            && (a - b).abs() <= policy.numerical_tolerance * (1. + a.abs().max(b.abs()))
+    };
+    for (a, b) in asset
+        .image_to_table_mm
+        .iter()
+        .flatten()
+        .zip(fitted.iter().flatten())
+    {
+        if !close(a / asset.image_to_table_mm[2][2], b / fitted[2][2]) {
+            return Err(BallCenterCalibrationError::InvalidFitReport);
+        }
+    }
+    let mut report = residuals(asset)?;
+    report.normalized_design_condition_number = condition;
     let source: Vec<_> = asset
         .correspondences
         .iter()
@@ -760,26 +940,128 @@ pub fn solve_ball_center_calibration(
         .iter()
         .map(|p| [p.center_table_mm.x_mm, p.center_table_mm.y_mm])
         .collect();
-    let source = normalize_points(&source, asset.solver_policy.relative_rank_tolerance)?;
-    let target = normalize_points(&target, asset.solver_policy.relative_rank_tolerance)?;
-    let mut rows = Vec::with_capacity(source.points.len() * 2);
-    let mut rhs = Vec::with_capacity(source.points.len() * 2);
-    for ([x, y], [u, v]) in source
-        .points
-        .iter()
-        .copied()
-        .zip(target.points.iter().copied())
-    {
-        rows.push([x, y, 1.0, 0.0, 0.0, 0.0, -u * x, -u * y]);
-        rhs.push(u);
-        rows.push([0.0, 0.0, 0.0, x, y, 1.0, -v * x, -v * y]);
-        rhs.push(v);
+    report.source_reference_hull_px = convex_hull(&source);
+    report.table_reference_hull_mm = convex_hull(&target);
+    report.source_hull_area_fraction = hull_area(&report.source_reference_hull_px)
+        / (f64::from(asset.source_width_px) * f64::from(asset.source_height_px));
+    report.table_hull_area_fraction =
+        hull_area(&report.table_reference_hull_mm) / (asset.table_width_mm * asset.table_height_mm);
+    let image_corners = [
+        [0., 0.],
+        [f64::from(asset.source_width_px - 1), 0.],
+        [
+            f64::from(asset.source_width_px - 1),
+            f64::from(asset.source_height_px - 1),
+        ],
+        [0., f64::from(asset.source_height_px - 1)],
+    ];
+    let w = asset.table_width_mm / 2.;
+    let h = asset.table_height_mm / 2.;
+    let table_corners = [[-w, -h], [w, -h], [w, h], [-w, h]];
+    report.source_image_corners_extrapolated = image_corners.map(|p| {
+        !inside_hull(
+            &report.source_reference_hull_px,
+            p,
+            policy.numerical_tolerance,
+        )
+    });
+    report.physical_table_corners_extrapolated = table_corners.map(|p| {
+        !inside_hull(
+            &report.table_reference_hull_mm,
+            p,
+            policy.numerical_tolerance,
+        )
+    });
+    let mut squares = 0.;
+    let mut maximum: f64 = 0.;
+    for (held_out_index, held_out) in asset.correspondences.iter().enumerate() {
+        let training: Vec<_> = asset
+            .correspondences
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| *i != held_out_index)
+            .map(|(_, p)| p.clone())
+            .collect();
+        let (matrix, fold_condition) = fit_homography(&training, policy)?;
+        validate_matrix(
+            matrix,
+            asset.source_width_px,
+            asset.source_height_px,
+            policy.numerical_tolerance,
+        )?;
+        let predicted =
+            project_matrix(matrix, held_out.image_point_px, policy.numerical_tolerance)?;
+        let error = [
+            predicted.x_mm - held_out.center_table_mm.x_mm,
+            predicted.y_mm - held_out.center_table_mm.y_mm,
+        ];
+        let distance_mm = error[0].hypot(error[1]);
+        let train_source: Vec<_> = training
+            .iter()
+            .map(|p| [p.image_point_px.x_px, p.image_point_px.y_px])
+            .collect();
+        report.leave_one_out.push(BallCenterCalibrationHoldout {
+            held_out_index,
+            training_correspondences: training.len(),
+            normalized_design_condition_number: fold_condition,
+            projected_table_mm: [predicted.x_mm, predicted.y_mm],
+            error_mm: error,
+            distance_mm,
+            source_point_extrapolated: !inside_hull(
+                &convex_hull(&train_source),
+                source[held_out_index],
+                policy.numerical_tolerance,
+            ),
+        });
+        squares += distance_mm * distance_mm;
+        maximum = maximum.max(distance_mm);
     }
-    let (h, condition) = qr_solve(&rows, &rhs, &asset.solver_policy)?;
-    let normalized = [[h[0], h[1], h[2]], [h[3], h[4], h[5]], [h[6], h[7], 1.0]];
-    asset.image_to_table_mm = multiply(target.inverse, multiply(normalized, source.transform));
-    asset.fit_report.normalized_design_condition_number = condition;
-    asset.fit_report = residuals(&asset)?;
-    asset.validate()?;
-    Ok(asset)
+    report.leave_one_out_rms_mm = (squares / asset.correspondences.len() as f64).sqrt();
+    report.leave_one_out_maximum_residual_mm = maximum;
+    if !report.leave_one_out_rms_mm.is_finite()
+        || !report.source_hull_area_fraction.is_finite()
+        || !report.table_hull_area_fraction.is_finite()
+    {
+        return Err(BallCenterCalibrationError::NonFiniteProjection);
+    }
+    Ok(report)
+}
+
+#[cfg(test)]
+mod eligibility_tests {
+    use super::*;
+    #[test]
+    fn full_rank_does_not_imply_every_withheld_fit_has_rank() {
+        let points = [
+            [100., 100.],
+            [600., 100.],
+            [1100., 100.],
+            [1600., 100.],
+            [100., 600.],
+            [1600., 600.],
+        ];
+        let observations: Vec<_> = points
+            .iter()
+            .map(|&[x, y]| BallCenterCorrespondence {
+                image_point_px: ImagePointPx { x_px: x, y_px: y },
+                center_table_mm: TablePointMm {
+                    x_mm: x / 2. - 500.,
+                    y_mm: y / 2. - 300.,
+                },
+                provenance: "synthetic known planar reference".into(),
+            })
+            .collect();
+        let policy = BallCenterCalibrationSolverPolicy::default();
+        assert!(fit_homography(&observations, &policy).is_ok());
+        let training: Vec<_> = observations
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| *i != 4)
+            .map(|(_, p)| p.clone())
+            .collect();
+        assert!(matches!(
+            fit_homography(&training, &policy),
+            Err(BallCenterCalibrationError::DegenerateGeometry)
+        ));
+    }
 }
