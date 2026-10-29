@@ -67,6 +67,14 @@ SERVED_ASSET_SHA="$(sha256_file "$REPO/backend/static/current-client.css")"
 cat > "$CONFIG_SOURCE" <<'JSON'
 {"vision":{"camera":{"video_file_path":"","device_id":"http://127.0.0.1:8001/stream.mjpg"}},"perception":{"capture":{}}}
 JSON
+# Include two distinct localization assets to catch path aliasing and missing
+# package-data copies without depending on real camera/calibration hardware.
+printf '{"schema_version":1,"kind":"optics"}\n' > "$TEST_ROOT/optics.json"
+printf '{"schema_version":1,"kind":"centers"}\n' > "$TEST_ROOT/centers.json"
+jq --arg optics "$TEST_ROOT/optics.json" --arg centers "$TEST_ROOT/centers.json" \
+    '.perception.rust_live.ball_localization = {optics_profile_path:$optics, ball_center_calibration_path:$centers, maximum_asset_bytes:1024}' \
+    "$CONFIG_SOURCE" > "$CONFIG_SOURCE.next"
+mv "$CONFIG_SOURCE.next" "$CONFIG_SOURCE"
 printf 'fake onnx bytes\n' > "$ONNX_SOURCE"
 printf 'fake checkpoint bytes\n' > "$CHECKPOINT_SOURCE"
 ONNX_SHA="$(sha256_file "$ONNX_SOURCE")"
@@ -199,7 +207,29 @@ assert_file "$DIST_DIR/build-info.txt"
 [[ "$(jq -r '.perception.rust_live.executable_path' "$DIST_DIR/config.json")" == bin/billiards-perception-live ]] || fail 'live executable path must be package-relative'
 [[ "$(jq -r '.perception.rust_live.capture_helper_executable_path' "$DIST_DIR/config.json")" == bin/billiards-perception-gstreamer-probe ]] || fail 'capture helper path must be package-relative'
 [[ "$(jq -r '.vision.camera.video_file_path' "$DIST_DIR/config.json")" == '' ]] || fail 'packaged config must clear recorded-video input'
+optics_packaged="$(jq -r '.perception.rust_live.ball_localization.optics_profile_path' "$DIST_DIR/config.json")"
+centers_packaged="$(jq -r '.perception.rust_live.ball_localization.ball_center_calibration_path' "$DIST_DIR/config.json")"
+[[ "$optics_packaged" == backend/calibration_data/ball-localization/* ]] || fail 'optics must be package-relative'
+[[ "$centers_packaged" != "$optics_packaged" ]] || fail 'distinct calibration assets must not alias'
+cmp "$TEST_ROOT/optics.json" "$DIST_DIR/$optics_packaged" || fail 'optics bytes changed in package'
+cmp "$TEST_ROOT/centers.json" "$DIST_DIR/$centers_packaged" || fail 'center calibration bytes changed in package'
 assert_no_staging_dirs
+
+# Reject missing or oversized asset inputs without replacing the existing bundle.
+for asset_failure in missing oversized; do
+    bad_asset_config="$TEST_ROOT/$asset_failure-asset-config.json"
+    if [[ "$asset_failure" == missing ]]; then
+        jq '.perception.rust_live.ball_localization.optics_profile_path = "/definitely-missing-optics.json"' "$CONFIG_SOURCE" > "$bad_asset_config"
+    else
+        jq '.perception.rust_live.ball_localization.maximum_asset_bytes = 8' "$CONFIG_SOURCE" > "$bad_asset_config"
+    fi
+    if run_build "$FAKE_BIN" BILLIARDS_CONFIG_SOURCE="$bad_asset_config"; then
+        fail "$asset_failure localization asset unexpectedly packaged"
+    fi
+    cmp "$TEST_ROOT/optics.json" "$DIST_DIR/$optics_packaged" || fail 'failed build modified prior optics'
+    cmp "$TEST_ROOT/centers.json" "$DIST_DIR/$centers_packaged" || fail 'failed build modified prior center calibration'
+    assert_no_staging_dirs
+done
 
 # An arbitrary directory must remain untouched and must not reach the build.
 UNOWNED_DIR="$TEST_ROOT/unowned"

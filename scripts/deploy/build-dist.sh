@@ -243,6 +243,30 @@ else
          .vision.camera.video_file_path = ""' \
         "$CONFIG_SOURCE" > "$STAGING/config.json"
 fi
+# Localization profiles are bounded data assets, not model files. Copy exact
+# bytes and rewrite only configuration paths so moving the bundle cannot leave
+# it dependent on files in the build workspace. Runtime validates their schema,
+# estimator revision and capture context before using them.
+localization_limit="$(jq -er '.perception.rust_live.ball_localization.maximum_asset_bytes // 4194304 | select(type == "number" and floor == . and . > 0)' "$CONFIG_SOURCE")" \
+    || fail "ball localization maximum_asset_bytes must be a positive integer"
+for asset_key in optics_profile_path ball_center_calibration_path; do
+    asset_source="$(jq -er --arg key "$asset_key" '.perception.rust_live.ball_localization[$key] // "" | select(type == "string")' "$CONFIG_SOURCE")" \
+        || fail "ball localization $asset_key must be a string or null"
+    [[ -n "$asset_source" ]] || continue
+    [[ "$asset_source" == /* ]] || asset_source="$PROJECT_ROOT/$asset_source"
+    require_file "$asset_source" "ball localization $asset_key"
+    asset_size="$(wc -c < "$asset_source" | tr -d '[:space:]')"
+    (( asset_size <= localization_limit )) || fail "ball localization $asset_key exceeds maximum_asset_bytes ($localization_limit)"
+    jq -e 'type == "object"' "$asset_source" >/dev/null || fail "ball localization $asset_key must contain a JSON object"
+    asset_destination="backend/calibration_data/ball-localization/$asset_key.json"
+    mkdir -p "$STAGING/backend/calibration_data/ball-localization"
+    install -m 0644 "$asset_source" "$STAGING/$asset_destination"
+    jq --arg key "$asset_key" --arg path "$asset_destination" \
+        '.perception.rust_live.ball_localization[$key] = $path' \
+        "$STAGING/config.json" > "$STAGING/config.next.json"
+    mv "$STAGING/config.next.json" "$STAGING/config.json"
+done
+
 printf '%s\n' "$INFERENCE_PROVIDER" > "$STAGING/.billiards-inference-provider"
 [[ -f "$STAGING/frontend/index.html" ]] || fail "packaged frontend is missing index.html after the frontend build"
 install -m 0755 "$SCRIPT_DIR/run.sh" "$STAGING/run.sh"
