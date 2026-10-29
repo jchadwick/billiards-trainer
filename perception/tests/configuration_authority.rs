@@ -67,6 +67,15 @@ fn snapshot_schema_and_defaults_are_embedded_and_use_temporary_store_path() {
         defaults["configuration"]["perception"]["rust_live"]["coral_python_executable"],
         "python3"
     );
+    assert_eq!(
+        defaults["configuration"]["perception"]["freshness"]["expire_after_ms"],
+        1_000
+    );
+    assert_eq!(
+        schema["schema"]["properties"]["perception"]["properties"]["freshness"]["properties"]
+            ["expire_after_ms"]["minimum"],
+        20
+    );
 }
 
 #[test]
@@ -367,6 +376,42 @@ fn full_merged_validation_rejects_cross_field_invalid_update_without_writing() {
     assert!(
         !config_path.exists(),
         "failed validation must leave disk unchanged"
+    );
+}
+
+#[test]
+fn generic_expiry_must_outlast_the_configured_maximum_observation_age() {
+    let directory = TempDir::new().expect("temporary directory");
+    let (authority, config_path) = authority(&directory);
+    let response = call(
+        &authority,
+        json!({
+            "protocol_version": 1,
+            "operation": "update",
+            "expected_revision": 1,
+            "data": {
+                "perception": {
+                    "freshness": {
+                        "maximum_observation_age_seconds": 2.0,
+                        "expire_after_ms": 2_000
+                    },
+                    "rust_live": { "provider": "openvino" }
+                }
+            }
+        }),
+    );
+    assert_eq!(response["error"]["code"], "validation_failed");
+    assert!(response["validation_errors"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(
+            |error| error["field"] == "perception.freshness.expire_after_ms"
+                && error["message"] == "Expiry must be greater than the maximum observation age"
+        ));
+    assert!(
+        !config_path.exists(),
+        "invalid freshness policy must not be persisted"
     );
 }
 

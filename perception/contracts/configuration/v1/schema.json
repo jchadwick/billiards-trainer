@@ -100,6 +100,11 @@
             "maximum_observation_age_seconds": {
               "type": "number",
               "minimum": 0.001
+            },
+            "expire_after_ms": {
+              "type": "integer",
+              "minimum": 20,
+              "maximum": 86400000
             }
           },
           "additionalProperties": false

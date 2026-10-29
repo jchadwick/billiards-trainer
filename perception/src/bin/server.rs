@@ -256,11 +256,11 @@ impl ServerArgs {
         let Some(effective) = self.effective_configuration()? else {
             return Ok(ServerConfig::default().expire_after);
         };
-        if !uses_coral_provider(&effective) {
-            return Ok(ServerConfig::default().expire_after);
-        }
-
-        let path = "/perception/rust_live/coral_runtime/expire_after_ms";
+        let path = if uses_coral_provider(&effective) {
+            "/perception/rust_live/coral_runtime/expire_after_ms"
+        } else {
+            "/perception/freshness/expire_after_ms"
+        };
         let milliseconds = effective
             .pointer(path)
             .and_then(serde_json::Value::as_u64)
@@ -555,9 +555,47 @@ mod tests {
             config_path.to_str().unwrap(),
         ])
         .unwrap();
-        assert_eq!(
-            args.config().unwrap().stale_after,
-            Duration::from_millis(250)
+        let config = args.config().unwrap();
+        assert_eq!(config.stale_after, Duration::from_millis(250));
+        assert_eq!(config.expire_after, Duration::from_millis(1_000));
+    }
+
+    #[test]
+    fn generic_provider_uses_configured_freshness_expiry_and_validates_its_order() {
+        let directory = tempfile::tempdir().unwrap();
+        let config_path = directory.path().join("config.json");
+        let mut document: Value = serde_json::from_str(include_str!(
+            "../../contracts/configuration/v1/defaults.json"
+        ))
+        .unwrap();
+        document["perception"]["rust_live"]["provider"] = serde_json::json!("openvino");
+        document["perception"]["freshness"]["maximum_observation_age_seconds"] =
+            serde_json::json!(2.0);
+        document["perception"]["freshness"]["expire_after_ms"] = serde_json::json!(4_000);
+        fs::write(&config_path, serde_json::to_vec(&document).unwrap()).unwrap();
+
+        let args = ServerArgs::try_parse_from([
+            "billiards-server",
+            "--config",
+            config_path.to_str().unwrap(),
+        ])
+        .unwrap();
+        let config = args.config().unwrap();
+        assert_eq!(config.stale_after, Duration::from_secs(2));
+        assert_eq!(config.expire_after, Duration::from_secs(4));
+
+        document["perception"]["freshness"]["expire_after_ms"] = serde_json::json!(1_000);
+        fs::write(&config_path, serde_json::to_vec(&document).unwrap()).unwrap();
+        let args = ServerArgs::try_parse_from([
+            "billiards-server",
+            "--config",
+            config_path.to_str().unwrap(),
+        ])
+        .unwrap();
+        let error = args.config().unwrap_err();
+        assert!(
+            error.contains("Configuration validation failed"),
+            "unexpected freshness validation error: {error}"
         );
     }
 
