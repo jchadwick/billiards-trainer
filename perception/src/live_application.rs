@@ -427,10 +427,10 @@ pub fn run_live_application_with_audit<F: CaptureSourceFactory>(
         intra_op_threads: settings.intra_op_threads,
     };
     let mut detector = match settings.provider {
-        ProviderSelection::Coral => {
+        ProviderSelection::Coral | ProviderSelection::Openvino => {
             FrameInferenceEngine::new_without_onnx_runtime(inference_options)
         }
-        _ => {
+        ProviderSelection::Cpu | ProviderSelection::Auto => {
             let environment = ort::init()
                 .with_name("billiards-perception-live")
                 .with_telemetry(false)

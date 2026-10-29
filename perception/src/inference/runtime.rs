@@ -193,8 +193,9 @@ impl FrameInferenceEngine {
         Self::new_with_environment(Some(environment), options)
     }
 
-    /// Load the hardware-backed Coral path without initializing ONNX Runtime.
-    /// Other providers still require an ONNX Runtime environment.
+    /// Load Coral or native OpenVINO GPU inference without initializing ONNX
+    /// Runtime. The ONNX Runtime CPU and automatic providers require an
+    /// environment created by the application.
     pub fn new_without_onnx_runtime(options: FrameInferenceOptions) -> Result<Self> {
         Self::new_with_environment(None, options)
     }
@@ -243,17 +244,23 @@ impl FrameInferenceEngine {
                         .coral_maximum_worker_restarts_per_frame,
                 })?)
             }
-            provider => {
-                let environment = environment
-                    .as_ref()
-                    .context("ONNX Runtime environment is required for this provider")?;
+            ProviderSelection::Openvino => InferenceSession::Openvino(OpenVinoSession::new(
+                options
+                    .onnx_path
+                    .as_deref()
+                    .context("onnx_path is required for the native OpenVINO GPU provider")?,
+            )?),
+            ProviderSelection::Cpu | ProviderSelection::Auto => {
+                let environment = environment.as_ref().context(
+                    "ONNX Runtime environment is required for CPU or automatic inference",
+                )?;
                 create_session_for_model(
                     environment,
                     options
                         .onnx_path
                         .as_deref()
                         .context("onnx_path is required for the selected provider")?,
-                    provider,
+                    options.provider,
                     options.intra_op_threads,
                     None,
                 )?
@@ -5709,6 +5716,85 @@ while True:
         assert!(output.timings.inference_ms.is_finite());
         assert!(output.timings.decode_and_nms_ms.is_finite());
         assert!(output.timings.engine_total_ms >= output.timings.preprocess_ms);
+    }
+
+    #[test]
+    fn openvino_live_engine_bypasses_ort_environment_and_keeps_cpu_requirement() {
+        let scratch = tempfile::tempdir().unwrap();
+        let model_path = scratch.path().join("tiny-two-class.onnx");
+        fs::copy(
+            concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/tests/fixtures/tiny_two_class_detector.onnx"
+            ),
+            &model_path,
+        )
+        .unwrap();
+        let checkpoint_path = scratch.path().join("source.pt");
+        fs::write(&checkpoint_path, b"test checkpoint lineage").unwrap();
+        fs::write(
+            format!("{}.manifest.json", model_path.display()),
+            serde_json::to_vec(&json!({
+                "manifest_schema_version": 1,
+                "source_model": { "sha256": sha256_file(&checkpoint_path).unwrap() },
+                "exported_model": {
+                    "path": "tiny-two-class.onnx",
+                    "sha256": sha256_file(&model_path).unwrap()
+                },
+                "model": {
+                    "class_count": 2,
+                    "class_names": [
+                        { "id": 0, "name": "cue" },
+                        { "id": 1, "name": "ball" }
+                    ]
+                }
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let make_options = |provider| FrameInferenceOptions {
+            onnx_path: Some(model_path.clone()),
+            source_checkpoint_path: checkpoint_path.clone(),
+            coral_model_path: None,
+            coral_python_executable: PathBuf::from("python3"),
+            coral_delegate_library: "libedgetpu.so.1".to_owned(),
+            coral_worker_restart_backoff: Duration::from_millis(1),
+            coral_maximum_worker_restarts_per_frame: 1,
+            provider,
+            image_size: 32,
+            confidence: 0.4,
+            iou: 0.45,
+            max_detections: 300,
+            intra_op_threads: Some(1),
+        };
+
+        let cpu_error = match FrameInferenceEngine::new_without_onnx_runtime(make_options(
+            ProviderSelection::Cpu,
+        )) {
+            Ok(_) => {
+                panic!("CPU provider unexpectedly constructed without an ONNX Runtime environment")
+            }
+            Err(error) => format!("{error:#}"),
+        };
+        assert!(cpu_error.contains("ONNX Runtime environment is required"));
+
+        match FrameInferenceEngine::new_without_onnx_runtime(make_options(
+            ProviderSelection::Openvino,
+        )) {
+            Ok(engine) => assert_eq!(engine.requested_provider(), ProviderSelection::Openvino),
+            Err(error) => {
+                let message = format!("{error:#}");
+                assert!(
+                    !message.contains("ONNX Runtime environment is required"),
+                    "native OpenVINO failure was incorrectly reported as an ONNX Runtime requirement: {message}"
+                );
+                assert!(
+                    message.contains("OpenVINO") || message.contains("GPU"),
+                    "native OpenVINO construction returned an unrelated error: {message}"
+                );
+            }
+        }
     }
 
     #[test]
