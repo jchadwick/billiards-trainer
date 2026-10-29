@@ -294,3 +294,10 @@ then release one qualified implementation or discard the experiment.
   error and acceptance rates, including difficult boundary conditions. The
   limited initial manual measurements are diagnostic evidence, not release
   qualification.
+
+## Follow-up — 2026-10-29: inference placement revised
+
+ADR-0104 replaces the Coral assignment with explicit Intel GPU inference after
+actual target measurements showed 69.68 ms GPU versus 1551.04 ms Coral inference
+p95 on saved pixels. Native Rust execution on GPU.0 has also been verified.
+Other native-frame and measurement contracts remain valid.
