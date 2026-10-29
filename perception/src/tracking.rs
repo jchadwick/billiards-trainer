@@ -1,6 +1,7 @@
 //! Source-time association from complete detections to complete scene snapshots.
 //!
-//! The tracker keeps detector centers as measurements. A bounded constant-
+//! The tracker keeps one resolved center and optional native contour per
+//! observation. Raw detector records stay unchanged. A bounded constant-
 //! velocity estimate is used only to choose associations; it is never
 //! published as if it were a current observed location. Configuration is
 //! supplied by the caller so the experimental thresholds are visible and can
@@ -482,6 +483,16 @@ impl SceneTrackerV1 {
             timestamp: mapped_source_timestamp.clone(),
         };
 
+        let detection_outlines = resolved
+            .measurements
+            .iter()
+            .filter_map(|measurement| {
+                measurement
+                    .outline
+                    .as_ref()
+                    .map(|outline| (measurement.detection_index, outline))
+            })
+            .collect::<HashMap<_, _>>();
         let detection_table_centers = resolved
             .measurements
             .iter()
@@ -510,6 +521,7 @@ impl SceneTrackerV1 {
             let center = selected_centers[detection_index];
             let measurement = image_measurement(
                 detection,
+                detection_outlines.get(&detection.detection_index).copied(),
                 center,
                 source_image_space,
                 batch.source.width_px,
@@ -548,6 +560,7 @@ impl SceneTrackerV1 {
                 last_observation: last_observation.clone(),
                 measurement: image_measurement(
                     detection,
+                    detection_outlines.get(&detection.detection_index).copied(),
                     center,
                     source_image_space,
                     batch.source.width_px,
@@ -587,11 +600,15 @@ impl SceneTrackerV1 {
             } else {
                 BallStatus::Occluded
             };
+            let mut measurement = track.measurement.clone();
+            if !observed_now {
+                measurement.image_outline_px = None;
+            }
             balls.push(BallState {
                 track_id: track.id.clone(),
                 status,
                 last_observation: track.last_observation.clone(),
-                measurement: Some(track.measurement.clone()),
+                measurement: Some(measurement),
                 estimate: None,
                 identity: BallIdentity {
                     number: None,
@@ -837,6 +854,13 @@ fn validate_resolved_ball_measurements(
             || measurement.center_image_px[1] < 0.0
             || measurement.center_image_px[0] >= f64::from(batch.source.width_px)
             || measurement.center_image_px[1] >= f64::from(batch.source.height_px)
+            || measurement.outline.as_ref().is_some_and(|outline| {
+                !status_allows_table_position
+                    || !crate::ball_localization::valid_refined_outline(
+                        outline,
+                        measurement.center_image_px,
+                    )
+            })
             || !valid_table_position
             || (has_table_position && !status_allows_table_position)
             || (has_table_position && resolved.calibration_revision.is_none())
@@ -856,6 +880,7 @@ fn validate_resolved_ball_measurements(
 
 fn image_measurement(
     detection: &crate::detection_batch::Detection,
+    outline: Option<&crate::ball_localization::BallOutline>,
     selected_center: Point2d,
     image_space: ImageSpace,
     width_px: u32,
@@ -867,7 +892,18 @@ fn image_measurement(
             x: selected_center.x,
             y: selected_center.y,
         },
-        image_radius_px: bbox_half_extent(detection),
+        image_radius_px: outline
+            .map(|o| Point2d {
+                x: o.half_extent_image_px[0],
+                y: o.half_extent_image_px[1],
+            })
+            .or_else(|| bbox_half_extent(detection)),
+        image_outline_px: outline.map(|o| {
+            o.points_image_px
+                .iter()
+                .map(|p| Point2d { x: p[0], y: p[1] })
+                .collect()
+        }),
         image_space,
         image_width_px: width_px,
         image_height_px: height_px,

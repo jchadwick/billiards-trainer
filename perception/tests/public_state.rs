@@ -187,3 +187,86 @@ fn repeated_conversion_is_pure_and_never_advances_old_ball_observation() {
     // Receipt age and duplicate suppression belong to the stateful publisher;
     // a pure compatibility conversion must not manufacture either.
 }
+
+#[test]
+fn precise_outline_scales_with_canonical_geometry_and_keeps_clipped_vertices() {
+    use billiards_perception::Point2d;
+    let mut scene = base();
+    let m = scene.balls[0].measurement.as_mut().unwrap();
+    m.image_center_px = Point2d { x: 2., y: 2. };
+    m.image_radius_px = Some(Point2d { x: 6., y: 3. });
+    m.image_outline_px = Some(vec![
+        Point2d { x: -4., y: 2. },
+        Point2d { x: 2., y: -1. },
+        Point2d { x: 8., y: 2. },
+        Point2d { x: 2., y: 5. },
+    ]);
+    let scaled = SceneSnapshotStateAdapter::new(PublicStateConfig {
+        canonical_width_px: 1920,
+        canonical_height_px: 1080,
+        ..Default::default()
+    })
+    .unwrap();
+    let payload = scaled.adapt(&scene, None, None).unwrap().unwrap();
+    let outline = payload.balls[0].outline.as_ref().unwrap();
+    assert_eq!(outline.points[0], Point2d { x: -2., y: 1. });
+    assert_eq!(outline.points[1], Point2d { x: 1., y: -0.5 });
+    assert_eq!(outline.scale, [1., 1.]);
+    assert_eq!(payload.balls[0].radius_extent.as_ref().unwrap().x, 3.);
+    assert_eq!(payload.balls[0].radius_source, "native_refined_outline");
+    scene.balls[0].status = billiards_perception::BallStatus::Lost;
+    assert!(scaled.adapt(&scene, None, None).is_err());
+    scene.balls[0]
+        .measurement
+        .as_mut()
+        .unwrap()
+        .image_outline_px = None;
+    assert!(scaled.adapt(&scene, None, None).unwrap().unwrap().balls[0]
+        .outline
+        .is_none());
+}
+
+#[test]
+fn invalid_or_stale_precise_contours_cannot_escape_the_scene_contract() {
+    use billiards_perception::Point2d;
+    for vertices in [
+        vec![Point2d { x: f64::NAN, y: 0. }; 3],
+        vec![Point2d { x: 1., y: 1. }; 3],
+        vec![Point2d { x: 1., y: 1. }; 513],
+        vec![Point2d { x: 1e30, y: 0. }; 3],
+    ] {
+        let mut scene = base();
+        scene.balls[0]
+            .measurement
+            .as_mut()
+            .unwrap()
+            .image_outline_px = Some(vertices);
+        assert!(adapter().adapt(&scene, None, None).is_err());
+    }
+    let mut scene = base();
+    let c = scene.balls[0].measurement.as_ref().unwrap().image_center_px;
+    scene.balls[0]
+        .measurement
+        .as_mut()
+        .unwrap()
+        .image_outline_px = Some(vec![
+        Point2d {
+            x: c.x - 2.,
+            y: c.y,
+        },
+        Point2d {
+            x: c.x,
+            y: c.y - 1.,
+        },
+        Point2d {
+            x: c.x + 2.,
+            y: c.y,
+        },
+        Point2d {
+            x: c.x,
+            y: c.y + 1.,
+        },
+    ]);
+    scene.balls[0].last_observation.timestamp.ticks = "999999999".into();
+    assert!(adapter().adapt(&scene, None, None).is_err());
+}

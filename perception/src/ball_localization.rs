@@ -119,8 +119,8 @@ impl Default for BallLocalizationConfig {
             maximum_alternative_residual_tolerance_px: 0.25,
             maximum_same_boundary_outline_disagreement_px: 1.5,
             minimum_background_supported_fraction: 0.6,
-            batch_budget_ms: 25,
-            proposal_budget_ms: 10,
+            batch_budget_ms: 150,
+            proposal_budget_ms: 30,
             max_roi_side_px: 512,
             roi_padding_factor: 1.8,
             angular_samples: 96,
@@ -586,6 +586,7 @@ pub struct ResolvedBallMeasurement {
     pub center_image_px: [f64; 2],
     pub table_center_mm: Option<[f64; 2]>,
     pub refinement_status: Option<RefinementStatus>,
+    pub outline: Option<BallOutline>,
 }
 
 /// Frame-bound selected measurements consumed together by association and
@@ -647,6 +648,7 @@ impl ResolvedBallMeasurementBatch {
                 center_image_px: [detection.center_image_px.x, detection.center_image_px.y],
                 table_center_mm: None,
                 refinement_status: None,
+                outline: None,
             })
             .collect();
         Self {
@@ -668,6 +670,42 @@ impl ResolvedBallMeasurementBatch {
             measurements,
         }
     }
+}
+
+/// Verify the serialized contour and its half-extents describe one geometry.
+pub(crate) fn valid_refined_outline(outline: &BallOutline, center: [f64; 2]) -> bool {
+    let points: Vec<_> = outline
+        .points_image_px
+        .iter()
+        .map(|p| crate::Point2d { x: p[0], y: p[1] })
+        .collect();
+    if !crate::valid_image_outline(
+        &points,
+        crate::Point2d {
+            x: center[0],
+            y: center[1],
+        },
+    ) || !outline.local_radius_px.is_finite()
+        || outline.local_radius_px <= 0.0
+    {
+        return false;
+    }
+    let mut actual = [0.0_f64; 2];
+    for p in &outline.points_image_px {
+        for i in 0..2 {
+            actual[i] = actual[i].max((p[i] - center[i]).abs());
+        }
+    }
+    outline
+        .half_extent_image_px
+        .iter()
+        .zip(actual)
+        .all(|(&claimed, expected)| {
+            claimed.is_finite()
+                && claimed > 0.0
+                && (claimed - expected).abs()
+                    <= f64::EPSILON * (1. + expected) * crate::MAX_IMAGE_OUTLINE_POINTS as f64
+        })
 }
 
 /// Validate refinement provenance, select each ball center once, and apply
@@ -736,6 +774,11 @@ pub fn resolve_ball_measurements_for_batch(
                                         && point[1] >= 0.0
                                         && point[0] < f64::from(batch.source.width_px)
                                         && point[1] < f64::from(batch.source.height_px)
+                                }) && observation.outline.as_ref().is_none_or(|outline| {
+                                    valid_refined_outline(
+                                        outline,
+                                        observation.center_image_px.unwrap(),
+                                    )
                                 })
                             }
                             RefinementStatus::Rejected => observation.center_image_px.is_none(),
@@ -779,6 +822,9 @@ pub fn resolve_ball_measurements_for_batch(
                 center_image_px: center,
                 table_center_mm,
                 refinement_status: refinement.map(|refinement| refinement.status),
+                outline: refinement
+                    .filter(|r| r.status == RefinementStatus::Accepted)
+                    .and_then(|r| r.outline.clone()),
             }
         })
         .collect();
@@ -1579,6 +1625,7 @@ fn evaluate_candidate(
             fit,
             center,
             &projected,
+            f64::from(cfg.max_roi_side_px),
             end,
             &mut quality,
         )?);
@@ -2302,14 +2349,23 @@ fn project_outline(
     quality: &mut BallLocalizationQuality,
 ) -> Result<BallOutline, RejectionReason> {
     let points = source_outline_points(k, view, fit, cfg.outline_samples, end)?;
-    outline_from_source_points(k, fit, center, &points, end, quality)
+    outline_from_source_points(
+        k,
+        fit,
+        center,
+        &points,
+        f64::from(cfg.max_roi_side_px),
+        end,
+        quality,
+    )
 }
 
 fn outline_from_source_points(
-    k: &CameraIntrinsics,
+    _k: &CameraIntrinsics,
     fit: Circle,
     center: [f64; 2],
     points: &[[f64; 2]],
+    maximum_source_extent_px: f64,
     end: Instant,
     quality: &mut BallLocalizationQuality,
 ) -> Result<BallOutline, RejectionReason> {
@@ -2319,10 +2375,13 @@ fn outline_from_source_points(
     let mut extent = [0.0f64; 2];
     for &p in points {
         deadline(Instant::now(), end)?;
-        if p[0] < 0.0
-            || p[1] < 0.0
-            || p[0] >= f64::from(k.source_width_px)
-            || p[1] >= f64::from(k.source_height_px)
+        // Supported observed arcs may justify a fit whose projected outline
+        // crosses the image edge. Keep those vertices intact for canvas clipping.
+        if p.iter().any(|v| !v.is_finite()) {
+            return Err(RejectionReason::NumericalFailure);
+        }
+        if (p[0] - center[0]).abs() > maximum_source_extent_px
+            || (p[1] - center[1]).abs() > maximum_source_extent_px
         {
             return Err(RejectionReason::InadequateCoverage);
         }
@@ -2394,7 +2453,7 @@ mod diagnostic_tests {
     }
 
     #[test]
-    fn outline_failure_is_attributed_to_outline_projection() {
+    fn finite_edge_crossing_outline_is_preserved_for_surface_clipping() {
         let k = CameraIntrinsics {
             source_width_px: 480,
             source_height_px: 300,
@@ -2424,8 +2483,12 @@ mod diagnostic_tests {
             Instant::now() + Duration::from_secs(1),
             &mut quality,
         );
-        assert_eq!(result, Err(RejectionReason::InadequateCoverage));
-        assert_eq!(quality.stage, BallFitStage::OutlineProjection);
+        let outline = result.unwrap();
+        assert!(outline
+            .points_image_px
+            .iter()
+            .any(|p| p[0] < 0.0 || p[1] < 0.0));
+        assert_eq!(quality.stage, BallFitStage::Complete);
         assert_eq!(quality.iterations, 2);
         assert_eq!(quality.residual_rms_px, Some(0.2));
     }

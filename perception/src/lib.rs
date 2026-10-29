@@ -68,6 +68,9 @@ use serde::{Deserialize, Serialize};
 pub const SCENE_SNAPSHOT_SCHEMA_VERSION: u8 = 1;
 const MAX_SAFE_JSON_INTEGER: u64 = 9_007_199_254_740_991;
 const MAX_IDENTIFIER_CHARACTERS: usize = 128;
+/// Shape payload limits match the refiner's maximum outline/ROI resources.
+pub const MAX_IMAGE_OUTLINE_POINTS: usize = 512;
+pub const MAX_IMAGE_OUTLINE_RADIUS_PX: f64 = 2048.0;
 
 /// A validated complete observation or annotation snapshot.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -244,12 +247,15 @@ pub enum BallStatus {
 #[serde(deny_unknown_fields)]
 pub struct Measurement {
     pub image_center_px: Point2d,
-    /// Per-axis half-extents from the detector box, when the source detector
-    /// provides a valid ball box. These travel with the observation so the
-    /// live overlay can show the ball's detected footprint instead of relying
-    /// on one assumed radius for every camera position.
+    /// Per-axis native-fit half-extents when an accepted contour is present;
+    /// otherwise the coarse detector-box half-extents. These share the exact
+    /// frame of the selected center without modifying the raw detection batch.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub image_radius_px: Option<Point2d>,
+    /// Source-pixel contour from this exact accepted observation. Predicted or
+    /// retained tracks must not borrow a precise contour from an older frame.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image_outline_px: Option<Vec<Point2d>>,
     pub image_space: ImageSpace,
     pub image_width_px: u32,
     pub image_height_px: u32,
@@ -459,6 +465,18 @@ impl SceneSnapshotV1 {
                 return Err(ContractValidationError::new(
                     format!("{path}.last_observation.frame_id"),
                     "observed ball must match the snapshot source frame",
+                ));
+            }
+            if ball
+                .measurement
+                .as_ref()
+                .is_some_and(|m| m.image_outline_px.is_some())
+                && (ball.status != BallStatus::Observed
+                    || ball.last_observation.timestamp != self.source.timestamp)
+            {
+                return Err(ContractValidationError::new(
+                    format!("{path}.measurement.image_outline_px"),
+                    "precise outline requires the exact current observed source frame",
                 ));
             }
             if let Some(measurement) = &ball.measurement {
@@ -755,6 +773,16 @@ fn validate_measurement(
         measurement.image_height_px,
         &format!("{path}.image_center_px"),
     )?;
+    if measurement
+        .image_outline_px
+        .as_ref()
+        .is_some_and(|points| !valid_image_outline(points, measurement.image_center_px))
+    {
+        return Err(ContractValidationError::new(
+            format!("{path}.image_outline_px"),
+            "image outline must contain 3..512 finite nondegenerate bounded source-pixel vertices",
+        ));
+    }
     if let Some(radius) = &measurement.image_radius_px {
         if !radius.x.is_finite()
             || !radius.y.is_finite()
@@ -869,4 +897,34 @@ fn validate_identity(value: &BallIdentity, path: &str) -> Result<(), ContractVal
         }
     }
     Ok(())
+}
+
+/// Geometry validity only: this does not establish silhouette or center accuracy.
+/// Vertices may extend beyond the frame; consumers clip the drawing surface,
+/// never clamp vertices independently and distort the measured shape.
+pub(crate) fn valid_image_outline(points: &[Point2d], center: Point2d) -> bool {
+    if !(3..=MAX_IMAGE_OUTLINE_POINTS).contains(&points.len())
+        || !center.x.is_finite()
+        || !center.y.is_finite()
+        || points.iter().any(|p| {
+            !p.x.is_finite()
+                || !p.y.is_finite()
+                || (p.x - center.x).abs() > MAX_IMAGE_OUTLINE_RADIUS_PX
+                || (p.y - center.y).abs() > MAX_IMAGE_OUTLINE_RADIUS_PX
+        })
+    {
+        return false;
+    }
+    let area = points
+        .iter()
+        .zip(points.iter().cycle().skip(1))
+        .take(points.len())
+        .map(|(a, b)| (a.x - center.x) * (b.y - center.y) - (a.y - center.y) * (b.x - center.x))
+        .sum::<f64>()
+        .abs();
+    let scale = points
+        .iter()
+        .map(|p| (p.x - center.x).abs().max((p.y - center.y).abs()))
+        .fold(0., f64::max);
+    area.is_finite() && area > f64::EPSILON * scale * scale * points.len() as f64
 }

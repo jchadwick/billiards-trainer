@@ -1,3 +1,4 @@
+use billiards_perception::Point2d;
 use std::time::Duration;
 
 use billiards_perception::ball_localization::{RefinementStatus, ResolvedBallMeasurementBatch};
@@ -673,6 +674,11 @@ fn resolved_center_drives_tracking_and_xy_while_raw_batch_midpoint_stays_unchang
     resolved.measurements[0].center_image_px = [202.0, 101.0];
     resolved.measurements[0].table_center_mm = Some([123.5, -456.25]);
     resolved.measurements[0].refinement_status = Some(RefinementStatus::Accepted);
+    resolved.measurements[0].outline = Some(billiards_perception::ball_localization::BallOutline {
+        points_image_px: vec![[180., 101.], [202., 91.], [224., 101.], [202., 111.]],
+        half_extent_image_px: [22., 10.],
+        local_radius_px: 10.,
+    });
 
     let mut tracker = SceneTrackerV1::new(config());
     let result = tracker
@@ -697,6 +703,19 @@ fn resolved_center_drives_tracking_and_xy_while_raw_batch_midpoint_stays_unchang
     assert_eq!(measurement.table_center_mm.unwrap().y, -456.25);
     assert_eq!(result.snapshot.revisions.calibration, Some(11));
     result.snapshot.validate().unwrap();
+    assert_eq!(
+        measurement.image_radius_px,
+        Some(Point2d { x: 22., y: 10. })
+    );
+    assert_eq!(
+        measurement.image_outline_px.as_ref().unwrap()[0],
+        Point2d { x: 180., y: 101. }
+    );
+    let missing = process(&mut tracker, &frame(2, 1_010_000_000, &[])).unwrap();
+    assert!(missing.balls.iter().all(|b| b
+        .measurement
+        .as_ref()
+        .is_none_or(|m| m.image_outline_px.is_none())));
 }
 
 #[test]
