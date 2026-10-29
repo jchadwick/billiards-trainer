@@ -97,12 +97,12 @@ struct Arguments {
     coral_delegate: Option<String>,
 
     /// Delay before recreating the Coral interpreter after an inference error.
-    #[arg(long)]
-    coral_worker_restart_backoff_ms: u64,
+    #[arg(long, required_if_eq("provider", "coral"))]
+    coral_worker_restart_backoff_ms: Option<u64>,
 
     /// Maximum Coral worker restarts allowed for one failed frame.
-    #[arg(long)]
-    coral_maximum_worker_restarts_per_frame: usize,
+    #[arg(long, required_if_eq("provider", "coral"))]
+    coral_maximum_worker_restarts_per_frame: Option<usize>,
 
     /// Select ONNX Runtime CPU, native OpenVINO GPU, ONNX Runtime's max-efficiency policy, or Coral Edge TPU.
     #[arg(long, value_enum)]
@@ -390,9 +390,13 @@ fn main() -> Result<()> {
         coral_python_executable: arguments.coral_python.unwrap_or_default(),
         coral_delegate_library: arguments.coral_delegate.unwrap_or_default(),
         coral_worker_restart_backoff: Duration::from_millis(
-            arguments.coral_worker_restart_backoff_ms,
+            arguments
+                .coral_worker_restart_backoff_ms
+                .unwrap_or_default(),
         ),
-        coral_maximum_worker_restarts_per_frame: arguments.coral_maximum_worker_restarts_per_frame,
+        coral_maximum_worker_restarts_per_frame: arguments
+            .coral_maximum_worker_restarts_per_frame
+            .unwrap_or_default(),
         provider: arguments.provider.into(),
         image_size: arguments.image_size,
         confidence: arguments.confidence,
@@ -856,6 +860,8 @@ mod tests {
     #[test]
     fn live_cli_accepts_native_openvino_as_an_explicit_runtime_choice() {
         let mut arguments = supervisor_arguments();
+        remove_option(&mut arguments, "--coral-worker-restart-backoff-ms");
+        remove_option(&mut arguments, "--coral-maximum-worker-restarts-per-frame");
         let provider_position = arguments
             .iter()
             .position(|argument| *argument == "--provider")
@@ -889,6 +895,10 @@ mod tests {
             "python3.11",
             "--coral-delegate",
             "libedgetpu.so.1",
+            "--coral-worker-restart-backoff-ms",
+            "250",
+            "--coral-maximum-worker-restarts-per-frame",
+            "2",
         ]);
 
         let parsed = Arguments::try_parse_from(arguments).unwrap();
@@ -903,6 +913,27 @@ mod tests {
             billiards_perception::inference::ProviderSelection::from(parsed.provider),
             billiards_perception::inference::ProviderSelection::Coral
         );
+    }
+
+    #[test]
+    fn live_cli_requires_coral_worker_settings_for_coral_provider() {
+        let mut arguments = supervisor_arguments();
+        remove_option(&mut arguments, "--coral-worker-restart-backoff-ms");
+        remove_option(&mut arguments, "--coral-maximum-worker-restarts-per-frame");
+        let provider_position = arguments
+            .iter()
+            .position(|argument| *argument == "--provider")
+            .unwrap();
+        arguments[provider_position + 1] = "coral";
+
+        let error = Arguments::try_parse_from(arguments).unwrap_err();
+        assert_eq!(
+            error.kind(),
+            clap::error::ErrorKind::MissingRequiredArgument
+        );
+        let message = error.to_string();
+        assert!(message.contains("--coral-worker-restart-backoff-ms"));
+        assert!(message.contains("--coral-maximum-worker-restarts-per-frame"));
     }
 
     #[test]
@@ -1195,10 +1226,6 @@ mod tests {
             "/models/detector.pt",
             "--provider",
             "cpu",
-            "--coral-worker-restart-backoff-ms",
-            "250",
-            "--coral-maximum-worker-restarts-per-frame",
-            "2",
             "--image-size",
             "640",
             "--confidence",
@@ -1263,5 +1290,11 @@ mod tests {
             "--graceful-stop-timeout-ms",
             "2000",
         ]
+    }
+
+    fn remove_option(arguments: &mut Vec<&'static str>, option: &str) {
+        if let Some(index) = arguments.iter().position(|argument| *argument == option) {
+            arguments.drain(index..=index + 1);
+        }
     }
 }
