@@ -1515,6 +1515,10 @@ mod tests {
             .to_string()
             .contains("timeout"));
 
+        // Give the two subprocess scenarios independent executables. The output
+        // limit check must not depend on replacing a script that was just killed
+        // by the preceding timeout scenario.
+        config.ffprobe_executable = directory.path().join("ffprobe-overflow.sh");
         fs::write(
             &config.ffprobe_executable,
             "#!/bin/sh\nhead -c 4096 /dev/zero\n",
@@ -1527,9 +1531,7 @@ mod tests {
         fs::set_permissions(&config.ffprobe_executable, permissions).unwrap();
         config.ffprobe_timeout = Duration::from_secs(2);
         config.maximum_ffprobe_output_bytes = 32;
-        assert!(execute_ffprobe(&config)
-            .unwrap_err()
-            .to_string()
-            .contains("size bound"));
+        let error = execute_ffprobe(&config).unwrap_err();
+        assert!(error.to_string().contains("size bound"), "{error:#}");
     }
 }
