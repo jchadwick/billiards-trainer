@@ -1,0 +1,4939 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-29",
+  "refiner_revision": 10,
+  "audits": [
+    {
+      "name": "gpu",
+      "source_image_sha256": "06ef40f52e0f93db17601585c4ed1d014895aaadcaf6b04c6abbd6e986d57e7b",
+      "corpus_sha256": "de8fe0233cd209a00eeefc149f5ef4b0d3a4019337264bef5693a99b80c04d24",
+      "refiner_source_sha256": "7eae8d4dda67be8d710d49e0626ec42dbb5bc45e8d492bd2dea303dda9a0fd22",
+      "harness_sha256": "0c3a453882b702bcdf9635e348b43168da7396fd586bf97992a81ffa025f7483",
+      "refiner_revision": 10,
+      "audit_schema_version": 7,
+      "proposal_count": 15,
+      "accepted_count": 15,
+      "measured_count": 9,
+      "measured_accepted_count": 9,
+      "trace_dropped_event_cases": 0,
+      "results": [
+        {
+          "ball_id": "far-left-yellow-middle-row-ball",
+          "physical_reference_present": true,
+          "status": "accepted",
+          "reason": null,
+          "center_image_px": [
+            95.82775460405423,
+            362.03601802960037
+          ],
+          "case_trace_sha256": "449351cd46fd0e4009c26da87a3ae1a6254c737d541cbe824f60597edca2288e",
+          "trace_dropped_events": 0,
+          "quality": {
+            "stage": "complete",
+            "seed_observations": 1,
+            "qualified_seed_observations": 1,
+            "seed_center_spread_px": null,
+            "center_spread_px": 0.04270331479728562,
+            "source_residual_rms_px": 0.23221387089529405,
+            "angular_coverage": 1.0,
+            "largest_gap_fraction": 0.041536720723410414
+          }
+        },
+        {
+          "ball_id": "top-left-pocket-ball",
+          "physical_reference_present": false,
+          "status": "accepted",
+          "reason": null,
+          "center_image_px": [
+            102.97366198616271,
+            106.71660460375395
+          ],
+          "case_trace_sha256": "5c22b40ba9190301f64862d6017a43549987021d8ecbaf49ba7a32df359a1138",
+          "trace_dropped_events": 0,
+          "quality": {
+            "stage": "complete",
+            "seed_observations": 10,
+            "qualified_seed_observations": 2,
+            "seed_center_spread_px": 0.3665261817470295,
+            "center_spread_px": 0.3665261817470295,
+            "source_residual_rms_px": 0.3633012391579906,
+            "angular_coverage": 0.75,
+            "largest_gap_fraction": 0.19912669529778787
+          }
+        },
+        {
+          "ball_id": "bottom-left-pocket-ball",
+          "physical_reference_present": false,
+          "status": "accepted",
+          "reason": null,
+          "center_image_px": [
+            105.70485182356344,
+            617.1230446556342
+          ],
+          "case_trace_sha256": "d60c66a1514027ef4db51b6ef955b1511da50212ffa7769fbb58d258f22814e2",
+          "trace_dropped_events": 0,
+          "quality": {
+            "stage": "complete",
+            "seed_observations": 1,
+            "qualified_seed_observations": 1,
+            "seed_center_spread_px": null,
+            "center_spread_px": 0.057435691378964635,
+            "source_residual_rms_px": 0.2771691160641667,
+            "angular_coverage": 1.0,
+            "largest_gap_fraction": 0.0415983233353943
+          }
+        },
+        {
+          "ball_id": "top-orange-solid-second-left-ball",
+          "physical_reference_present": true,
+          "status": "accepted",
+          "reason": null,
+          "center_image_px": [
+            352.37640645908897,
+            96.85285528849059
+          ],
+          "case_trace_sha256": "d681a298d3cb04e4f5b76a4564cfb88f4564ce8c01db1bc1e32d94c618a9e978",
+          "trace_dropped_events": 0,
+          "quality": {
+            "stage": "complete",
+            "seed_observations": 1,
+            "qualified_seed_observations": 1,
+            "seed_center_spread_px": null,
+            "center_spread_px": 0.0895464007513454,
+            "source_residual_rms_px": 0.23909402103434227,
+            "angular_coverage": 1.0,
+            "largest_gap_fraction": 0.0726359218417893
+          }
+        },
+        {
+          "ball_id": "interior-purple-second-left-middle-row-ball",
+          "physical_reference_present": true,
+          "status": "accepted",
+          "reason": null,
+          "center_image_px": [
+            358.5248203960703,
+            363.7676227179779
+          ],
+          "case_trace_sha256": "08a2776f71770d3abe1bfe9d578c87362088447434d8881ffa7d450e158d517a",
+          "trace_dropped_events": 0,
+          "quality": {
+            "stage": "complete",
+            "seed_observations": 1,
+            "qualified_seed_observations": 1,
+            "seed_center_spread_px": null,
+            "center_spread_px": 0.1487274445775413,
+            "source_residual_rms_px": 0.3226572719573265,
+            "angular_coverage": 1.0,
+            "largest_gap_fraction": 0.0937926987477543
+          }
+        },
+        {
+          "ball_id": "bottom-black-second-left-ball",
+          "physical_reference_present": true,
+          "status": "accepted",
+          "reason": null,
+          "center_image_px": [
+            361.9923166865648,
+            626.7254531931142
+          ],
+          "case_trace_sha256": "6e85be2383e066d303c2315441d3b398118bfe1fb4b61afd82be69bdc20eed1b",
+          "trace_dropped_events": 0,
+          "quality": {
+            "stage": "complete",
+            "seed_observations": 1,
+            "qualified_seed_observations": 1,
+            "seed_center_spread_px": null,
+            "center_spread_px": 0.291636182512967,
+            "source_residual_rms_px": 0.31812241914164036,
+            "angular_coverage": 1.0,
+            "largest_gap_fraction": 0.08322499316237043
+          }
+        },
+        {
+          "ball_id": "top-middle-pocket-ball",
+          "physical_reference_present": false,
+          "status": "accepted",
+          "reason": null,
+          "center_image_px": [
+            641.390897565963,
+            97.28146821309318
+          ],
+          "case_trace_sha256": "3a3823356bc09a13718d58820dabce7ce0035dc4af2a00c193465e6437f7476a",
+          "trace_dropped_events": 0,
+          "quality": {
+            "stage": "complete",
+            "seed_observations": 1,
+            "qualified_seed_observations": 1,
+            "seed_center_spread_px": null,
+            "center_spread_px": 0.09423780773081859,
+            "source_residual_rms_px": 0.22118489774034372,
+            "angular_coverage": 1.0,
+            "largest_gap_fraction": 0.02082171382475185
+          }
+        },
+        {
+          "ball_id": "bottom-middle-pocket-ball",
+          "physical_reference_present": false,
+          "status": "accepted",
+          "reason": null,
+          "center_image_px": [
+            641.0588892274047,
+            629.1928289207099
+          ],
+          "case_trace_sha256": "1763434446d9a7b2a563fa8aa976d6c2b9c250b5cdf83e120714dc68c6ecf89a",
+          "trace_dropped_events": 0,
+          "quality": {
+            "stage": "complete",
+            "seed_observations": 1,
+            "qualified_seed_observations": 1,
+            "seed_center_spread_px": null,
+            "center_spread_px": 0.10053480963273764,
+            "source_residual_rms_px": 0.25524801912278555,
+            "angular_coverage": 1.0,
+            "largest_gap_fraction": 0.08289010623084389
+          }
+        },
+        {
+          "ball_id": "middle-row-center-ball",
+          "physical_reference_present": true,
+          "status": "accepted",
+          "reason": null,
+          "center_image_px": [
+            642.8044727144058,
+            361.2435393301858
+          ],
+          "case_trace_sha256": "732464b8a9aecc65879613dc5d2d4095f335e2e2801e532cd2274291bf3393c6",
+          "trace_dropped_events": 0,
+          "quality": {
+            "stage": "complete",
+            "seed_observations": 1,
+            "qualified_seed_observations": 1,
+            "seed_center_spread_px": null,
+            "center_spread_px": 0.04013584227148029,
+            "source_residual_rms_px": 0.20854431006173513,
+            "angular_coverage": 1.0,
+            "largest_gap_fraction": 0.052182235950614816
+          }
+        },
+        {
+          "ball_id": "interior-green-second-right-middle-row-ball",
+          "physical_reference_present": true,
+          "status": "accepted",
+          "reason": null,
+          "center_image_px": [
+            924.5004169192918,
+            361.7395677912777
+          ],
+          "case_trace_sha256": "c1f2f666c1506e82bb50568c9fff3e07e50aab3905d8a56f23b9c3f40cd3d1ab",
+          "trace_dropped_events": 0,
+          "quality": {
+            "stage": "complete",
+            "seed_observations": 1,
+            "qualified_seed_observations": 1,
+            "seed_center_spread_px": null,
+            "center_spread_px": 0.07296320241533992,
+            "source_residual_rms_px": 0.21268426416204267,
+            "angular_coverage": 1.0,
+            "largest_gap_fraction": 0.07282963794869306
+          }
+        },
+        {
+          "ball_id": "bottom-yellow-second-right-ball",
+          "physical_reference_present": true,
+          "status": "accepted",
+          "reason": null,
+          "center_image_px": [
+            925.1193884624545,
+            630.083526089684
+          ],
+          "case_trace_sha256": "36d9211c2bf65080a2d6904dfdbdbe1e400837ae27db34fbc562d0726912bb2c",
+          "trace_dropped_events": 0,
+          "quality": {
+            "stage": "complete",
+            "seed_observations": 1,
+            "qualified_seed_observations": 1,
+            "seed_center_spread_px": null,
+            "center_spread_px": 0.17831493795424094,
+            "source_residual_rms_px": 0.25354398183205124,
+            "angular_coverage": 1.0,
+            "largest_gap_fraction": 0.052121412990450575
+          }
+        },
+        {
+          "ball_id": "top-red-striped-second-right-ball",
+          "physical_reference_present": true,
+          "status": "accepted",
+          "reason": null,
+          "center_image_px": [
+            927.572934325822,
+            93.66461499656725
+          ],
+          "case_trace_sha256": "0088c717808fe82ab78e59f4e03014c3ed310b1c89981a53596298763a96d39e",
+          "trace_dropped_events": 0,
+          "quality": {
+            "stage": "complete",
+            "seed_observations": 1,
+            "qualified_seed_observations": 1,
+            "seed_center_spread_px": null,
+            "center_spread_px": 0.2609521809482284,
+            "source_residual_rms_px": 0.31458373951211416,
+            "angular_coverage": 1.0,
+            "largest_gap_fraction": 0.041961447201889095
+          }
+        },
+        {
+          "ball_id": "bottom-right-pocket-ball",
+          "physical_reference_present": false,
+          "status": "accepted",
+          "reason": null,
+          "center_image_px": [
+            1190.075059264229,
+            626.2163555861144
+          ],
+          "case_trace_sha256": "5895b82ce8a0c5c58f193b5d5f770878ff9bf69670fdd7b1014e449ed9cf38f0",
+          "trace_dropped_events": 0,
+          "quality": {
+            "stage": "complete",
+            "seed_observations": 10,
+            "qualified_seed_observations": 8,
+            "seed_center_spread_px": 0.31647437037226545,
+            "center_spread_px": 0.4259222329613106,
+            "source_residual_rms_px": 0.354938707308451,
+            "angular_coverage": 0.875,
+            "largest_gap_fraction": 0.17918631796552303
+          }
+        },
+        {
+          "ball_id": "top-right-cue-pocket-ball",
+          "physical_reference_present": false,
+          "status": "accepted",
+          "reason": null,
+          "center_image_px": [
+            1195.8476576069088,
+            96.49942700561976
+          ],
+          "case_trace_sha256": "71629de2a88fa30748818a4b3cb87dae98a18cdd700ecbbc157c456d10f1a1f6",
+          "trace_dropped_events": 0,
+          "quality": {
+            "stage": "complete",
+            "seed_observations": 1,
+            "qualified_seed_observations": 1,
+            "seed_center_spread_px": null,
+            "center_spread_px": 0.05104166869323464,
+            "source_residual_rms_px": 0.2605913800923632,
+            "angular_coverage": 1.0,
+            "largest_gap_fraction": 0.01042937047456274
+          }
+        },
+        {
+          "ball_id": "far-right-purple-middle-row-ball",
+          "physical_reference_present": true,
+          "status": "accepted",
+          "reason": null,
+          "center_image_px": [
+            1197.169930773809,
+            361.987303094243
+          ],
+          "case_trace_sha256": "af35f4b8cc8bf47ab65a805c3296fe85dc19c02b1e7c379faf8fca964e6ca5e3",
+          "trace_dropped_events": 0,
+          "quality": {
+            "stage": "complete",
+            "seed_observations": 1,
+            "qualified_seed_observations": 1,
+            "seed_center_spread_px": null,
+            "center_spread_px": 0.4368012240668334,
+            "source_residual_rms_px": 0.32712537450967716,
+            "angular_coverage": 0.875,
+            "largest_gap_fraction": 0.1571740654103046
+          }
+        }
+      ]
+    },
+    {
+      "name": "onnx",
+      "source_image_sha256": "06ef40f52e0f93db17601585c4ed1d014895aaadcaf6b04c6abbd6e986d57e7b",
+      "corpus_sha256": "a755943ca49e5dea956a995ed71959b2c620e72ac403f5d6fc18dddd6e818a5f",
+      "refiner_source_sha256": "7eae8d4dda67be8d710d49e0626ec42dbb5bc45e8d492bd2dea303dda9a0fd22",
+      "harness_sha256": "3ab1c9f5634812e25159d6707729a93e2e9b15c79585975a7b1fb087153309ac",
+      "refiner_revision": 10,
+      "audit_schema_version": 7,
+      "proposal_count": 15,
+      "accepted_count": 15,
+      "measured_count": 9,
+      "measured_accepted_count": 9,
+      "trace_dropped_event_cases": 0,
+      "results": [
+        {
+          "ball_id": "far-left-yellow-middle-row-ball",
+          "physical_reference_present": true,
+          "status": "accepted",
+          "reason": null,
+          "center_image_px": [
+            95.81832910680976,
+            362.00470187313
+          ],
+          "case_trace_sha256": "f5b350b952f9140bdf3203baff0a080771ace0fddccdfbcfe2fd4a7c097b0bad",
+          "trace_dropped_events": 0,
+          "quality": {
+            "stage": "complete",
+            "seed_observations": 1,
+            "qualified_seed_observations": 1,
+            "seed_center_spread_px": null,
+            "center_spread_px": 0.043408736612107805,
+            "source_residual_rms_px": 0.22062860142114168,
+            "angular_coverage": 1.0,
+            "largest_gap_fraction": 0.05214596029286216
+          }
+        },
+        {
+          "ball_id": "top-left-pocket-ball",
+          "physical_reference_present": false,
+          "status": "accepted",
+          "reason": null,
+          "center_image_px": [
+            102.80710002351145,
+            106.52222608745183
+          ],
+          "case_trace_sha256": "fbc418cd17c5de9dddc68bbf2c3a3750c26fe16d597e54699a8f5579dd5a7ba2",
+          "trace_dropped_events": 0,
+          "quality": {
+            "stage": "complete",
+            "seed_observations": 1,
+            "qualified_seed_observations": 1,
+            "seed_center_spread_px": null,
+            "center_spread_px": 0.26016659294017475,
+            "source_residual_rms_px": 0.34692388044835504,
+            "angular_coverage": 0.75,
+            "largest_gap_fraction": 0.19191486892806284
+          }
+        },
+        {
+          "ball_id": "bottom-left-pocket-ball",
+          "physical_reference_present": false,
+          "status": "accepted",
+          "reason": null,
+          "center_image_px": [
+            105.72050983682095,
+            617.0924409428974
+          ],
+          "case_trace_sha256": "c10809b06c2ec13324cf91704b7167030a4df489919ea256829fb0f58a8376ab",
+          "trace_dropped_events": 0,
+          "quality": {
+            "stage": "complete",
+            "seed_observations": 1,
+            "qualified_seed_observations": 1,
+            "seed_center_spread_px": null,
+            "center_spread_px": 0.0536071157196918,
+            "source_residual_rms_px": 0.2800168841124274,
+            "angular_coverage": 1.0,
+            "largest_gap_fraction": 0.04169259231798
+          }
+        },
+        {
+          "ball_id": "top-orange-solid-second-left-ball",
+          "physical_reference_present": true,
+          "status": "accepted",
+          "reason": null,
+          "center_image_px": [
+            352.38607197792226,
+            96.85825448631425
+          ],
+          "case_trace_sha256": "d6e9a51983236cd7e4507765d683aa1a60e80987fad743b74514dafdc9cc6e85",
+          "trace_dropped_events": 0,
+          "quality": {
+            "stage": "complete",
+            "seed_observations": 1,
+            "qualified_seed_observations": 1,
+            "seed_center_spread_px": null,
+            "center_spread_px": 0.07642932958183868,
+            "source_residual_rms_px": 0.24065014940066692,
+            "angular_coverage": 1.0,
+            "largest_gap_fraction": 0.07287640770189503
+          }
+        },
+        {
+          "ball_id": "interior-purple-second-left-middle-row-ball",
+          "physical_reference_present": true,
+          "status": "accepted",
+          "reason": null,
+          "center_image_px": [
+            358.0397955293957,
+            363.7078910145699
+          ],
+          "case_trace_sha256": "d7a09301c062bd0883f7f789e8f057e6a724bb02bafdfa58baa0220e888ffd5b",
+          "trace_dropped_events": 0,
+          "quality": {
+            "stage": "complete",
+            "seed_observations": 1,
+            "qualified_seed_observations": 1,
+            "seed_center_spread_px": null,
+            "center_spread_px": 0.25067240076741637,
+            "source_residual_rms_px": 0.27346481941614936,
+            "angular_coverage": 0.875,
+            "largest_gap_fraction": 0.175742677301206
+          }
+        },
+        {
+          "ball_id": "bottom-black-second-left-ball",
+          "physical_reference_present": true,
+          "status": "accepted",
+          "reason": null,
+          "center_image_px": [
+            362.00509605802614,
+            626.7834636852356
+          ],
+          "case_trace_sha256": "0b3a080d0c99b949c94aae3b9734752e4630661c586dc4d0c8fcd135742b572a",
+          "trace_dropped_events": 0,
+          "quality": {
+            "stage": "complete",
+            "seed_observations": 1,
+            "qualified_seed_observations": 1,
+            "seed_center_spread_px": null,
+            "center_spread_px": 0.292297335458717,
+            "source_residual_rms_px": 0.3051853896411153,
+            "angular_coverage": 0.9375,
+            "largest_gap_fraction": 0.08397823271962505
+          }
+        },
+        {
+          "ball_id": "bottom-middle-pocket-ball",
+          "physical_reference_present": false,
+          "status": "accepted",
+          "reason": null,
+          "center_image_px": [
+            641.053114952441,
+            629.2025465617198
+          ],
+          "case_trace_sha256": "ba4468eff602a1e36a70daeb676fde6aeba02d48654c7cbccfe77b18e50d28b2",
+          "trace_dropped_events": 0,
+          "quality": {
+            "stage": "complete",
+            "seed_observations": 1,
+            "qualified_seed_observations": 1,
+            "seed_center_spread_px": null,
+            "center_spread_px": 0.09845192433758676,
+            "source_residual_rms_px": 0.2534060874032499,
+            "angular_coverage": 0.9375,
+            "largest_gap_fraction": 0.13483963650774694
+          }
+        },
+        {
+          "ball_id": "top-middle-pocket-ball",
+          "physical_reference_present": false,
+          "status": "accepted",
+          "reason": null,
+          "center_image_px": [
+            641.3840444658147,
+            97.2922826328008
+          ],
+          "case_trace_sha256": "2bdac7fc58acd082dc4a76eeca1d59373e358827f3011b982b5670ec0362367c",
+          "trace_dropped_events": 0,
+          "quality": {
+            "stage": "complete",
+            "seed_observations": 1,
+            "qualified_seed_observations": 1,
+            "seed_center_spread_px": null,
+            "center_spread_px": 0.07852692872351683,
+            "source_residual_rms_px": 0.22382096066554835,
+            "angular_coverage": 1.0,
+            "largest_gap_fraction": 0.02085374744886761
+          }
+        },
+        {
+          "ball_id": "middle-row-center-ball",
+          "physical_reference_present": true,
+          "status": "accepted",
+          "reason": null,
+          "center_image_px": [
+            642.8019062924684,
+            361.23019704016673
+          ],
+          "case_trace_sha256": "9ccd5e6f4763a15b732946b02e6bee2f8989d4d3f14fc173a4ac227c1595a953",
+          "trace_dropped_events": 0,
+          "quality": {
+            "stage": "complete",
+            "seed_observations": 1,
+            "qualified_seed_observations": 1,
+            "seed_center_spread_px": null,
+            "center_spread_px": 0.06719279315390951,
+            "source_residual_rms_px": 0.20751238654451196,
+            "angular_coverage": 1.0,
+            "largest_gap_fraction": 0.08396639417739879
+          }
+        },
+        {
+          "ball_id": "interior-green-second-right-middle-row-ball",
+          "physical_reference_present": true,
+          "status": "accepted",
+          "reason": null,
+          "center_image_px": [
+            924.5242459525709,
+            361.75152575131193
+          ],
+          "case_trace_sha256": "9d838afada2b9f6e81f5e2fd586f0ee6212cb653d0d1e234c77025a81bf5b3e1",
+          "trace_dropped_events": 0,
+          "quality": {
+            "stage": "complete",
+            "seed_observations": 1,
+            "qualified_seed_observations": 1,
+            "seed_center_spread_px": null,
+            "center_spread_px": 0.06006279455851296,
+            "source_residual_rms_px": 0.2035336975158576,
+            "angular_coverage": 1.0,
+            "largest_gap_fraction": 0.07286380957657186
+          }
+        },
+        {
+          "ball_id": "bottom-yellow-second-right-ball",
+          "physical_reference_present": true,
+          "status": "accepted",
+          "reason": null,
+          "center_image_px": [
+            925.1021581088708,
+            630.0983366196499
+          ],
+          "case_trace_sha256": "491a34caa7257e2fb36915cb59f0ceb5c14614d05f989d4c16150af8f927c33b",
+          "trace_dropped_events": 0,
+          "quality": {
+            "stage": "complete",
+            "seed_observations": 1,
+            "qualified_seed_observations": 1,
+            "seed_center_spread_px": null,
+            "center_spread_px": 0.19949841805833798,
+            "source_residual_rms_px": 0.2651924550252108,
+            "angular_coverage": 1.0,
+            "largest_gap_fraction": 0.05207853937011218
+          }
+        },
+        {
+          "ball_id": "top-red-striped-second-right-ball",
+          "physical_reference_present": true,
+          "status": "accepted",
+          "reason": null,
+          "center_image_px": [
+            927.5410830168123,
+            93.67931791332603
+          ],
+          "case_trace_sha256": "cbcbdbf1bb10d9485162e32c93c984a143c7e0c2e815a5222feba0810586b929",
+          "trace_dropped_events": 0,
+          "quality": {
+            "stage": "complete",
+            "seed_observations": 1,
+            "qualified_seed_observations": 1,
+            "seed_center_spread_px": null,
+            "center_spread_px": 0.255817015128152,
+            "source_residual_rms_px": 0.31548904852047915,
+            "angular_coverage": 1.0,
+            "largest_gap_fraction": 0.041850855427246994
+          }
+        },
+        {
+          "ball_id": "bottom-right-pocket-ball",
+          "physical_reference_present": false,
+          "status": "accepted",
+          "reason": null,
+          "center_image_px": [
+            1190.0654045657388,
+            626.3032665673168
+          ],
+          "case_trace_sha256": "6cc19989876c6c11c8d65f1ca09010bcf364b681f88be450d97717568aa29e30",
+          "trace_dropped_events": 0,
+          "quality": {
+            "stage": "complete",
+            "seed_observations": 1,
+            "qualified_seed_observations": 1,
+            "seed_center_spread_px": null,
+            "center_spread_px": 0.14871127725040448,
+            "source_residual_rms_px": 0.3853443982868146,
+            "angular_coverage": 0.9375,
+            "largest_gap_fraction": 0.16708919095964306
+          }
+        },
+        {
+          "ball_id": "top-right-cue-pocket-ball",
+          "physical_reference_present": false,
+          "status": "accepted",
+          "reason": null,
+          "center_image_px": [
+            1195.856904197709,
+            96.45656682600375
+          ],
+          "case_trace_sha256": "0a6100d9aecf264fbd9cf2eda8668279cf2b0792f54dc92f85ccef74ae668290",
+          "trace_dropped_events": 0,
+          "quality": {
+            "stage": "complete",
+            "seed_observations": 1,
+            "qualified_seed_observations": 1,
+            "seed_center_spread_px": null,
+            "center_spread_px": 0.02956728750611437,
+            "source_residual_rms_px": 0.25722063911259646,
+            "angular_coverage": 1.0,
+            "largest_gap_fraction": 0.010434687701684165
+          }
+        },
+        {
+          "ball_id": "far-right-purple-middle-row-ball",
+          "physical_reference_present": true,
+          "status": "accepted",
+          "reason": null,
+          "center_image_px": [
+            1197.2011065053584,
+            362.0390373293287
+          ],
+          "case_trace_sha256": "bd931666a08390ac66b866e910db05f22b0f86bc247adacb49cde2367e5602b7",
+          "trace_dropped_events": 0,
+          "quality": {
+            "stage": "complete",
+            "seed_observations": 1,
+            "qualified_seed_observations": 1,
+            "seed_center_spread_px": null,
+            "center_spread_px": 0.24381351800322243,
+            "source_residual_rms_px": 0.3496171743678378,
+            "angular_coverage": 0.875,
+            "largest_gap_fraction": 0.14587288954052977
+          }
+        }
+      ]
+    },
+    {
+      "name": "alternate",
+      "source_image_sha256": "8371e508f79c5556cfd2fe6632b9095ba87d8f7052741b2f6b01563b448c385b",
+      "corpus_sha256": "710ff0bcb8f85363cc5152ffe07e311076ede0f4af6258d7b74a998770879435",
+      "refiner_source_sha256": "7eae8d4dda67be8d710d49e0626ec42dbb5bc45e8d492bd2dea303dda9a0fd22",
+      "harness_sha256": "0fb923fd5c9f7f0da92438086161e2b51daadd9bbea1ab7960c9ac96daeb21bd",
+      "refiner_revision": 10,
+      "audit_schema_version": 7,
+      "proposal_count": 15,
+      "accepted_count": 15,
+      "measured_count": 0,
+      "measured_accepted_count": 0,
+      "trace_dropped_event_cases": 0,
+      "results": [
+        {
+          "ball_id": "far-left-yellow-middle-row-ball",
+          "physical_reference_present": false,
+          "status": "accepted",
+          "reason": null,
+          "center_image_px": [
+            95.86174938179192,
+            357.9809116441844
+          ],
+          "case_trace_sha256": "06c286bdf362ccf530a30ab2978bc78c85aec090f7c55db83785d35886edab8a",
+          "trace_dropped_events": 0,
+          "quality": {
+            "stage": "complete",
+            "seed_observations": 1,
+            "qualified_seed_observations": 1,
+            "seed_center_spread_px": null,
+            "center_spread_px": 0.020057799128659622,
+            "source_residual_rms_px": 0.2078640931864127,
+            "angular_coverage": 1.0,
+            "largest_gap_fraction": 0.06252185946618703
+          }
+        },
+        {
+          "ball_id": "bottom-yellow-second-right-ball",
+          "physical_reference_present": false,
+          "status": "accepted",
+          "reason": null,
+          "center_image_px": [
+            925.0805267871096,
+            629.997682603976
+          ],
+          "case_trace_sha256": "c082c9d64d171271267310f996bfae10ec99b6ba563e7d365f60b8ea82096315",
+          "trace_dropped_events": 0,
+          "quality": {
+            "stage": "complete",
+            "seed_observations": 1,
+            "qualified_seed_observations": 1,
+            "seed_center_spread_px": null,
+            "center_spread_px": 0.1613506186751569,
+            "source_residual_rms_px": 0.28384163775164145,
+            "angular_coverage": 1.0,
+            "largest_gap_fraction": 0.05216278678828202
+          }
+        },
+        {
+          "ball_id": "far-right-purple-middle-row-ball",
+          "physical_reference_present": false,
+          "status": "accepted",
+          "reason": null,
+          "center_image_px": [
+            1197.3168939856655,
+            363.4186819745823
+          ],
+          "case_trace_sha256": "e27725bc3c904e111176401f288b6b8fe5e545e26258418a00a5c7852408691d",
+          "trace_dropped_events": 0,
+          "quality": {
+            "stage": "complete",
+            "seed_observations": 1,
+            "qualified_seed_observations": 1,
+            "seed_center_spread_px": null,
+            "center_spread_px": 0.08122630091885531,
+            "source_residual_rms_px": 0.3243836531742833,
+            "angular_coverage": 1.0,
+            "largest_gap_fraction": 0.07304934799572134
+          }
+        },
+        {
+          "ball_id": "top-orange-solid-second-left-ball",
+          "physical_reference_present": false,
+          "status": "accepted",
+          "reason": null,
+          "center_image_px": [
+            360.48885232166185,
+            97.05139872926273
+          ],
+          "case_trace_sha256": "5540866000ce6c6a26f495c31126763e6c537cae00e8acf8315e6b00cdc90c6e",
+          "trace_dropped_events": 0,
+          "quality": {
+            "stage": "complete",
+            "seed_observations": 1,
+            "qualified_seed_observations": 1,
+            "seed_center_spread_px": null,
+            "center_spread_px": 0.05677708316027091,
+            "source_residual_rms_px": 0.22360065030837703,
+            "angular_coverage": 0.9375,
+            "largest_gap_fraction": 0.08337321099511681
+          }
+        },
+        {
+          "ball_id": "bottom-left-pocket-ball",
+          "physical_reference_present": false,
+          "status": "accepted",
+          "reason": null,
+          "center_image_px": [
+            105.74872275682833,
+            617.0950775410577
+          ],
+          "case_trace_sha256": "ebc9dbe7305b373f025bf4395dce2b518bd0d26ddacf8255c601b17e0ad9b378",
+          "trace_dropped_events": 0,
+          "quality": {
+            "stage": "complete",
+            "seed_observations": 1,
+            "qualified_seed_observations": 1,
+            "seed_center_spread_px": null,
+            "center_spread_px": 0.06028160766623946,
+            "source_residual_rms_px": 0.2745651761456473,
+            "angular_coverage": 1.0,
+            "largest_gap_fraction": 0.04135542714747564
+          }
+        },
+        {
+          "ball_id": "top-red-striped-second-right-ball",
+          "physical_reference_present": false,
+          "status": "accepted",
+          "reason": null,
+          "center_image_px": [
+            930.2481451602071,
+            93.57303127192881
+          ],
+          "case_trace_sha256": "ba924565f3abe91f447544b12c7860e31209a87b41fc3e28ee767839baab2176",
+          "trace_dropped_events": 0,
+          "quality": {
+            "stage": "complete",
+            "seed_observations": 1,
+            "qualified_seed_observations": 1,
+            "seed_center_spread_px": null,
+            "center_spread_px": 0.2794680754015252,
+            "source_residual_rms_px": 0.3094030502254401,
+            "angular_coverage": 1.0,
+            "largest_gap_fraction": 0.04170339440545848
+          }
+        },
+        {
+          "ball_id": "middle-row-center-ball",
+          "physical_reference_present": false,
+          "status": "accepted",
+          "reason": null,
+          "center_image_px": [
+            630.8764998849547,
+            362.01827913469475
+          ],
+          "case_trace_sha256": "df9f3dd4f72b464fa472a8ab494855a1db6229576135533a55000f5831527904",
+          "trace_dropped_events": 0,
+          "quality": {
+            "stage": "complete",
+            "seed_observations": 1,
+            "qualified_seed_observations": 1,
+            "seed_center_spread_px": null,
+            "center_spread_px": 0.06952966625183984,
+            "source_residual_rms_px": 0.18564368378148205,
+            "angular_coverage": 0.9375,
+            "largest_gap_fraction": 0.13475656622140345
+          }
+        },
+        {
+          "ball_id": "top-middle-pocket-ball",
+          "physical_reference_present": false,
+          "status": "accepted",
+          "reason": null,
+          "center_image_px": [
+            633.1635049303391,
+            94.42148826505183
+          ],
+          "case_trace_sha256": "14c9f91d2c067fad72918a12be8d2d41b4fe5e5516eae0205920b08163cf03b6",
+          "trace_dropped_events": 0,
+          "quality": {
+            "stage": "complete",
+            "seed_observations": 1,
+            "qualified_seed_observations": 1,
+            "seed_center_spread_px": null,
+            "center_spread_px": 0.06107701846615002,
+            "source_residual_rms_px": 0.22411880248449495,
+            "angular_coverage": 1.0,
+            "largest_gap_fraction": 0.02085620465357115
+          }
+        },
+        {
+          "ball_id": "top-right-cue-pocket-ball",
+          "physical_reference_present": false,
+          "status": "accepted",
+          "reason": null,
+          "center_image_px": [
+            1195.7934738666,
+            96.44124285765199
+          ],
+          "case_trace_sha256": "74c0f7211737f51ec5a943552cddbb7792f3af79481e02feb04ac86f8b67b206",
+          "trace_dropped_events": 0,
+          "quality": {
+            "stage": "complete",
+            "seed_observations": 1,
+            "qualified_seed_observations": 1,
+            "seed_center_spread_px": null,
+            "center_spread_px": 0.044446142084235814,
+            "source_residual_rms_px": 0.23900216253629614,
+            "angular_coverage": 1.0,
+            "largest_gap_fraction": 0.010435480925400939
+          }
+        },
+        {
+          "ball_id": "bottom-black-second-left-ball",
+          "physical_reference_present": false,
+          "status": "accepted",
+          "reason": null,
+          "center_image_px": [
+            369.7330203177282,
+            626.686230892434
+          ],
+          "case_trace_sha256": "ebf4897103a0c5d2e55d20e5aa7f05de25bf2f23e5a707d68674f485a035e773",
+          "trace_dropped_events": 0,
+          "quality": {
+            "stage": "complete",
+            "seed_observations": 1,
+            "qualified_seed_observations": 1,
+            "seed_center_spread_px": null,
+            "center_spread_px": 0.27641936882180335,
+            "source_residual_rms_px": 0.30728999601870477,
+            "angular_coverage": 0.9375,
+            "largest_gap_fraction": 0.14400826385745458
+          }
+        },
+        {
+          "ball_id": "bottom-middle-pocket-ball",
+          "physical_reference_present": false,
+          "status": "accepted",
+          "reason": null,
+          "center_image_px": [
+            641.1116324257711,
+            629.0833829079916
+          ],
+          "case_trace_sha256": "dbdcc3dc1ad1c28ebe34b0ab089a6405dd6b20882b844a4c4bd32c156d4aa04a",
+          "trace_dropped_events": 0,
+          "quality": {
+            "stage": "complete",
+            "seed_observations": 1,
+            "qualified_seed_observations": 1,
+            "seed_center_spread_px": null,
+            "center_spread_px": 0.1412155943030982,
+            "source_residual_rms_px": 0.26350551108728226,
+            "angular_coverage": 0.9375,
+            "largest_gap_fraction": 0.11382641042883347
+          }
+        },
+        {
+          "ball_id": "interior-purple-second-left-middle-row-ball",
+          "physical_reference_present": false,
+          "status": "accepted",
+          "reason": null,
+          "center_image_px": [
+            361.64383859015066,
+            362.66212535783444
+          ],
+          "case_trace_sha256": "06a847a5b0b8b7196e2d913ede162c291ab574b5f263644c38d53986c27bd9b3",
+          "trace_dropped_events": 0,
+          "quality": {
+            "stage": "complete",
+            "seed_observations": 1,
+            "qualified_seed_observations": 1,
+            "seed_center_spread_px": null,
+            "center_spread_px": 0.17169924973209771,
+            "source_residual_rms_px": 0.3074882462119477,
+            "angular_coverage": 0.875,
+            "largest_gap_fraction": 0.0837749674783298
+          }
+        },
+        {
+          "ball_id": "interior-green-second-right-middle-row-ball",
+          "physical_reference_present": false,
+          "status": "accepted",
+          "reason": null,
+          "center_image_px": [
+            924.9476973771682,
+            360.01163988159294
+          ],
+          "case_trace_sha256": "b0a71b71ae919a16d9f78adc0782c50e65ca4a564fbee529d7b2bb4130a62f7e",
+          "trace_dropped_events": 0,
+          "quality": {
+            "stage": "complete",
+            "seed_observations": 1,
+            "qualified_seed_observations": 1,
+            "seed_center_spread_px": null,
+            "center_spread_px": 0.2604611105334831,
+            "source_residual_rms_px": 0.26098424948424487,
+            "angular_coverage": 0.9375,
+            "largest_gap_fraction": 0.17148679173509646
+          }
+        },
+        {
+          "ball_id": "top-left-pocket-ball",
+          "physical_reference_present": false,
+          "status": "accepted",
+          "reason": null,
+          "center_image_px": [
+            103.51662891154592,
+            106.6596700797432
+          ],
+          "case_trace_sha256": "942e9c26dd03df9a9ff10c150391e64b5a2ccfa1efb4d651984952476bd9dabf",
+          "trace_dropped_events": 0,
+          "quality": {
+            "stage": "complete",
+            "seed_observations": 10,
+            "qualified_seed_observations": 2,
+            "seed_center_spread_px": 0.18127821004130118,
+            "center_spread_px": 0.373490389069772,
+            "source_residual_rms_px": 0.39962968365606866,
+            "angular_coverage": 0.75,
+            "largest_gap_fraction": 0.22678814208640646
+          }
+        },
+        {
+          "ball_id": "bottom-right-pocket-ball",
+          "physical_reference_present": false,
+          "status": "accepted",
+          "reason": null,
+          "center_image_px": [
+            1190.046286312178,
+            626.3699155794832
+          ],
+          "case_trace_sha256": "10af173fd1ffd4855ae4ccbf82353c4fe246dacc3f71e38fefb48c4c0cef5e0c",
+          "trace_dropped_events": 0,
+          "quality": {
+            "stage": "complete",
+            "seed_observations": 1,
+            "qualified_seed_observations": 1,
+            "seed_center_spread_px": null,
+            "center_spread_px": 0.19708593999296273,
+            "source_residual_rms_px": 0.33656660158843743,
+            "angular_coverage": 1.0,
+            "largest_gap_fraction": 0.09270549739531322
+          }
+        }
+      ]
+    }
+  ],
+  "known_center_audit": {
+    "purpose": "Known-center coarse-proposal prior and adjacent-ball association diagnostics; source synthetic pixels, not physical accuracy qualification",
+    "refiner_revision": 10,
+    "full_trial_output_sha256": "40e95459ce53d046c5dbe3b28c45e7eaec3be415b1a287c1bd4b1c65dbd61a6a",
+    "summary": [
+      {
+        "maximum_center_shift_fraction": 0.2,
+        "accepted": 87,
+        "total": 99,
+        "wrong_neighbor_count": 0,
+        "maximum_accepted_center_error_px": 0.11197453005055454,
+        "rejected": 12
+      },
+      {
+        "maximum_center_shift_fraction": 0.3,
+        "accepted": 99,
+        "total": 99,
+        "wrong_neighbor_count": 0,
+        "maximum_accepted_center_error_px": 0.11197453005055454,
+        "rejected": 0
+      },
+      {
+        "maximum_center_shift_fraction": 0.5,
+        "accepted": 99,
+        "total": 99,
+        "wrong_neighbor_count": 0,
+        "maximum_accepted_center_error_px": 0.11197453005055454,
+        "rejected": 0
+      }
+    ],
+    "trials": [
+      {
+        "truth_center_px": [
+          240.0,
+          150.0
+        ],
+        "scene": "cloth",
+        "coarse_shift_px": -8.0,
+        "maximum_center_shift_fraction": 0.2,
+        "known_center_error_px": null,
+        "wrong_neighbor": null,
+        "status": "rejected",
+        "reason": "unstable_center"
+      },
+      {
+        "truth_center_px": [
+          240.0,
+          150.0
+        ],
+        "scene": "cloth",
+        "coarse_shift_px": -6.0,
+        "maximum_center_shift_fraction": 0.2,
+        "known_center_error_px": 0.011853630414947247,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          240.0,
+          150.0
+        ],
+        "scene": "cloth",
+        "coarse_shift_px": -4.0,
+        "maximum_center_shift_fraction": 0.2,
+        "known_center_error_px": 0.022327055481696334,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          240.0,
+          150.0
+        ],
+        "scene": "cloth",
+        "coarse_shift_px": -2.0,
+        "maximum_center_shift_fraction": 0.2,
+        "known_center_error_px": 0.00461289719959268,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          240.0,
+          150.0
+        ],
+        "scene": "cloth",
+        "coarse_shift_px": -1.0,
+        "maximum_center_shift_fraction": 0.2,
+        "known_center_error_px": 0.0020908715726477567,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          240.0,
+          150.0
+        ],
+        "scene": "cloth",
+        "coarse_shift_px": 0.0,
+        "maximum_center_shift_fraction": 0.2,
+        "known_center_error_px": 0.0,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          240.0,
+          150.0
+        ],
+        "scene": "cloth",
+        "coarse_shift_px": 1.0,
+        "maximum_center_shift_fraction": 0.2,
+        "known_center_error_px": 0.0020908715726477567,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          240.0,
+          150.0
+        ],
+        "scene": "cloth",
+        "coarse_shift_px": 2.0,
+        "maximum_center_shift_fraction": 0.2,
+        "known_center_error_px": 0.00461289719959268,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          240.0,
+          150.0
+        ],
+        "scene": "cloth",
+        "coarse_shift_px": 4.0,
+        "maximum_center_shift_fraction": 0.2,
+        "known_center_error_px": 0.022327055481696334,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          240.0,
+          150.0
+        ],
+        "scene": "cloth",
+        "coarse_shift_px": 6.0,
+        "maximum_center_shift_fraction": 0.2,
+        "known_center_error_px": 0.011853630414947247,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          240.0,
+          150.0
+        ],
+        "scene": "cloth",
+        "coarse_shift_px": 8.0,
+        "maximum_center_shift_fraction": 0.2,
+        "known_center_error_px": null,
+        "wrong_neighbor": null,
+        "status": "rejected",
+        "reason": "unstable_center"
+      },
+      {
+        "truth_center_px": [
+          240.0,
+          150.0
+        ],
+        "scene": "cloth",
+        "coarse_shift_px": -8.0,
+        "maximum_center_shift_fraction": 0.3,
+        "known_center_error_px": 0.007288383955881272,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          240.0,
+          150.0
+        ],
+        "scene": "cloth",
+        "coarse_shift_px": -6.0,
+        "maximum_center_shift_fraction": 0.3,
+        "known_center_error_px": 0.011853630414947247,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          240.0,
+          150.0
+        ],
+        "scene": "cloth",
+        "coarse_shift_px": -4.0,
+        "maximum_center_shift_fraction": 0.3,
+        "known_center_error_px": 0.022327055481696334,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          240.0,
+          150.0
+        ],
+        "scene": "cloth",
+        "coarse_shift_px": -2.0,
+        "maximum_center_shift_fraction": 0.3,
+        "known_center_error_px": 0.00461289719959268,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          240.0,
+          150.0
+        ],
+        "scene": "cloth",
+        "coarse_shift_px": -1.0,
+        "maximum_center_shift_fraction": 0.3,
+        "known_center_error_px": 0.0020908715726477567,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          240.0,
+          150.0
+        ],
+        "scene": "cloth",
+        "coarse_shift_px": 0.0,
+        "maximum_center_shift_fraction": 0.3,
+        "known_center_error_px": 0.0,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          240.0,
+          150.0
+        ],
+        "scene": "cloth",
+        "coarse_shift_px": 1.0,
+        "maximum_center_shift_fraction": 0.3,
+        "known_center_error_px": 0.0020908715726477567,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          240.0,
+          150.0
+        ],
+        "scene": "cloth",
+        "coarse_shift_px": 2.0,
+        "maximum_center_shift_fraction": 0.3,
+        "known_center_error_px": 0.00461289719959268,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          240.0,
+          150.0
+        ],
+        "scene": "cloth",
+        "coarse_shift_px": 4.0,
+        "maximum_center_shift_fraction": 0.3,
+        "known_center_error_px": 0.022327055481696334,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          240.0,
+          150.0
+        ],
+        "scene": "cloth",
+        "coarse_shift_px": 6.0,
+        "maximum_center_shift_fraction": 0.3,
+        "known_center_error_px": 0.011853630414947247,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          240.0,
+          150.0
+        ],
+        "scene": "cloth",
+        "coarse_shift_px": 8.0,
+        "maximum_center_shift_fraction": 0.3,
+        "known_center_error_px": 0.007288383955881272,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          240.0,
+          150.0
+        ],
+        "scene": "cloth",
+        "coarse_shift_px": -8.0,
+        "maximum_center_shift_fraction": 0.5,
+        "known_center_error_px": 0.007288383955881272,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          240.0,
+          150.0
+        ],
+        "scene": "cloth",
+        "coarse_shift_px": -6.0,
+        "maximum_center_shift_fraction": 0.5,
+        "known_center_error_px": 0.011853630414947247,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          240.0,
+          150.0
+        ],
+        "scene": "cloth",
+        "coarse_shift_px": -4.0,
+        "maximum_center_shift_fraction": 0.5,
+        "known_center_error_px": 0.022327055481696334,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          240.0,
+          150.0
+        ],
+        "scene": "cloth",
+        "coarse_shift_px": -2.0,
+        "maximum_center_shift_fraction": 0.5,
+        "known_center_error_px": 0.00461289719959268,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          240.0,
+          150.0
+        ],
+        "scene": "cloth",
+        "coarse_shift_px": -1.0,
+        "maximum_center_shift_fraction": 0.5,
+        "known_center_error_px": 0.0020908715726477567,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          240.0,
+          150.0
+        ],
+        "scene": "cloth",
+        "coarse_shift_px": 0.0,
+        "maximum_center_shift_fraction": 0.5,
+        "known_center_error_px": 0.0,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          240.0,
+          150.0
+        ],
+        "scene": "cloth",
+        "coarse_shift_px": 1.0,
+        "maximum_center_shift_fraction": 0.5,
+        "known_center_error_px": 0.0020908715726477567,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          240.0,
+          150.0
+        ],
+        "scene": "cloth",
+        "coarse_shift_px": 2.0,
+        "maximum_center_shift_fraction": 0.5,
+        "known_center_error_px": 0.00461289719959268,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          240.0,
+          150.0
+        ],
+        "scene": "cloth",
+        "coarse_shift_px": 4.0,
+        "maximum_center_shift_fraction": 0.5,
+        "known_center_error_px": 0.022327055481696334,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          240.0,
+          150.0
+        ],
+        "scene": "cloth",
+        "coarse_shift_px": 6.0,
+        "maximum_center_shift_fraction": 0.5,
+        "known_center_error_px": 0.011853630414947247,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          240.0,
+          150.0
+        ],
+        "scene": "cloth",
+        "coarse_shift_px": 8.0,
+        "maximum_center_shift_fraction": 0.5,
+        "known_center_error_px": 0.007288383955881272,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          240.0,
+          150.0
+        ],
+        "scene": "rail",
+        "coarse_shift_px": -8.0,
+        "maximum_center_shift_fraction": 0.2,
+        "known_center_error_px": null,
+        "wrong_neighbor": null,
+        "status": "rejected",
+        "reason": "unstable_center"
+      },
+      {
+        "truth_center_px": [
+          240.0,
+          150.0
+        ],
+        "scene": "rail",
+        "coarse_shift_px": -6.0,
+        "maximum_center_shift_fraction": 0.2,
+        "known_center_error_px": 0.022125201614217067,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          240.0,
+          150.0
+        ],
+        "scene": "rail",
+        "coarse_shift_px": -4.0,
+        "maximum_center_shift_fraction": 0.2,
+        "known_center_error_px": 0.037124486649409004,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          240.0,
+          150.0
+        ],
+        "scene": "rail",
+        "coarse_shift_px": -2.0,
+        "maximum_center_shift_fraction": 0.2,
+        "known_center_error_px": 0.025338001490977837,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          240.0,
+          150.0
+        ],
+        "scene": "rail",
+        "coarse_shift_px": -1.0,
+        "maximum_center_shift_fraction": 0.2,
+        "known_center_error_px": 0.005275214765112324,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          240.0,
+          150.0
+        ],
+        "scene": "rail",
+        "coarse_shift_px": 0.0,
+        "maximum_center_shift_fraction": 0.2,
+        "known_center_error_px": 0.021470851669430815,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          240.0,
+          150.0
+        ],
+        "scene": "rail",
+        "coarse_shift_px": 1.0,
+        "maximum_center_shift_fraction": 0.2,
+        "known_center_error_px": 0.02837988144219424,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          240.0,
+          150.0
+        ],
+        "scene": "rail",
+        "coarse_shift_px": 2.0,
+        "maximum_center_shift_fraction": 0.2,
+        "known_center_error_px": 0.02683277479857833,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          240.0,
+          150.0
+        ],
+        "scene": "rail",
+        "coarse_shift_px": 4.0,
+        "maximum_center_shift_fraction": 0.2,
+        "known_center_error_px": 0.018904768795954704,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          240.0,
+          150.0
+        ],
+        "scene": "rail",
+        "coarse_shift_px": 6.0,
+        "maximum_center_shift_fraction": 0.2,
+        "known_center_error_px": 0.04157010836377975,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          240.0,
+          150.0
+        ],
+        "scene": "rail",
+        "coarse_shift_px": 8.0,
+        "maximum_center_shift_fraction": 0.2,
+        "known_center_error_px": null,
+        "wrong_neighbor": null,
+        "status": "rejected",
+        "reason": "unstable_center"
+      },
+      {
+        "truth_center_px": [
+          240.0,
+          150.0
+        ],
+        "scene": "rail",
+        "coarse_shift_px": -8.0,
+        "maximum_center_shift_fraction": 0.3,
+        "known_center_error_px": 0.016155392074915818,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          240.0,
+          150.0
+        ],
+        "scene": "rail",
+        "coarse_shift_px": -6.0,
+        "maximum_center_shift_fraction": 0.3,
+        "known_center_error_px": 0.022125201614217067,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          240.0,
+          150.0
+        ],
+        "scene": "rail",
+        "coarse_shift_px": -4.0,
+        "maximum_center_shift_fraction": 0.3,
+        "known_center_error_px": 0.037124486649409004,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          240.0,
+          150.0
+        ],
+        "scene": "rail",
+        "coarse_shift_px": -2.0,
+        "maximum_center_shift_fraction": 0.3,
+        "known_center_error_px": 0.025338001490977837,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          240.0,
+          150.0
+        ],
+        "scene": "rail",
+        "coarse_shift_px": -1.0,
+        "maximum_center_shift_fraction": 0.3,
+        "known_center_error_px": 0.005275214765112324,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          240.0,
+          150.0
+        ],
+        "scene": "rail",
+        "coarse_shift_px": 0.0,
+        "maximum_center_shift_fraction": 0.3,
+        "known_center_error_px": 0.021470851669430815,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          240.0,
+          150.0
+        ],
+        "scene": "rail",
+        "coarse_shift_px": 1.0,
+        "maximum_center_shift_fraction": 0.3,
+        "known_center_error_px": 0.02837988144219424,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          240.0,
+          150.0
+        ],
+        "scene": "rail",
+        "coarse_shift_px": 2.0,
+        "maximum_center_shift_fraction": 0.3,
+        "known_center_error_px": 0.02683277479857833,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          240.0,
+          150.0
+        ],
+        "scene": "rail",
+        "coarse_shift_px": 4.0,
+        "maximum_center_shift_fraction": 0.3,
+        "known_center_error_px": 0.018904768795954704,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          240.0,
+          150.0
+        ],
+        "scene": "rail",
+        "coarse_shift_px": 6.0,
+        "maximum_center_shift_fraction": 0.3,
+        "known_center_error_px": 0.04157010836377975,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          240.0,
+          150.0
+        ],
+        "scene": "rail",
+        "coarse_shift_px": 8.0,
+        "maximum_center_shift_fraction": 0.3,
+        "known_center_error_px": 0.03186192765460788,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          240.0,
+          150.0
+        ],
+        "scene": "rail",
+        "coarse_shift_px": -8.0,
+        "maximum_center_shift_fraction": 0.5,
+        "known_center_error_px": 0.016155392074915818,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          240.0,
+          150.0
+        ],
+        "scene": "rail",
+        "coarse_shift_px": -6.0,
+        "maximum_center_shift_fraction": 0.5,
+        "known_center_error_px": 0.022125201614217067,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          240.0,
+          150.0
+        ],
+        "scene": "rail",
+        "coarse_shift_px": -4.0,
+        "maximum_center_shift_fraction": 0.5,
+        "known_center_error_px": 0.037124486649409004,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          240.0,
+          150.0
+        ],
+        "scene": "rail",
+        "coarse_shift_px": -2.0,
+        "maximum_center_shift_fraction": 0.5,
+        "known_center_error_px": 0.025338001490977837,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          240.0,
+          150.0
+        ],
+        "scene": "rail",
+        "coarse_shift_px": -1.0,
+        "maximum_center_shift_fraction": 0.5,
+        "known_center_error_px": 0.005275214765112324,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          240.0,
+          150.0
+        ],
+        "scene": "rail",
+        "coarse_shift_px": 0.0,
+        "maximum_center_shift_fraction": 0.5,
+        "known_center_error_px": 0.021470851669430815,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          240.0,
+          150.0
+        ],
+        "scene": "rail",
+        "coarse_shift_px": 1.0,
+        "maximum_center_shift_fraction": 0.5,
+        "known_center_error_px": 0.02837988144219424,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          240.0,
+          150.0
+        ],
+        "scene": "rail",
+        "coarse_shift_px": 2.0,
+        "maximum_center_shift_fraction": 0.5,
+        "known_center_error_px": 0.02683277479857833,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          240.0,
+          150.0
+        ],
+        "scene": "rail",
+        "coarse_shift_px": 4.0,
+        "maximum_center_shift_fraction": 0.5,
+        "known_center_error_px": 0.018904768795954704,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          240.0,
+          150.0
+        ],
+        "scene": "rail",
+        "coarse_shift_px": 6.0,
+        "maximum_center_shift_fraction": 0.5,
+        "known_center_error_px": 0.04157010836377975,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          240.0,
+          150.0
+        ],
+        "scene": "rail",
+        "coarse_shift_px": 8.0,
+        "maximum_center_shift_fraction": 0.5,
+        "known_center_error_px": 0.03186192765460788,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          240.0,
+          150.0
+        ],
+        "scene": "neighbor",
+        "coarse_shift_px": -8.0,
+        "maximum_center_shift_fraction": 0.2,
+        "known_center_error_px": null,
+        "wrong_neighbor": null,
+        "status": "rejected",
+        "reason": "unstable_center"
+      },
+      {
+        "truth_center_px": [
+          240.0,
+          150.0
+        ],
+        "scene": "neighbor",
+        "coarse_shift_px": -6.0,
+        "maximum_center_shift_fraction": 0.2,
+        "known_center_error_px": 0.02947046981898893,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          240.0,
+          150.0
+        ],
+        "scene": "neighbor",
+        "coarse_shift_px": -4.0,
+        "maximum_center_shift_fraction": 0.2,
+        "known_center_error_px": 0.046593658430964524,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          240.0,
+          150.0
+        ],
+        "scene": "neighbor",
+        "coarse_shift_px": -2.0,
+        "maximum_center_shift_fraction": 0.2,
+        "known_center_error_px": 0.039408720841095146,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          240.0,
+          150.0
+        ],
+        "scene": "neighbor",
+        "coarse_shift_px": -1.0,
+        "maximum_center_shift_fraction": 0.2,
+        "known_center_error_px": 0.02013891404621404,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          240.0,
+          150.0
+        ],
+        "scene": "neighbor",
+        "coarse_shift_px": 0.0,
+        "maximum_center_shift_fraction": 0.2,
+        "known_center_error_px": 0.014672035396301908,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          240.0,
+          150.0
+        ],
+        "scene": "neighbor",
+        "coarse_shift_px": 1.0,
+        "maximum_center_shift_fraction": 0.2,
+        "known_center_error_px": 0.045619433560034395,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          240.0,
+          150.0
+        ],
+        "scene": "neighbor",
+        "coarse_shift_px": 2.0,
+        "maximum_center_shift_fraction": 0.2,
+        "known_center_error_px": 0.004150637180362375,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          240.0,
+          150.0
+        ],
+        "scene": "neighbor",
+        "coarse_shift_px": 4.0,
+        "maximum_center_shift_fraction": 0.2,
+        "known_center_error_px": 0.04917365934279204,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          240.0,
+          150.0
+        ],
+        "scene": "neighbor",
+        "coarse_shift_px": 6.0,
+        "maximum_center_shift_fraction": 0.2,
+        "known_center_error_px": 0.01613273948622161,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          240.0,
+          150.0
+        ],
+        "scene": "neighbor",
+        "coarse_shift_px": 8.0,
+        "maximum_center_shift_fraction": 0.2,
+        "known_center_error_px": null,
+        "wrong_neighbor": null,
+        "status": "rejected",
+        "reason": "unstable_center"
+      },
+      {
+        "truth_center_px": [
+          240.0,
+          150.0
+        ],
+        "scene": "neighbor",
+        "coarse_shift_px": -8.0,
+        "maximum_center_shift_fraction": 0.3,
+        "known_center_error_px": 0.009549389884455195,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          240.0,
+          150.0
+        ],
+        "scene": "neighbor",
+        "coarse_shift_px": -6.0,
+        "maximum_center_shift_fraction": 0.3,
+        "known_center_error_px": 0.02947046981898893,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          240.0,
+          150.0
+        ],
+        "scene": "neighbor",
+        "coarse_shift_px": -4.0,
+        "maximum_center_shift_fraction": 0.3,
+        "known_center_error_px": 0.046593658430964524,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          240.0,
+          150.0
+        ],
+        "scene": "neighbor",
+        "coarse_shift_px": -2.0,
+        "maximum_center_shift_fraction": 0.3,
+        "known_center_error_px": 0.039408720841095146,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          240.0,
+          150.0
+        ],
+        "scene": "neighbor",
+        "coarse_shift_px": -1.0,
+        "maximum_center_shift_fraction": 0.3,
+        "known_center_error_px": 0.02013891404621404,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          240.0,
+          150.0
+        ],
+        "scene": "neighbor",
+        "coarse_shift_px": 0.0,
+        "maximum_center_shift_fraction": 0.3,
+        "known_center_error_px": 0.014672035396301908,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          240.0,
+          150.0
+        ],
+        "scene": "neighbor",
+        "coarse_shift_px": 1.0,
+        "maximum_center_shift_fraction": 0.3,
+        "known_center_error_px": 0.045619433560034395,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          240.0,
+          150.0
+        ],
+        "scene": "neighbor",
+        "coarse_shift_px": 2.0,
+        "maximum_center_shift_fraction": 0.3,
+        "known_center_error_px": 0.004150637180362375,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          240.0,
+          150.0
+        ],
+        "scene": "neighbor",
+        "coarse_shift_px": 4.0,
+        "maximum_center_shift_fraction": 0.3,
+        "known_center_error_px": 0.04917365934279204,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          240.0,
+          150.0
+        ],
+        "scene": "neighbor",
+        "coarse_shift_px": 6.0,
+        "maximum_center_shift_fraction": 0.3,
+        "known_center_error_px": 0.01613273948622161,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          240.0,
+          150.0
+        ],
+        "scene": "neighbor",
+        "coarse_shift_px": 8.0,
+        "maximum_center_shift_fraction": 0.3,
+        "known_center_error_px": 0.02204472419739032,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          240.0,
+          150.0
+        ],
+        "scene": "neighbor",
+        "coarse_shift_px": -8.0,
+        "maximum_center_shift_fraction": 0.5,
+        "known_center_error_px": 0.009549389884455195,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          240.0,
+          150.0
+        ],
+        "scene": "neighbor",
+        "coarse_shift_px": -6.0,
+        "maximum_center_shift_fraction": 0.5,
+        "known_center_error_px": 0.02947046981898893,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          240.0,
+          150.0
+        ],
+        "scene": "neighbor",
+        "coarse_shift_px": -4.0,
+        "maximum_center_shift_fraction": 0.5,
+        "known_center_error_px": 0.046593658430964524,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          240.0,
+          150.0
+        ],
+        "scene": "neighbor",
+        "coarse_shift_px": -2.0,
+        "maximum_center_shift_fraction": 0.5,
+        "known_center_error_px": 0.039408720841095146,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          240.0,
+          150.0
+        ],
+        "scene": "neighbor",
+        "coarse_shift_px": -1.0,
+        "maximum_center_shift_fraction": 0.5,
+        "known_center_error_px": 0.02013891404621404,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          240.0,
+          150.0
+        ],
+        "scene": "neighbor",
+        "coarse_shift_px": 0.0,
+        "maximum_center_shift_fraction": 0.5,
+        "known_center_error_px": 0.014672035396301908,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          240.0,
+          150.0
+        ],
+        "scene": "neighbor",
+        "coarse_shift_px": 1.0,
+        "maximum_center_shift_fraction": 0.5,
+        "known_center_error_px": 0.045619433560034395,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          240.0,
+          150.0
+        ],
+        "scene": "neighbor",
+        "coarse_shift_px": 2.0,
+        "maximum_center_shift_fraction": 0.5,
+        "known_center_error_px": 0.004150637180362375,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          240.0,
+          150.0
+        ],
+        "scene": "neighbor",
+        "coarse_shift_px": 4.0,
+        "maximum_center_shift_fraction": 0.5,
+        "known_center_error_px": 0.04917365934279204,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          240.0,
+          150.0
+        ],
+        "scene": "neighbor",
+        "coarse_shift_px": 6.0,
+        "maximum_center_shift_fraction": 0.5,
+        "known_center_error_px": 0.01613273948622161,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          240.0,
+          150.0
+        ],
+        "scene": "neighbor",
+        "coarse_shift_px": 8.0,
+        "maximum_center_shift_fraction": 0.5,
+        "known_center_error_px": 0.02204472419739032,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          75.0,
+          145.0
+        ],
+        "scene": "cloth",
+        "coarse_shift_px": -8.0,
+        "maximum_center_shift_fraction": 0.2,
+        "known_center_error_px": null,
+        "wrong_neighbor": null,
+        "status": "rejected",
+        "reason": "unstable_center"
+      },
+      {
+        "truth_center_px": [
+          75.0,
+          145.0
+        ],
+        "scene": "cloth",
+        "coarse_shift_px": -6.0,
+        "maximum_center_shift_fraction": 0.2,
+        "known_center_error_px": 0.04090034072079914,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          75.0,
+          145.0
+        ],
+        "scene": "cloth",
+        "coarse_shift_px": -4.0,
+        "maximum_center_shift_fraction": 0.2,
+        "known_center_error_px": 0.03555440432488834,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          75.0,
+          145.0
+        ],
+        "scene": "cloth",
+        "coarse_shift_px": -2.0,
+        "maximum_center_shift_fraction": 0.2,
+        "known_center_error_px": 0.04610318328577587,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          75.0,
+          145.0
+        ],
+        "scene": "cloth",
+        "coarse_shift_px": -1.0,
+        "maximum_center_shift_fraction": 0.2,
+        "known_center_error_px": 0.03957977944500988,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          75.0,
+          145.0
+        ],
+        "scene": "cloth",
+        "coarse_shift_px": 0.0,
+        "maximum_center_shift_fraction": 0.2,
+        "known_center_error_px": 0.04395662544000955,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          75.0,
+          145.0
+        ],
+        "scene": "cloth",
+        "coarse_shift_px": 1.0,
+        "maximum_center_shift_fraction": 0.2,
+        "known_center_error_px": 0.04508214976620691,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          75.0,
+          145.0
+        ],
+        "scene": "cloth",
+        "coarse_shift_px": 2.0,
+        "maximum_center_shift_fraction": 0.2,
+        "known_center_error_px": 0.046716796755412654,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          75.0,
+          145.0
+        ],
+        "scene": "cloth",
+        "coarse_shift_px": 4.0,
+        "maximum_center_shift_fraction": 0.2,
+        "known_center_error_px": 0.03384306354813204,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          75.0,
+          145.0
+        ],
+        "scene": "cloth",
+        "coarse_shift_px": 6.0,
+        "maximum_center_shift_fraction": 0.2,
+        "known_center_error_px": 0.02738448547524233,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          75.0,
+          145.0
+        ],
+        "scene": "cloth",
+        "coarse_shift_px": 8.0,
+        "maximum_center_shift_fraction": 0.2,
+        "known_center_error_px": 0.037858426764379935,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          75.0,
+          145.0
+        ],
+        "scene": "cloth",
+        "coarse_shift_px": -8.0,
+        "maximum_center_shift_fraction": 0.3,
+        "known_center_error_px": 0.04440341916943573,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          75.0,
+          145.0
+        ],
+        "scene": "cloth",
+        "coarse_shift_px": -6.0,
+        "maximum_center_shift_fraction": 0.3,
+        "known_center_error_px": 0.04090034072079914,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          75.0,
+          145.0
+        ],
+        "scene": "cloth",
+        "coarse_shift_px": -4.0,
+        "maximum_center_shift_fraction": 0.3,
+        "known_center_error_px": 0.03555440432488834,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          75.0,
+          145.0
+        ],
+        "scene": "cloth",
+        "coarse_shift_px": -2.0,
+        "maximum_center_shift_fraction": 0.3,
+        "known_center_error_px": 0.04610318328577587,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          75.0,
+          145.0
+        ],
+        "scene": "cloth",
+        "coarse_shift_px": -1.0,
+        "maximum_center_shift_fraction": 0.3,
+        "known_center_error_px": 0.03957977944500988,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          75.0,
+          145.0
+        ],
+        "scene": "cloth",
+        "coarse_shift_px": 0.0,
+        "maximum_center_shift_fraction": 0.3,
+        "known_center_error_px": 0.04395662544000955,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          75.0,
+          145.0
+        ],
+        "scene": "cloth",
+        "coarse_shift_px": 1.0,
+        "maximum_center_shift_fraction": 0.3,
+        "known_center_error_px": 0.04508214976620691,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          75.0,
+          145.0
+        ],
+        "scene": "cloth",
+        "coarse_shift_px": 2.0,
+        "maximum_center_shift_fraction": 0.3,
+        "known_center_error_px": 0.046716796755412654,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          75.0,
+          145.0
+        ],
+        "scene": "cloth",
+        "coarse_shift_px": 4.0,
+        "maximum_center_shift_fraction": 0.3,
+        "known_center_error_px": 0.03384306354813204,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          75.0,
+          145.0
+        ],
+        "scene": "cloth",
+        "coarse_shift_px": 6.0,
+        "maximum_center_shift_fraction": 0.3,
+        "known_center_error_px": 0.02738448547524233,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          75.0,
+          145.0
+        ],
+        "scene": "cloth",
+        "coarse_shift_px": 8.0,
+        "maximum_center_shift_fraction": 0.3,
+        "known_center_error_px": 0.037858426764379935,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          75.0,
+          145.0
+        ],
+        "scene": "cloth",
+        "coarse_shift_px": -8.0,
+        "maximum_center_shift_fraction": 0.5,
+        "known_center_error_px": 0.04440341916943573,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          75.0,
+          145.0
+        ],
+        "scene": "cloth",
+        "coarse_shift_px": -6.0,
+        "maximum_center_shift_fraction": 0.5,
+        "known_center_error_px": 0.04090034072079914,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          75.0,
+          145.0
+        ],
+        "scene": "cloth",
+        "coarse_shift_px": -4.0,
+        "maximum_center_shift_fraction": 0.5,
+        "known_center_error_px": 0.03555440432488834,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          75.0,
+          145.0
+        ],
+        "scene": "cloth",
+        "coarse_shift_px": -2.0,
+        "maximum_center_shift_fraction": 0.5,
+        "known_center_error_px": 0.04610318328577587,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          75.0,
+          145.0
+        ],
+        "scene": "cloth",
+        "coarse_shift_px": -1.0,
+        "maximum_center_shift_fraction": 0.5,
+        "known_center_error_px": 0.03957977944500988,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          75.0,
+          145.0
+        ],
+        "scene": "cloth",
+        "coarse_shift_px": 0.0,
+        "maximum_center_shift_fraction": 0.5,
+        "known_center_error_px": 0.04395662544000955,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          75.0,
+          145.0
+        ],
+        "scene": "cloth",
+        "coarse_shift_px": 1.0,
+        "maximum_center_shift_fraction": 0.5,
+        "known_center_error_px": 0.04508214976620691,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          75.0,
+          145.0
+        ],
+        "scene": "cloth",
+        "coarse_shift_px": 2.0,
+        "maximum_center_shift_fraction": 0.5,
+        "known_center_error_px": 0.046716796755412654,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          75.0,
+          145.0
+        ],
+        "scene": "cloth",
+        "coarse_shift_px": 4.0,
+        "maximum_center_shift_fraction": 0.5,
+        "known_center_error_px": 0.03384306354813204,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          75.0,
+          145.0
+        ],
+        "scene": "cloth",
+        "coarse_shift_px": 6.0,
+        "maximum_center_shift_fraction": 0.5,
+        "known_center_error_px": 0.02738448547524233,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          75.0,
+          145.0
+        ],
+        "scene": "cloth",
+        "coarse_shift_px": 8.0,
+        "maximum_center_shift_fraction": 0.5,
+        "known_center_error_px": 0.037858426764379935,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          75.0,
+          145.0
+        ],
+        "scene": "rail",
+        "coarse_shift_px": -8.0,
+        "maximum_center_shift_fraction": 0.2,
+        "known_center_error_px": null,
+        "wrong_neighbor": null,
+        "status": "rejected",
+        "reason": "unstable_center"
+      },
+      {
+        "truth_center_px": [
+          75.0,
+          145.0
+        ],
+        "scene": "rail",
+        "coarse_shift_px": -6.0,
+        "maximum_center_shift_fraction": 0.2,
+        "known_center_error_px": 0.03936221711403311,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          75.0,
+          145.0
+        ],
+        "scene": "rail",
+        "coarse_shift_px": -4.0,
+        "maximum_center_shift_fraction": 0.2,
+        "known_center_error_px": 0.027372580063071993,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          75.0,
+          145.0
+        ],
+        "scene": "rail",
+        "coarse_shift_px": -2.0,
+        "maximum_center_shift_fraction": 0.2,
+        "known_center_error_px": 0.025250429335229026,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          75.0,
+          145.0
+        ],
+        "scene": "rail",
+        "coarse_shift_px": -1.0,
+        "maximum_center_shift_fraction": 0.2,
+        "known_center_error_px": 0.035670329389107004,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          75.0,
+          145.0
+        ],
+        "scene": "rail",
+        "coarse_shift_px": 0.0,
+        "maximum_center_shift_fraction": 0.2,
+        "known_center_error_px": 0.0556700130650153,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          75.0,
+          145.0
+        ],
+        "scene": "rail",
+        "coarse_shift_px": 1.0,
+        "maximum_center_shift_fraction": 0.2,
+        "known_center_error_px": 0.0350992368070981,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          75.0,
+          145.0
+        ],
+        "scene": "rail",
+        "coarse_shift_px": 2.0,
+        "maximum_center_shift_fraction": 0.2,
+        "known_center_error_px": 0.051284615274948896,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          75.0,
+          145.0
+        ],
+        "scene": "rail",
+        "coarse_shift_px": 4.0,
+        "maximum_center_shift_fraction": 0.2,
+        "known_center_error_px": 0.022917002703146883,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          75.0,
+          145.0
+        ],
+        "scene": "rail",
+        "coarse_shift_px": 6.0,
+        "maximum_center_shift_fraction": 0.2,
+        "known_center_error_px": 0.019001196820473555,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          75.0,
+          145.0
+        ],
+        "scene": "rail",
+        "coarse_shift_px": 8.0,
+        "maximum_center_shift_fraction": 0.2,
+        "known_center_error_px": 0.029811650328846466,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          75.0,
+          145.0
+        ],
+        "scene": "rail",
+        "coarse_shift_px": -8.0,
+        "maximum_center_shift_fraction": 0.3,
+        "known_center_error_px": 0.03697682176919199,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          75.0,
+          145.0
+        ],
+        "scene": "rail",
+        "coarse_shift_px": -6.0,
+        "maximum_center_shift_fraction": 0.3,
+        "known_center_error_px": 0.03936221711403311,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          75.0,
+          145.0
+        ],
+        "scene": "rail",
+        "coarse_shift_px": -4.0,
+        "maximum_center_shift_fraction": 0.3,
+        "known_center_error_px": 0.027372580063071993,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          75.0,
+          145.0
+        ],
+        "scene": "rail",
+        "coarse_shift_px": -2.0,
+        "maximum_center_shift_fraction": 0.3,
+        "known_center_error_px": 0.025250429335229026,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          75.0,
+          145.0
+        ],
+        "scene": "rail",
+        "coarse_shift_px": -1.0,
+        "maximum_center_shift_fraction": 0.3,
+        "known_center_error_px": 0.035670329389107004,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          75.0,
+          145.0
+        ],
+        "scene": "rail",
+        "coarse_shift_px": 0.0,
+        "maximum_center_shift_fraction": 0.3,
+        "known_center_error_px": 0.0556700130650153,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          75.0,
+          145.0
+        ],
+        "scene": "rail",
+        "coarse_shift_px": 1.0,
+        "maximum_center_shift_fraction": 0.3,
+        "known_center_error_px": 0.0350992368070981,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          75.0,
+          145.0
+        ],
+        "scene": "rail",
+        "coarse_shift_px": 2.0,
+        "maximum_center_shift_fraction": 0.3,
+        "known_center_error_px": 0.051284615274948896,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          75.0,
+          145.0
+        ],
+        "scene": "rail",
+        "coarse_shift_px": 4.0,
+        "maximum_center_shift_fraction": 0.3,
+        "known_center_error_px": 0.022917002703146883,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          75.0,
+          145.0
+        ],
+        "scene": "rail",
+        "coarse_shift_px": 6.0,
+        "maximum_center_shift_fraction": 0.3,
+        "known_center_error_px": 0.019001196820473555,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          75.0,
+          145.0
+        ],
+        "scene": "rail",
+        "coarse_shift_px": 8.0,
+        "maximum_center_shift_fraction": 0.3,
+        "known_center_error_px": 0.029811650328846466,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          75.0,
+          145.0
+        ],
+        "scene": "rail",
+        "coarse_shift_px": -8.0,
+        "maximum_center_shift_fraction": 0.5,
+        "known_center_error_px": 0.03697682176919199,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          75.0,
+          145.0
+        ],
+        "scene": "rail",
+        "coarse_shift_px": -6.0,
+        "maximum_center_shift_fraction": 0.5,
+        "known_center_error_px": 0.03936221711403311,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          75.0,
+          145.0
+        ],
+        "scene": "rail",
+        "coarse_shift_px": -4.0,
+        "maximum_center_shift_fraction": 0.5,
+        "known_center_error_px": 0.027372580063071993,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          75.0,
+          145.0
+        ],
+        "scene": "rail",
+        "coarse_shift_px": -2.0,
+        "maximum_center_shift_fraction": 0.5,
+        "known_center_error_px": 0.025250429335229026,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          75.0,
+          145.0
+        ],
+        "scene": "rail",
+        "coarse_shift_px": -1.0,
+        "maximum_center_shift_fraction": 0.5,
+        "known_center_error_px": 0.035670329389107004,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          75.0,
+          145.0
+        ],
+        "scene": "rail",
+        "coarse_shift_px": 0.0,
+        "maximum_center_shift_fraction": 0.5,
+        "known_center_error_px": 0.0556700130650153,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          75.0,
+          145.0
+        ],
+        "scene": "rail",
+        "coarse_shift_px": 1.0,
+        "maximum_center_shift_fraction": 0.5,
+        "known_center_error_px": 0.0350992368070981,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          75.0,
+          145.0
+        ],
+        "scene": "rail",
+        "coarse_shift_px": 2.0,
+        "maximum_center_shift_fraction": 0.5,
+        "known_center_error_px": 0.051284615274948896,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          75.0,
+          145.0
+        ],
+        "scene": "rail",
+        "coarse_shift_px": 4.0,
+        "maximum_center_shift_fraction": 0.5,
+        "known_center_error_px": 0.022917002703146883,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          75.0,
+          145.0
+        ],
+        "scene": "rail",
+        "coarse_shift_px": 6.0,
+        "maximum_center_shift_fraction": 0.5,
+        "known_center_error_px": 0.019001196820473555,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          75.0,
+          145.0
+        ],
+        "scene": "rail",
+        "coarse_shift_px": 8.0,
+        "maximum_center_shift_fraction": 0.5,
+        "known_center_error_px": 0.029811650328846466,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          75.0,
+          145.0
+        ],
+        "scene": "neighbor",
+        "coarse_shift_px": -8.0,
+        "maximum_center_shift_fraction": 0.2,
+        "known_center_error_px": null,
+        "wrong_neighbor": null,
+        "status": "rejected",
+        "reason": "unstable_center"
+      },
+      {
+        "truth_center_px": [
+          75.0,
+          145.0
+        ],
+        "scene": "neighbor",
+        "coarse_shift_px": -6.0,
+        "maximum_center_shift_fraction": 0.2,
+        "known_center_error_px": 0.061674585362212944,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          75.0,
+          145.0
+        ],
+        "scene": "neighbor",
+        "coarse_shift_px": -4.0,
+        "maximum_center_shift_fraction": 0.2,
+        "known_center_error_px": 0.049151061678382395,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          75.0,
+          145.0
+        ],
+        "scene": "neighbor",
+        "coarse_shift_px": -2.0,
+        "maximum_center_shift_fraction": 0.2,
+        "known_center_error_px": 0.03717791875542884,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          75.0,
+          145.0
+        ],
+        "scene": "neighbor",
+        "coarse_shift_px": -1.0,
+        "maximum_center_shift_fraction": 0.2,
+        "known_center_error_px": 0.04794346319469658,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          75.0,
+          145.0
+        ],
+        "scene": "neighbor",
+        "coarse_shift_px": 0.0,
+        "maximum_center_shift_fraction": 0.2,
+        "known_center_error_px": 0.09905247782680988,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          75.0,
+          145.0
+        ],
+        "scene": "neighbor",
+        "coarse_shift_px": 1.0,
+        "maximum_center_shift_fraction": 0.2,
+        "known_center_error_px": 0.05101764422572882,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          75.0,
+          145.0
+        ],
+        "scene": "neighbor",
+        "coarse_shift_px": 2.0,
+        "maximum_center_shift_fraction": 0.2,
+        "known_center_error_px": 0.11197453005055454,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          75.0,
+          145.0
+        ],
+        "scene": "neighbor",
+        "coarse_shift_px": 4.0,
+        "maximum_center_shift_fraction": 0.2,
+        "known_center_error_px": 0.026380522278449624,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          75.0,
+          145.0
+        ],
+        "scene": "neighbor",
+        "coarse_shift_px": 6.0,
+        "maximum_center_shift_fraction": 0.2,
+        "known_center_error_px": 0.04791054176302078,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          75.0,
+          145.0
+        ],
+        "scene": "neighbor",
+        "coarse_shift_px": 8.0,
+        "maximum_center_shift_fraction": 0.2,
+        "known_center_error_px": 0.057237330920989295,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          75.0,
+          145.0
+        ],
+        "scene": "neighbor",
+        "coarse_shift_px": -8.0,
+        "maximum_center_shift_fraction": 0.3,
+        "known_center_error_px": 0.06949962189895266,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          75.0,
+          145.0
+        ],
+        "scene": "neighbor",
+        "coarse_shift_px": -6.0,
+        "maximum_center_shift_fraction": 0.3,
+        "known_center_error_px": 0.061674585362212944,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          75.0,
+          145.0
+        ],
+        "scene": "neighbor",
+        "coarse_shift_px": -4.0,
+        "maximum_center_shift_fraction": 0.3,
+        "known_center_error_px": 0.049151061678382395,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          75.0,
+          145.0
+        ],
+        "scene": "neighbor",
+        "coarse_shift_px": -2.0,
+        "maximum_center_shift_fraction": 0.3,
+        "known_center_error_px": 0.03717791875542884,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          75.0,
+          145.0
+        ],
+        "scene": "neighbor",
+        "coarse_shift_px": -1.0,
+        "maximum_center_shift_fraction": 0.3,
+        "known_center_error_px": 0.04794346319469658,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          75.0,
+          145.0
+        ],
+        "scene": "neighbor",
+        "coarse_shift_px": 0.0,
+        "maximum_center_shift_fraction": 0.3,
+        "known_center_error_px": 0.09905247782680988,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          75.0,
+          145.0
+        ],
+        "scene": "neighbor",
+        "coarse_shift_px": 1.0,
+        "maximum_center_shift_fraction": 0.3,
+        "known_center_error_px": 0.05101764422572882,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          75.0,
+          145.0
+        ],
+        "scene": "neighbor",
+        "coarse_shift_px": 2.0,
+        "maximum_center_shift_fraction": 0.3,
+        "known_center_error_px": 0.11197453005055454,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          75.0,
+          145.0
+        ],
+        "scene": "neighbor",
+        "coarse_shift_px": 4.0,
+        "maximum_center_shift_fraction": 0.3,
+        "known_center_error_px": 0.026380522278449624,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          75.0,
+          145.0
+        ],
+        "scene": "neighbor",
+        "coarse_shift_px": 6.0,
+        "maximum_center_shift_fraction": 0.3,
+        "known_center_error_px": 0.04791054176302078,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          75.0,
+          145.0
+        ],
+        "scene": "neighbor",
+        "coarse_shift_px": 8.0,
+        "maximum_center_shift_fraction": 0.3,
+        "known_center_error_px": 0.057237330920989295,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          75.0,
+          145.0
+        ],
+        "scene": "neighbor",
+        "coarse_shift_px": -8.0,
+        "maximum_center_shift_fraction": 0.5,
+        "known_center_error_px": 0.06949962189895266,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          75.0,
+          145.0
+        ],
+        "scene": "neighbor",
+        "coarse_shift_px": -6.0,
+        "maximum_center_shift_fraction": 0.5,
+        "known_center_error_px": 0.061674585362212944,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          75.0,
+          145.0
+        ],
+        "scene": "neighbor",
+        "coarse_shift_px": -4.0,
+        "maximum_center_shift_fraction": 0.5,
+        "known_center_error_px": 0.049151061678382395,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          75.0,
+          145.0
+        ],
+        "scene": "neighbor",
+        "coarse_shift_px": -2.0,
+        "maximum_center_shift_fraction": 0.5,
+        "known_center_error_px": 0.03717791875542884,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          75.0,
+          145.0
+        ],
+        "scene": "neighbor",
+        "coarse_shift_px": -1.0,
+        "maximum_center_shift_fraction": 0.5,
+        "known_center_error_px": 0.04794346319469658,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          75.0,
+          145.0
+        ],
+        "scene": "neighbor",
+        "coarse_shift_px": 0.0,
+        "maximum_center_shift_fraction": 0.5,
+        "known_center_error_px": 0.09905247782680988,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          75.0,
+          145.0
+        ],
+        "scene": "neighbor",
+        "coarse_shift_px": 1.0,
+        "maximum_center_shift_fraction": 0.5,
+        "known_center_error_px": 0.05101764422572882,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          75.0,
+          145.0
+        ],
+        "scene": "neighbor",
+        "coarse_shift_px": 2.0,
+        "maximum_center_shift_fraction": 0.5,
+        "known_center_error_px": 0.11197453005055454,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          75.0,
+          145.0
+        ],
+        "scene": "neighbor",
+        "coarse_shift_px": 4.0,
+        "maximum_center_shift_fraction": 0.5,
+        "known_center_error_px": 0.026380522278449624,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          75.0,
+          145.0
+        ],
+        "scene": "neighbor",
+        "coarse_shift_px": 6.0,
+        "maximum_center_shift_fraction": 0.5,
+        "known_center_error_px": 0.04791054176302078,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          75.0,
+          145.0
+        ],
+        "scene": "neighbor",
+        "coarse_shift_px": 8.0,
+        "maximum_center_shift_fraction": 0.5,
+        "known_center_error_px": 0.057237330920989295,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          405.0,
+          145.0
+        ],
+        "scene": "cloth",
+        "coarse_shift_px": -8.0,
+        "maximum_center_shift_fraction": 0.2,
+        "known_center_error_px": 0.03785842676436547,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          405.0,
+          145.0
+        ],
+        "scene": "cloth",
+        "coarse_shift_px": -6.0,
+        "maximum_center_shift_fraction": 0.2,
+        "known_center_error_px": 0.02738448547524233,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          405.0,
+          145.0
+        ],
+        "scene": "cloth",
+        "coarse_shift_px": -4.0,
+        "maximum_center_shift_fraction": 0.2,
+        "known_center_error_px": 0.033843063548112076,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          405.0,
+          145.0
+        ],
+        "scene": "cloth",
+        "coarse_shift_px": -2.0,
+        "maximum_center_shift_fraction": 0.2,
+        "known_center_error_px": 0.046716796755412654,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          405.0,
+          145.0
+        ],
+        "scene": "cloth",
+        "coarse_shift_px": -1.0,
+        "maximum_center_shift_fraction": 0.2,
+        "known_center_error_px": 0.04508214976618446,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          405.0,
+          145.0
+        ],
+        "scene": "cloth",
+        "coarse_shift_px": 0.0,
+        "maximum_center_shift_fraction": 0.2,
+        "known_center_error_px": 0.04395662544000955,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          405.0,
+          145.0
+        ],
+        "scene": "cloth",
+        "coarse_shift_px": 1.0,
+        "maximum_center_shift_fraction": 0.2,
+        "known_center_error_px": 0.03957977944500988,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          405.0,
+          145.0
+        ],
+        "scene": "cloth",
+        "coarse_shift_px": 2.0,
+        "maximum_center_shift_fraction": 0.2,
+        "known_center_error_px": 0.04610318328580104,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          405.0,
+          145.0
+        ],
+        "scene": "cloth",
+        "coarse_shift_px": 4.0,
+        "maximum_center_shift_fraction": 0.2,
+        "known_center_error_px": 0.03555440432487312,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          405.0,
+          145.0
+        ],
+        "scene": "cloth",
+        "coarse_shift_px": 6.0,
+        "maximum_center_shift_fraction": 0.2,
+        "known_center_error_px": 0.04090034072079914,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          405.0,
+          145.0
+        ],
+        "scene": "cloth",
+        "coarse_shift_px": 8.0,
+        "maximum_center_shift_fraction": 0.2,
+        "known_center_error_px": null,
+        "wrong_neighbor": null,
+        "status": "rejected",
+        "reason": "unstable_center"
+      },
+      {
+        "truth_center_px": [
+          405.0,
+          145.0
+        ],
+        "scene": "cloth",
+        "coarse_shift_px": -8.0,
+        "maximum_center_shift_fraction": 0.3,
+        "known_center_error_px": 0.03785842676436547,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          405.0,
+          145.0
+        ],
+        "scene": "cloth",
+        "coarse_shift_px": -6.0,
+        "maximum_center_shift_fraction": 0.3,
+        "known_center_error_px": 0.02738448547524233,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          405.0,
+          145.0
+        ],
+        "scene": "cloth",
+        "coarse_shift_px": -4.0,
+        "maximum_center_shift_fraction": 0.3,
+        "known_center_error_px": 0.033843063548112076,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          405.0,
+          145.0
+        ],
+        "scene": "cloth",
+        "coarse_shift_px": -2.0,
+        "maximum_center_shift_fraction": 0.3,
+        "known_center_error_px": 0.046716796755412654,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          405.0,
+          145.0
+        ],
+        "scene": "cloth",
+        "coarse_shift_px": -1.0,
+        "maximum_center_shift_fraction": 0.3,
+        "known_center_error_px": 0.04508214976618446,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          405.0,
+          145.0
+        ],
+        "scene": "cloth",
+        "coarse_shift_px": 0.0,
+        "maximum_center_shift_fraction": 0.3,
+        "known_center_error_px": 0.04395662544000955,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          405.0,
+          145.0
+        ],
+        "scene": "cloth",
+        "coarse_shift_px": 1.0,
+        "maximum_center_shift_fraction": 0.3,
+        "known_center_error_px": 0.03957977944500988,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          405.0,
+          145.0
+        ],
+        "scene": "cloth",
+        "coarse_shift_px": 2.0,
+        "maximum_center_shift_fraction": 0.3,
+        "known_center_error_px": 0.04610318328580104,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          405.0,
+          145.0
+        ],
+        "scene": "cloth",
+        "coarse_shift_px": 4.0,
+        "maximum_center_shift_fraction": 0.3,
+        "known_center_error_px": 0.03555440432487312,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          405.0,
+          145.0
+        ],
+        "scene": "cloth",
+        "coarse_shift_px": 6.0,
+        "maximum_center_shift_fraction": 0.3,
+        "known_center_error_px": 0.04090034072079914,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          405.0,
+          145.0
+        ],
+        "scene": "cloth",
+        "coarse_shift_px": 8.0,
+        "maximum_center_shift_fraction": 0.3,
+        "known_center_error_px": 0.04440341916943573,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          405.0,
+          145.0
+        ],
+        "scene": "cloth",
+        "coarse_shift_px": -8.0,
+        "maximum_center_shift_fraction": 0.5,
+        "known_center_error_px": 0.03785842676436547,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          405.0,
+          145.0
+        ],
+        "scene": "cloth",
+        "coarse_shift_px": -6.0,
+        "maximum_center_shift_fraction": 0.5,
+        "known_center_error_px": 0.02738448547524233,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          405.0,
+          145.0
+        ],
+        "scene": "cloth",
+        "coarse_shift_px": -4.0,
+        "maximum_center_shift_fraction": 0.5,
+        "known_center_error_px": 0.033843063548112076,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          405.0,
+          145.0
+        ],
+        "scene": "cloth",
+        "coarse_shift_px": -2.0,
+        "maximum_center_shift_fraction": 0.5,
+        "known_center_error_px": 0.046716796755412654,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          405.0,
+          145.0
+        ],
+        "scene": "cloth",
+        "coarse_shift_px": -1.0,
+        "maximum_center_shift_fraction": 0.5,
+        "known_center_error_px": 0.04508214976618446,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          405.0,
+          145.0
+        ],
+        "scene": "cloth",
+        "coarse_shift_px": 0.0,
+        "maximum_center_shift_fraction": 0.5,
+        "known_center_error_px": 0.04395662544000955,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          405.0,
+          145.0
+        ],
+        "scene": "cloth",
+        "coarse_shift_px": 1.0,
+        "maximum_center_shift_fraction": 0.5,
+        "known_center_error_px": 0.03957977944500988,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          405.0,
+          145.0
+        ],
+        "scene": "cloth",
+        "coarse_shift_px": 2.0,
+        "maximum_center_shift_fraction": 0.5,
+        "known_center_error_px": 0.04610318328580104,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          405.0,
+          145.0
+        ],
+        "scene": "cloth",
+        "coarse_shift_px": 4.0,
+        "maximum_center_shift_fraction": 0.5,
+        "known_center_error_px": 0.03555440432487312,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          405.0,
+          145.0
+        ],
+        "scene": "cloth",
+        "coarse_shift_px": 6.0,
+        "maximum_center_shift_fraction": 0.5,
+        "known_center_error_px": 0.04090034072079914,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          405.0,
+          145.0
+        ],
+        "scene": "cloth",
+        "coarse_shift_px": 8.0,
+        "maximum_center_shift_fraction": 0.5,
+        "known_center_error_px": 0.04440341916943573,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          405.0,
+          145.0
+        ],
+        "scene": "rail",
+        "coarse_shift_px": -8.0,
+        "maximum_center_shift_fraction": 0.2,
+        "known_center_error_px": 0.038532987213518284,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          405.0,
+          145.0
+        ],
+        "scene": "rail",
+        "coarse_shift_px": -6.0,
+        "maximum_center_shift_fraction": 0.2,
+        "known_center_error_px": 0.03126730417134195,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          405.0,
+          145.0
+        ],
+        "scene": "rail",
+        "coarse_shift_px": -4.0,
+        "maximum_center_shift_fraction": 0.2,
+        "known_center_error_px": 0.02676927095779412,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          405.0,
+          145.0
+        ],
+        "scene": "rail",
+        "coarse_shift_px": -2.0,
+        "maximum_center_shift_fraction": 0.2,
+        "known_center_error_px": 0.05128461527492697,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          405.0,
+          145.0
+        ],
+        "scene": "rail",
+        "coarse_shift_px": -1.0,
+        "maximum_center_shift_fraction": 0.2,
+        "known_center_error_px": 0.04508214976618446,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          405.0,
+          145.0
+        ],
+        "scene": "rail",
+        "coarse_shift_px": 0.0,
+        "maximum_center_shift_fraction": 0.2,
+        "known_center_error_px": 0.05208617030404209,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          405.0,
+          145.0
+        ],
+        "scene": "rail",
+        "coarse_shift_px": 1.0,
+        "maximum_center_shift_fraction": 0.2,
+        "known_center_error_px": 0.040616187516001205,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          405.0,
+          145.0
+        ],
+        "scene": "rail",
+        "coarse_shift_px": 2.0,
+        "maximum_center_shift_fraction": 0.2,
+        "known_center_error_px": 0.03631409385712967,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          405.0,
+          145.0
+        ],
+        "scene": "rail",
+        "coarse_shift_px": 4.0,
+        "maximum_center_shift_fraction": 0.2,
+        "known_center_error_px": 0.047742913594291836,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          405.0,
+          145.0
+        ],
+        "scene": "rail",
+        "coarse_shift_px": 6.0,
+        "maximum_center_shift_fraction": 0.2,
+        "known_center_error_px": 0.05063563445892017,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          405.0,
+          145.0
+        ],
+        "scene": "rail",
+        "coarse_shift_px": 8.0,
+        "maximum_center_shift_fraction": 0.2,
+        "known_center_error_px": null,
+        "wrong_neighbor": null,
+        "status": "rejected",
+        "reason": "unstable_center"
+      },
+      {
+        "truth_center_px": [
+          405.0,
+          145.0
+        ],
+        "scene": "rail",
+        "coarse_shift_px": -8.0,
+        "maximum_center_shift_fraction": 0.3,
+        "known_center_error_px": 0.038532987213518284,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          405.0,
+          145.0
+        ],
+        "scene": "rail",
+        "coarse_shift_px": -6.0,
+        "maximum_center_shift_fraction": 0.3,
+        "known_center_error_px": 0.03126730417134195,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          405.0,
+          145.0
+        ],
+        "scene": "rail",
+        "coarse_shift_px": -4.0,
+        "maximum_center_shift_fraction": 0.3,
+        "known_center_error_px": 0.02676927095779412,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          405.0,
+          145.0
+        ],
+        "scene": "rail",
+        "coarse_shift_px": -2.0,
+        "maximum_center_shift_fraction": 0.3,
+        "known_center_error_px": 0.05128461527492697,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          405.0,
+          145.0
+        ],
+        "scene": "rail",
+        "coarse_shift_px": -1.0,
+        "maximum_center_shift_fraction": 0.3,
+        "known_center_error_px": 0.04508214976618446,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          405.0,
+          145.0
+        ],
+        "scene": "rail",
+        "coarse_shift_px": 0.0,
+        "maximum_center_shift_fraction": 0.3,
+        "known_center_error_px": 0.05208617030404209,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          405.0,
+          145.0
+        ],
+        "scene": "rail",
+        "coarse_shift_px": 1.0,
+        "maximum_center_shift_fraction": 0.3,
+        "known_center_error_px": 0.040616187516001205,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          405.0,
+          145.0
+        ],
+        "scene": "rail",
+        "coarse_shift_px": 2.0,
+        "maximum_center_shift_fraction": 0.3,
+        "known_center_error_px": 0.03631409385712967,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          405.0,
+          145.0
+        ],
+        "scene": "rail",
+        "coarse_shift_px": 4.0,
+        "maximum_center_shift_fraction": 0.3,
+        "known_center_error_px": 0.047742913594291836,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          405.0,
+          145.0
+        ],
+        "scene": "rail",
+        "coarse_shift_px": 6.0,
+        "maximum_center_shift_fraction": 0.3,
+        "known_center_error_px": 0.05063563445892017,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          405.0,
+          145.0
+        ],
+        "scene": "rail",
+        "coarse_shift_px": 8.0,
+        "maximum_center_shift_fraction": 0.3,
+        "known_center_error_px": 0.044031268814556615,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          405.0,
+          145.0
+        ],
+        "scene": "rail",
+        "coarse_shift_px": -8.0,
+        "maximum_center_shift_fraction": 0.5,
+        "known_center_error_px": 0.038532987213518284,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          405.0,
+          145.0
+        ],
+        "scene": "rail",
+        "coarse_shift_px": -6.0,
+        "maximum_center_shift_fraction": 0.5,
+        "known_center_error_px": 0.03126730417134195,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          405.0,
+          145.0
+        ],
+        "scene": "rail",
+        "coarse_shift_px": -4.0,
+        "maximum_center_shift_fraction": 0.5,
+        "known_center_error_px": 0.02676927095779412,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          405.0,
+          145.0
+        ],
+        "scene": "rail",
+        "coarse_shift_px": -2.0,
+        "maximum_center_shift_fraction": 0.5,
+        "known_center_error_px": 0.05128461527492697,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          405.0,
+          145.0
+        ],
+        "scene": "rail",
+        "coarse_shift_px": -1.0,
+        "maximum_center_shift_fraction": 0.5,
+        "known_center_error_px": 0.04508214976618446,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          405.0,
+          145.0
+        ],
+        "scene": "rail",
+        "coarse_shift_px": 0.0,
+        "maximum_center_shift_fraction": 0.5,
+        "known_center_error_px": 0.05208617030404209,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          405.0,
+          145.0
+        ],
+        "scene": "rail",
+        "coarse_shift_px": 1.0,
+        "maximum_center_shift_fraction": 0.5,
+        "known_center_error_px": 0.040616187516001205,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          405.0,
+          145.0
+        ],
+        "scene": "rail",
+        "coarse_shift_px": 2.0,
+        "maximum_center_shift_fraction": 0.5,
+        "known_center_error_px": 0.03631409385712967,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          405.0,
+          145.0
+        ],
+        "scene": "rail",
+        "coarse_shift_px": 4.0,
+        "maximum_center_shift_fraction": 0.5,
+        "known_center_error_px": 0.047742913594291836,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          405.0,
+          145.0
+        ],
+        "scene": "rail",
+        "coarse_shift_px": 6.0,
+        "maximum_center_shift_fraction": 0.5,
+        "known_center_error_px": 0.05063563445892017,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          405.0,
+          145.0
+        ],
+        "scene": "rail",
+        "coarse_shift_px": 8.0,
+        "maximum_center_shift_fraction": 0.5,
+        "known_center_error_px": 0.044031268814556615,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          405.0,
+          145.0
+        ],
+        "scene": "neighbor",
+        "coarse_shift_px": -8.0,
+        "maximum_center_shift_fraction": 0.2,
+        "known_center_error_px": 0.016804384204065388,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          405.0,
+          145.0
+        ],
+        "scene": "neighbor",
+        "coarse_shift_px": -6.0,
+        "maximum_center_shift_fraction": 0.2,
+        "known_center_error_px": 0.04449870313773774,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          405.0,
+          145.0
+        ],
+        "scene": "neighbor",
+        "coarse_shift_px": -4.0,
+        "maximum_center_shift_fraction": 0.2,
+        "known_center_error_px": 0.0627564402267566,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          405.0,
+          145.0
+        ],
+        "scene": "neighbor",
+        "coarse_shift_px": -2.0,
+        "maximum_center_shift_fraction": 0.2,
+        "known_center_error_px": 0.05563462615991048,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          405.0,
+          145.0
+        ],
+        "scene": "neighbor",
+        "coarse_shift_px": -1.0,
+        "maximum_center_shift_fraction": 0.2,
+        "known_center_error_px": 0.057968007371208094,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          405.0,
+          145.0
+        ],
+        "scene": "neighbor",
+        "coarse_shift_px": 0.0,
+        "maximum_center_shift_fraction": 0.2,
+        "known_center_error_px": 0.027671327160646263,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          405.0,
+          145.0
+        ],
+        "scene": "neighbor",
+        "coarse_shift_px": 1.0,
+        "maximum_center_shift_fraction": 0.2,
+        "known_center_error_px": 0.03413033041693095,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          405.0,
+          145.0
+        ],
+        "scene": "neighbor",
+        "coarse_shift_px": 2.0,
+        "maximum_center_shift_fraction": 0.2,
+        "known_center_error_px": 0.055917011537699644,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          405.0,
+          145.0
+        ],
+        "scene": "neighbor",
+        "coarse_shift_px": 4.0,
+        "maximum_center_shift_fraction": 0.2,
+        "known_center_error_px": 0.026097317560557654,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          405.0,
+          145.0
+        ],
+        "scene": "neighbor",
+        "coarse_shift_px": 6.0,
+        "maximum_center_shift_fraction": 0.2,
+        "known_center_error_px": 0.024993271678144517,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          405.0,
+          145.0
+        ],
+        "scene": "neighbor",
+        "coarse_shift_px": 8.0,
+        "maximum_center_shift_fraction": 0.2,
+        "known_center_error_px": null,
+        "wrong_neighbor": null,
+        "status": "rejected",
+        "reason": "unstable_center"
+      },
+      {
+        "truth_center_px": [
+          405.0,
+          145.0
+        ],
+        "scene": "neighbor",
+        "coarse_shift_px": -8.0,
+        "maximum_center_shift_fraction": 0.3,
+        "known_center_error_px": 0.016804384204065388,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          405.0,
+          145.0
+        ],
+        "scene": "neighbor",
+        "coarse_shift_px": -6.0,
+        "maximum_center_shift_fraction": 0.3,
+        "known_center_error_px": 0.04449870313773774,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          405.0,
+          145.0
+        ],
+        "scene": "neighbor",
+        "coarse_shift_px": -4.0,
+        "maximum_center_shift_fraction": 0.3,
+        "known_center_error_px": 0.0627564402267566,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          405.0,
+          145.0
+        ],
+        "scene": "neighbor",
+        "coarse_shift_px": -2.0,
+        "maximum_center_shift_fraction": 0.3,
+        "known_center_error_px": 0.05563462615991048,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          405.0,
+          145.0
+        ],
+        "scene": "neighbor",
+        "coarse_shift_px": -1.0,
+        "maximum_center_shift_fraction": 0.3,
+        "known_center_error_px": 0.057968007371208094,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          405.0,
+          145.0
+        ],
+        "scene": "neighbor",
+        "coarse_shift_px": 0.0,
+        "maximum_center_shift_fraction": 0.3,
+        "known_center_error_px": 0.027671327160646263,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          405.0,
+          145.0
+        ],
+        "scene": "neighbor",
+        "coarse_shift_px": 1.0,
+        "maximum_center_shift_fraction": 0.3,
+        "known_center_error_px": 0.03413033041693095,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          405.0,
+          145.0
+        ],
+        "scene": "neighbor",
+        "coarse_shift_px": 2.0,
+        "maximum_center_shift_fraction": 0.3,
+        "known_center_error_px": 0.055917011537699644,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          405.0,
+          145.0
+        ],
+        "scene": "neighbor",
+        "coarse_shift_px": 4.0,
+        "maximum_center_shift_fraction": 0.3,
+        "known_center_error_px": 0.026097317560557654,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          405.0,
+          145.0
+        ],
+        "scene": "neighbor",
+        "coarse_shift_px": 6.0,
+        "maximum_center_shift_fraction": 0.3,
+        "known_center_error_px": 0.024993271678144517,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          405.0,
+          145.0
+        ],
+        "scene": "neighbor",
+        "coarse_shift_px": 8.0,
+        "maximum_center_shift_fraction": 0.3,
+        "known_center_error_px": 0.022109626849896345,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          405.0,
+          145.0
+        ],
+        "scene": "neighbor",
+        "coarse_shift_px": -8.0,
+        "maximum_center_shift_fraction": 0.5,
+        "known_center_error_px": 0.016804384204065388,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          405.0,
+          145.0
+        ],
+        "scene": "neighbor",
+        "coarse_shift_px": -6.0,
+        "maximum_center_shift_fraction": 0.5,
+        "known_center_error_px": 0.04449870313773774,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          405.0,
+          145.0
+        ],
+        "scene": "neighbor",
+        "coarse_shift_px": -4.0,
+        "maximum_center_shift_fraction": 0.5,
+        "known_center_error_px": 0.0627564402267566,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          405.0,
+          145.0
+        ],
+        "scene": "neighbor",
+        "coarse_shift_px": -2.0,
+        "maximum_center_shift_fraction": 0.5,
+        "known_center_error_px": 0.05563462615991048,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          405.0,
+          145.0
+        ],
+        "scene": "neighbor",
+        "coarse_shift_px": -1.0,
+        "maximum_center_shift_fraction": 0.5,
+        "known_center_error_px": 0.057968007371208094,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          405.0,
+          145.0
+        ],
+        "scene": "neighbor",
+        "coarse_shift_px": 0.0,
+        "maximum_center_shift_fraction": 0.5,
+        "known_center_error_px": 0.027671327160646263,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          405.0,
+          145.0
+        ],
+        "scene": "neighbor",
+        "coarse_shift_px": 1.0,
+        "maximum_center_shift_fraction": 0.5,
+        "known_center_error_px": 0.03413033041693095,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          405.0,
+          145.0
+        ],
+        "scene": "neighbor",
+        "coarse_shift_px": 2.0,
+        "maximum_center_shift_fraction": 0.5,
+        "known_center_error_px": 0.055917011537699644,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          405.0,
+          145.0
+        ],
+        "scene": "neighbor",
+        "coarse_shift_px": 4.0,
+        "maximum_center_shift_fraction": 0.5,
+        "known_center_error_px": 0.026097317560557654,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          405.0,
+          145.0
+        ],
+        "scene": "neighbor",
+        "coarse_shift_px": 6.0,
+        "maximum_center_shift_fraction": 0.5,
+        "known_center_error_px": 0.024993271678144517,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      },
+      {
+        "truth_center_px": [
+          405.0,
+          145.0
+        ],
+        "scene": "neighbor",
+        "coarse_shift_px": 8.0,
+        "maximum_center_shift_fraction": 0.5,
+        "known_center_error_px": 0.022109626849896345,
+        "wrong_neighbor": false,
+        "status": "accepted",
+        "reason": null
+      }
+    ]
+  }
+}

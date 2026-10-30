@@ -1,0 +1,717 @@
+{
+  "schema_version": 1,
+  "name": "native-localization-corpus-v1",
+  "created_date": "2026-10-27",
+  "purpose": "Target IntelGPU saved-input proposal qualification; no camera capture",
+  "path_convention": "repository-relative paths",
+  "table_model": {
+    "playing_area_mm": [
+      2336.8,
+      1155.7
+    ],
+    "physical_ball_diameter_mm": 57.15,
+    "coordinates": "2D X/Y only; physical diameter does not depend on image position"
+  },
+  "source_data": {
+    "ball_outline_annotations": {
+      "path": "thoughts/calibration/ball-outline-consistency.json",
+      "sha256": "50b410fa0b0911b1112bf6816a28558e271d5599701e6bbf5e03fa27e93650eb"
+    },
+    "measured_grid_physical_references": {
+      "path": "thoughts/calibration/table-grid-20261026-114241-measurements.json",
+      "sha256": "fc2eb93e5f0144e1b15b446078be11e494c80c8da8e427295c6e51d283e7d335"
+    },
+    "checkerboard_frozen_baseline": {
+      "path": "thoughts/calibration/checkerboard-eight-view-baseline.json",
+      "sha256": "d0bb14b97f87fe13fe296638af726466ee11f4af7e1cd20a964b16f244ccf191"
+    },
+    "checkerboard_session_manifest": {
+      "path": "thoughts/calibration/checkerboard-session/manifest.json",
+      "sha256": "20c3c61497547daa159f11dbd8151794d93ae7836945830850a63980d1a701a2"
+    },
+    "original_identity_audit": {
+      "path": "thoughts/calibration/offline-refiner-identity-check.json",
+      "sha256": "d285d5945d27ac09a3a355829dadf4a7f342e73a04b7457c659e6a18a94f53c1"
+    },
+    "framing_comparison": {
+      "path": "thoughts/calibration/stream-4k-framing.json",
+      "sha256": "1e42bc3e4042498ff083d862926ac4d4cc01908ad784b76471b5485d96ac78e7"
+    }
+  },
+  "optics_models": {
+    "frozen_zero_radial_720": {
+      "image_size_px": [
+        1280,
+        720
+      ],
+      "camera_matrix": [
+        [
+          696.1731580029823,
+          0.0,
+          644.1755624688407
+        ],
+        [
+          0.0,
+          695.3611772093032,
+          349.67152391690104
+        ],
+        [
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "distortion_k1_k2_p1_p2_k3": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "source_data_id": "checkerboard_frozen_baseline",
+      "source_json_pointer": "/models/zero/full_fit",
+      "status": "exploratory_only_not_activated",
+      "limitations": "Fixed eight-view zero-added-radial fit, not established zero lens distortion and not a qualified runtime optics profile; verify matching camera framing."
+    },
+    "scaled_frozen_zero_radial_4k_diagnostic": {
+      "image_size_px": [
+        3840,
+        2160
+      ],
+      "camera_matrix": [
+        [
+          2088.519474008947,
+          0.0,
+          1932.526687406522
+        ],
+        [
+          0.0,
+          2086.0835316279095,
+          1049.014571750703
+        ],
+        [
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "distortion_k1_k2_p1_p2_k3": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "parent_model_id": "frozen_zero_radial_720",
+      "derivation": "Multiply the first two matrix rows by 3.0 for a direct 3x pixel-coordinate scale; leave the last row unchanged.",
+      "status": "derived_diagnostic_only_not_qualified_for_runtime",
+      "limitations": "4K framing is approximately registered, not proven identical optics or a production calibration."
+    }
+  },
+  "physical_reference_sets": {
+    "measured_grid_nine": {
+      "image_id": "measured-grid-720",
+      "arrangement_id": "measured-grid-20261026-114241",
+      "source_data_id": "measured_grid_physical_references",
+      "coordinate_convention": {
+        "origin": "upper-left cushion nose intersection",
+        "positive_x": "image-right",
+        "positive_y": "image-down",
+        "units": "mm"
+      },
+      "uncertainty": "Unknown; decimal digits indicate unit conversion, not physical accuracy.",
+      "observations": [
+        {
+          "id": "middle-row-center-ball",
+          "center_from_upper_left_mm": [
+            1171.575,
+            574.675
+          ],
+          "measurement_uncertainty_mm": null,
+          "measurement_reference_confirmed": true,
+          "source": "user-reported physical measurement; precision is not independently established"
+        },
+        {
+          "id": "far-right-purple-middle-row-ball",
+          "center_from_upper_left_mm": [
+            2308.225,
+            574.675
+          ],
+          "measurement_uncertainty_mm": null,
+          "measurement_reference_confirmed": true,
+          "source": "user-reported physical measurement; precision is not independently established"
+        },
+        {
+          "id": "far-left-yellow-middle-row-ball",
+          "center_from_upper_left_mm": [
+            28.575,
+            574.675
+          ],
+          "measurement_uncertainty_mm": null,
+          "measurement_reference_confirmed": true,
+          "source": "user-reported physical measurement; precision is not independently established"
+        },
+        {
+          "id": "interior-purple-second-left-middle-row-ball",
+          "center_from_upper_left_mm": [
+            571.5,
+            574.675
+          ],
+          "measurement_uncertainty_mm": null,
+          "measurement_reference_confirmed": true,
+          "source": "user-reported physical measurement; precision is not independently established"
+        },
+        {
+          "id": "interior-green-second-right-middle-row-ball",
+          "center_from_upper_left_mm": [
+            1746.25,
+            574.675
+          ],
+          "measurement_uncertainty_mm": null,
+          "measurement_reference_confirmed": true,
+          "source": "user-reported physical measurement; precision is not independently established"
+        },
+        {
+          "id": "top-orange-solid-second-left-ball",
+          "center_from_upper_left_mm": [
+            568.325,
+            28.575
+          ],
+          "measurement_uncertainty_mm": null,
+          "measurement_reference_confirmed": true,
+          "source": "user-reported physical measurement; precision is not independently established"
+        },
+        {
+          "id": "top-red-striped-second-right-ball",
+          "center_from_upper_left_mm": [
+            1746.25,
+            28.575
+          ],
+          "measurement_uncertainty_mm": null,
+          "measurement_reference_confirmed": true,
+          "source": "user-reported physical measurement; precision is not independently established"
+        },
+        {
+          "id": "bottom-black-second-left-ball",
+          "center_from_upper_left_mm": [
+            568.325,
+            1127.125
+          ],
+          "measurement_uncertainty_mm": null,
+          "measurement_reference_confirmed": true,
+          "source": "user-reported physical measurement; precision is not independently established"
+        },
+        {
+          "id": "bottom-yellow-second-right-ball",
+          "center_from_upper_left_mm": [
+            1746.25,
+            1127.125
+          ],
+          "measurement_uncertainty_mm": null,
+          "measurement_reference_confirmed": true,
+          "source": "user-reported physical measurement; precision is not independently established"
+        }
+      ]
+    }
+  },
+  "frozen_identity_audit": {
+    "source_data_id": "original_identity_audit",
+    "implementation_checkpoint": "e595fe255291dd9e820295743fface33f8eae538",
+    "refiner_source_sha256": "a8a1dc215afa88bacfa31da88434707c5b8b39823adab14e0143ca682f063ef0",
+    "source_image_id": "measured-grid-720",
+    "candidate_indices": "0 through 15 per fixed proposal; detection index affected old RANSAC seed",
+    "repeat_count": 3,
+    "limit": "Repeated trials on one source image are not independent placements; diagnostic work budgets are not performance qualification."
+  },
+  "images": [
+    {
+      "path": "thoughts/calibration/table-grid-20261026-114241.jpg",
+      "sha256": "06ef40f52e0f93db17601585c4ed1d014895aaadcaf6b04c6abbd6e986d57e7b",
+      "id": "measured-grid-720",
+      "dimensions_px": [
+        1280,
+        720
+      ],
+      "arrangement_id": "measured-grid-20261026-114241",
+      "intended_use": "diagnosis_and_tuning",
+      "optics_model_id": "frozen_zero_radial_720",
+      "ball_proposals": {
+        "status": "Actual verified source-checkpoint PyTorch CPU proposals; closest manual IDs for diagnostic correspondence only, not Coral parity",
+        "definition": "square centered at segmentation_bbox_midpoint_px; side=max(gradient_ellipse.diameters_px)+4.0 source px",
+        "annotation_source": "ball_outline_annotations",
+        "detector_generated": true,
+        "proposals": [
+          {
+            "detection_index_in_frozen_audit": 0,
+            "ball_id": "top-left-pocket-ball-dx-0.5-dy-0.5",
+            "bbox_xyxy_source_px": [
+              82.84375,
+              89.625,
+              122.15625,
+              123.375
+            ],
+            "bbox_center_source_px": [
+              102.5,
+              106.5
+            ],
+            "bbox_side_source_px": 39.3125,
+            "origin": "Actual IntelGPU OpenVINO output; production Rust class-aware NMS; nearest saved label is identity only, not center truth",
+            "source_annotation_id": "top-left-pocket-ball",
+            "localization_review_flags": [
+              "segmentation likely selected an internal highlight/fragment rather than full ball",
+              "segmentation threshold sensitivity exceeds 1 px",
+              "methods disagree by more than 2 px; neither establishes true center",
+              "gradient center sensitive to omitted arc",
+              "no physical XY ground truth; pocket/jaw silhouette may be occluded"
+            ],
+            "physical_reference_id": null,
+            "physical_reference_present": false,
+            "detector_confidence": 0.8701172
+          },
+          {
+            "detection_index_in_frozen_audit": 1,
+            "ball_id": "top-left-pocket-ball-dx0-dy-0.5",
+            "bbox_xyxy_source_px": [
+              83.34375,
+              89.625,
+              122.65625,
+              123.375
+            ],
+            "bbox_center_source_px": [
+              103.0,
+              106.5
+            ],
+            "bbox_side_source_px": 39.3125,
+            "origin": "Actual IntelGPU OpenVINO output; production Rust class-aware NMS; nearest saved label is identity only, not center truth",
+            "source_annotation_id": "top-left-pocket-ball",
+            "localization_review_flags": [
+              "segmentation likely selected an internal highlight/fragment rather than full ball",
+              "segmentation threshold sensitivity exceeds 1 px",
+              "methods disagree by more than 2 px; neither establishes true center",
+              "gradient center sensitive to omitted arc",
+              "no physical XY ground truth; pocket/jaw silhouette may be occluded"
+            ],
+            "physical_reference_id": null,
+            "physical_reference_present": false,
+            "detector_confidence": 0.8701172
+          },
+          {
+            "detection_index_in_frozen_audit": 2,
+            "ball_id": "top-left-pocket-ball-dx0.5-dy-0.5",
+            "bbox_xyxy_source_px": [
+              83.84375,
+              89.625,
+              123.15625,
+              123.375
+            ],
+            "bbox_center_source_px": [
+              103.5,
+              106.5
+            ],
+            "bbox_side_source_px": 39.3125,
+            "origin": "Actual IntelGPU OpenVINO output; production Rust class-aware NMS; nearest saved label is identity only, not center truth",
+            "source_annotation_id": "top-left-pocket-ball",
+            "localization_review_flags": [
+              "segmentation likely selected an internal highlight/fragment rather than full ball",
+              "segmentation threshold sensitivity exceeds 1 px",
+              "methods disagree by more than 2 px; neither establishes true center",
+              "gradient center sensitive to omitted arc",
+              "no physical XY ground truth; pocket/jaw silhouette may be occluded"
+            ],
+            "physical_reference_id": null,
+            "physical_reference_present": false,
+            "detector_confidence": 0.8701172
+          },
+          {
+            "detection_index_in_frozen_audit": 3,
+            "ball_id": "top-left-pocket-ball-dx-0.5-dy0",
+            "bbox_xyxy_source_px": [
+              82.84375,
+              90.125,
+              122.15625,
+              123.875
+            ],
+            "bbox_center_source_px": [
+              102.5,
+              107.0
+            ],
+            "bbox_side_source_px": 39.3125,
+            "origin": "Actual IntelGPU OpenVINO output; production Rust class-aware NMS; nearest saved label is identity only, not center truth",
+            "source_annotation_id": "top-left-pocket-ball",
+            "localization_review_flags": [
+              "segmentation likely selected an internal highlight/fragment rather than full ball",
+              "segmentation threshold sensitivity exceeds 1 px",
+              "methods disagree by more than 2 px; neither establishes true center",
+              "gradient center sensitive to omitted arc",
+              "no physical XY ground truth; pocket/jaw silhouette may be occluded"
+            ],
+            "physical_reference_id": null,
+            "physical_reference_present": false,
+            "detector_confidence": 0.8701172
+          },
+          {
+            "detection_index_in_frozen_audit": 4,
+            "ball_id": "top-left-pocket-ball-dx0-dy0",
+            "bbox_xyxy_source_px": [
+              83.34375,
+              90.125,
+              122.65625,
+              123.875
+            ],
+            "bbox_center_source_px": [
+              103.0,
+              107.0
+            ],
+            "bbox_side_source_px": 39.3125,
+            "origin": "Actual IntelGPU OpenVINO output; production Rust class-aware NMS; nearest saved label is identity only, not center truth",
+            "source_annotation_id": "top-left-pocket-ball",
+            "localization_review_flags": [
+              "segmentation likely selected an internal highlight/fragment rather than full ball",
+              "segmentation threshold sensitivity exceeds 1 px",
+              "methods disagree by more than 2 px; neither establishes true center",
+              "gradient center sensitive to omitted arc",
+              "no physical XY ground truth; pocket/jaw silhouette may be occluded"
+            ],
+            "physical_reference_id": null,
+            "physical_reference_present": false,
+            "detector_confidence": 0.8701172
+          },
+          {
+            "detection_index_in_frozen_audit": 5,
+            "ball_id": "top-left-pocket-ball-dx0.5-dy0",
+            "bbox_xyxy_source_px": [
+              83.84375,
+              90.125,
+              123.15625,
+              123.875
+            ],
+            "bbox_center_source_px": [
+              103.5,
+              107.0
+            ],
+            "bbox_side_source_px": 39.3125,
+            "origin": "Actual IntelGPU OpenVINO output; production Rust class-aware NMS; nearest saved label is identity only, not center truth",
+            "source_annotation_id": "top-left-pocket-ball",
+            "localization_review_flags": [
+              "segmentation likely selected an internal highlight/fragment rather than full ball",
+              "segmentation threshold sensitivity exceeds 1 px",
+              "methods disagree by more than 2 px; neither establishes true center",
+              "gradient center sensitive to omitted arc",
+              "no physical XY ground truth; pocket/jaw silhouette may be occluded"
+            ],
+            "physical_reference_id": null,
+            "physical_reference_present": false,
+            "detector_confidence": 0.8701172
+          },
+          {
+            "detection_index_in_frozen_audit": 6,
+            "ball_id": "top-left-pocket-ball-dx-0.5-dy0.5",
+            "bbox_xyxy_source_px": [
+              82.84375,
+              90.625,
+              122.15625,
+              124.375
+            ],
+            "bbox_center_source_px": [
+              102.5,
+              107.5
+            ],
+            "bbox_side_source_px": 39.3125,
+            "origin": "Actual IntelGPU OpenVINO output; production Rust class-aware NMS; nearest saved label is identity only, not center truth",
+            "source_annotation_id": "top-left-pocket-ball",
+            "localization_review_flags": [
+              "segmentation likely selected an internal highlight/fragment rather than full ball",
+              "segmentation threshold sensitivity exceeds 1 px",
+              "methods disagree by more than 2 px; neither establishes true center",
+              "gradient center sensitive to omitted arc",
+              "no physical XY ground truth; pocket/jaw silhouette may be occluded"
+            ],
+            "physical_reference_id": null,
+            "physical_reference_present": false,
+            "detector_confidence": 0.8701172
+          },
+          {
+            "detection_index_in_frozen_audit": 7,
+            "ball_id": "top-left-pocket-ball-dx0-dy0.5",
+            "bbox_xyxy_source_px": [
+              83.34375,
+              90.625,
+              122.65625,
+              124.375
+            ],
+            "bbox_center_source_px": [
+              103.0,
+              107.5
+            ],
+            "bbox_side_source_px": 39.3125,
+            "origin": "Actual IntelGPU OpenVINO output; production Rust class-aware NMS; nearest saved label is identity only, not center truth",
+            "source_annotation_id": "top-left-pocket-ball",
+            "localization_review_flags": [
+              "segmentation likely selected an internal highlight/fragment rather than full ball",
+              "segmentation threshold sensitivity exceeds 1 px",
+              "methods disagree by more than 2 px; neither establishes true center",
+              "gradient center sensitive to omitted arc",
+              "no physical XY ground truth; pocket/jaw silhouette may be occluded"
+            ],
+            "physical_reference_id": null,
+            "physical_reference_present": false,
+            "detector_confidence": 0.8701172
+          },
+          {
+            "detection_index_in_frozen_audit": 8,
+            "ball_id": "top-left-pocket-ball-dx0.5-dy0.5",
+            "bbox_xyxy_source_px": [
+              83.84375,
+              90.625,
+              123.15625,
+              124.375
+            ],
+            "bbox_center_source_px": [
+              103.5,
+              107.5
+            ],
+            "bbox_side_source_px": 39.3125,
+            "origin": "Actual IntelGPU OpenVINO output; production Rust class-aware NMS; nearest saved label is identity only, not center truth",
+            "source_annotation_id": "top-left-pocket-ball",
+            "localization_review_flags": [
+              "segmentation likely selected an internal highlight/fragment rather than full ball",
+              "segmentation threshold sensitivity exceeds 1 px",
+              "methods disagree by more than 2 px; neither establishes true center",
+              "gradient center sensitive to omitted arc",
+              "no physical XY ground truth; pocket/jaw silhouette may be occluded"
+            ],
+            "physical_reference_id": null,
+            "physical_reference_present": false,
+            "detector_confidence": 0.8701172
+          },
+          {
+            "detection_index_in_frozen_audit": 9,
+            "ball_id": "bottom-right-pocket-ball-dx-0.5-dy-0.5",
+            "bbox_xyxy_source_px": [
+              1170.5,
+              609.5,
+              1208.5,
+              646.5
+            ],
+            "bbox_center_source_px": [
+              1189.5,
+              628.0
+            ],
+            "bbox_side_source_px": 38.0,
+            "origin": "Actual IntelGPU OpenVINO output; production Rust class-aware NMS; nearest saved label is identity only, not center truth",
+            "source_annotation_id": "bottom-right-pocket-ball",
+            "localization_review_flags": [
+              "methods disagree by more than 2 px; neither establishes true center",
+              "no physical XY ground truth; pocket/jaw silhouette may be occluded"
+            ],
+            "physical_reference_id": null,
+            "physical_reference_present": false,
+            "detector_confidence": 0.73095703
+          },
+          {
+            "detection_index_in_frozen_audit": 10,
+            "ball_id": "bottom-right-pocket-ball-dx0-dy-0.5",
+            "bbox_xyxy_source_px": [
+              1171.0,
+              609.5,
+              1209.0,
+              646.5
+            ],
+            "bbox_center_source_px": [
+              1190.0,
+              628.0
+            ],
+            "bbox_side_source_px": 38.0,
+            "origin": "Actual IntelGPU OpenVINO output; production Rust class-aware NMS; nearest saved label is identity only, not center truth",
+            "source_annotation_id": "bottom-right-pocket-ball",
+            "localization_review_flags": [
+              "methods disagree by more than 2 px; neither establishes true center",
+              "no physical XY ground truth; pocket/jaw silhouette may be occluded"
+            ],
+            "physical_reference_id": null,
+            "physical_reference_present": false,
+            "detector_confidence": 0.73095703
+          },
+          {
+            "detection_index_in_frozen_audit": 11,
+            "ball_id": "bottom-right-pocket-ball-dx0.5-dy-0.5",
+            "bbox_xyxy_source_px": [
+              1171.5,
+              609.5,
+              1209.5,
+              646.5
+            ],
+            "bbox_center_source_px": [
+              1190.5,
+              628.0
+            ],
+            "bbox_side_source_px": 38.0,
+            "origin": "Actual IntelGPU OpenVINO output; production Rust class-aware NMS; nearest saved label is identity only, not center truth",
+            "source_annotation_id": "bottom-right-pocket-ball",
+            "localization_review_flags": [
+              "methods disagree by more than 2 px; neither establishes true center",
+              "no physical XY ground truth; pocket/jaw silhouette may be occluded"
+            ],
+            "physical_reference_id": null,
+            "physical_reference_present": false,
+            "detector_confidence": 0.73095703
+          },
+          {
+            "detection_index_in_frozen_audit": 12,
+            "ball_id": "bottom-right-pocket-ball-dx-0.5-dy0",
+            "bbox_xyxy_source_px": [
+              1170.5,
+              610.0,
+              1208.5,
+              647.0
+            ],
+            "bbox_center_source_px": [
+              1189.5,
+              628.5
+            ],
+            "bbox_side_source_px": 38.0,
+            "origin": "Actual IntelGPU OpenVINO output; production Rust class-aware NMS; nearest saved label is identity only, not center truth",
+            "source_annotation_id": "bottom-right-pocket-ball",
+            "localization_review_flags": [
+              "methods disagree by more than 2 px; neither establishes true center",
+              "no physical XY ground truth; pocket/jaw silhouette may be occluded"
+            ],
+            "physical_reference_id": null,
+            "physical_reference_present": false,
+            "detector_confidence": 0.73095703
+          },
+          {
+            "detection_index_in_frozen_audit": 13,
+            "ball_id": "bottom-right-pocket-ball-dx0-dy0",
+            "bbox_xyxy_source_px": [
+              1171.0,
+              610.0,
+              1209.0,
+              647.0
+            ],
+            "bbox_center_source_px": [
+              1190.0,
+              628.5
+            ],
+            "bbox_side_source_px": 38.0,
+            "origin": "Actual IntelGPU OpenVINO output; production Rust class-aware NMS; nearest saved label is identity only, not center truth",
+            "source_annotation_id": "bottom-right-pocket-ball",
+            "localization_review_flags": [
+              "methods disagree by more than 2 px; neither establishes true center",
+              "no physical XY ground truth; pocket/jaw silhouette may be occluded"
+            ],
+            "physical_reference_id": null,
+            "physical_reference_present": false,
+            "detector_confidence": 0.73095703
+          },
+          {
+            "detection_index_in_frozen_audit": 14,
+            "ball_id": "bottom-right-pocket-ball-dx0.5-dy0",
+            "bbox_xyxy_source_px": [
+              1171.5,
+              610.0,
+              1209.5,
+              647.0
+            ],
+            "bbox_center_source_px": [
+              1190.5,
+              628.5
+            ],
+            "bbox_side_source_px": 38.0,
+            "origin": "Actual IntelGPU OpenVINO output; production Rust class-aware NMS; nearest saved label is identity only, not center truth",
+            "source_annotation_id": "bottom-right-pocket-ball",
+            "localization_review_flags": [
+              "methods disagree by more than 2 px; neither establishes true center",
+              "no physical XY ground truth; pocket/jaw silhouette may be occluded"
+            ],
+            "physical_reference_id": null,
+            "physical_reference_present": false,
+            "detector_confidence": 0.73095703
+          },
+          {
+            "detection_index_in_frozen_audit": 15,
+            "ball_id": "bottom-right-pocket-ball-dx-0.5-dy0.5",
+            "bbox_xyxy_source_px": [
+              1170.5,
+              610.5,
+              1208.5,
+              647.5
+            ],
+            "bbox_center_source_px": [
+              1189.5,
+              629.0
+            ],
+            "bbox_side_source_px": 38.0,
+            "origin": "Actual IntelGPU OpenVINO output; production Rust class-aware NMS; nearest saved label is identity only, not center truth",
+            "source_annotation_id": "bottom-right-pocket-ball",
+            "localization_review_flags": [
+              "methods disagree by more than 2 px; neither establishes true center",
+              "no physical XY ground truth; pocket/jaw silhouette may be occluded"
+            ],
+            "physical_reference_id": null,
+            "physical_reference_present": false,
+            "detector_confidence": 0.73095703
+          },
+          {
+            "detection_index_in_frozen_audit": 16,
+            "ball_id": "bottom-right-pocket-ball-dx0-dy0.5",
+            "bbox_xyxy_source_px": [
+              1171.0,
+              610.5,
+              1209.0,
+              647.5
+            ],
+            "bbox_center_source_px": [
+              1190.0,
+              629.0
+            ],
+            "bbox_side_source_px": 38.0,
+            "origin": "Actual IntelGPU OpenVINO output; production Rust class-aware NMS; nearest saved label is identity only, not center truth",
+            "source_annotation_id": "bottom-right-pocket-ball",
+            "localization_review_flags": [
+              "methods disagree by more than 2 px; neither establishes true center",
+              "no physical XY ground truth; pocket/jaw silhouette may be occluded"
+            ],
+            "physical_reference_id": null,
+            "physical_reference_present": false,
+            "detector_confidence": 0.73095703
+          },
+          {
+            "detection_index_in_frozen_audit": 17,
+            "ball_id": "bottom-right-pocket-ball-dx0.5-dy0.5",
+            "bbox_xyxy_source_px": [
+              1171.5,
+              610.5,
+              1209.5,
+              647.5
+            ],
+            "bbox_center_source_px": [
+              1190.5,
+              629.0
+            ],
+            "bbox_side_source_px": 38.0,
+            "origin": "Actual IntelGPU OpenVINO output; production Rust class-aware NMS; nearest saved label is identity only, not center truth",
+            "source_annotation_id": "bottom-right-pocket-ball",
+            "localization_review_flags": [
+              "methods disagree by more than 2 px; neither establishes true center",
+              "no physical XY ground truth; pocket/jaw silhouette may be occluded"
+            ],
+            "physical_reference_id": null,
+            "physical_reference_present": false,
+            "detector_confidence": 0.73095703
+          }
+        ]
+      },
+      "physical_reference_status": "nine_user_confirmed_positions_unknown_uncertainty",
+      "notes": "Only this exact image and arrangement match the nine recorded physical XY references; six pocket-adjacent cases have no recorded XY.",
+      "proposal_origin": "Actual target IntelGPU OpenVINO on saved JPEG"
+    }
+  ],
+  "limitations": [
+    "All proposal and reference coordinates belong to their named source images and arrangements only.",
+    "Reviewed proposals are not detector output, pixel-center ground truth, or independently measured physical XY.",
+    "Reserved images were previously inspected and are held out only from further tuning.",
+    "No qualified production optics profile or ball-center asset is asserted.",
+    "Saved still images cannot establish motion response, sustained availability, or live FPS."
+  ]
+}

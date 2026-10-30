@@ -1,0 +1,8 @@
+Starting Rust Billiards Trainer server at http://127.0.0.1:18000
+Serving web client from /home/jchadwick/billiards-qualification-20261029/distribution-r10-schedfix/frontend; live detector: true
+billiards Rust gateway HTTP listening on 127.0.0.1:18000
+live v3 scene ingress listening on 127.0.0.1:18321
+live_detector_started=true
+frame_preview_ready={"schema_version":1,"address":"127.0.0.1:18322","engine_instance_id":"e33bca7b-39ad-4f12-9de0-df8b21ba2e7f","capture_session_id":"fa2f49dc-3ede-4161-b30e-6754dfdff3f4"}
+scene producer connection closed: framed message I/O failed: failed to fill whole buffer
+phase_runtime_diagnostics={"elapsed_ms":60806,"captured_fps":4.999471914908954,"motion_checks_per_second":2.8944311086314993,"detector_calls_per_second":0.9374009840454287,"cue_observations_per_second":2.8779854773324565,"work":{"captured_frames":304,"motion_checks":176,"detector_calls":57,"detector_failures":0,"cue_observations":175,"cue_dispatches":176,"cue_failures":0,"cue_overload_skips":0,"intentional_skips":284,"overload_skips":0,"obsolete_results":0,"trusted_layout_duration_ms":0,"last_recovery_delay_ms":null}}
