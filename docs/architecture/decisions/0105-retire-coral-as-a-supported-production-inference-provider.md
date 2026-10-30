@@ -82,10 +82,11 @@ use the recoverable prior release if rollback is needed.
 
 ## Verification
 
-- Runtime/configuration tests prove only the Intel GPU provider is selectable,
-  confirm the compiled provider identity is GPU, and assert a clear startup
-  failure when the required GPU provider is unavailable; no CPU or Coral
-  fallback is selected.
+- Configuration and CLI tests reject CPU, automatic, and Coral providers.
+  The live composition API also rejects any provider except OpenVINO before it
+  opens capture. The OpenVINO session explicitly requests the GPU device and
+  propagates initialization errors without a fallback. The user-visible error
+  for a missing GPU still requires target-device qualification.
 - Configuration-schema and packaging checks prove Coral provider settings,
   launch arguments, worker/runtime dependencies, and Coral installation steps
   are absent from the supported build while the rollback package remains

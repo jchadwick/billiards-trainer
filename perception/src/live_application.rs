@@ -311,6 +311,10 @@ pub fn run_live_application_with_audit<F: CaptureSourceFactory>(
     audit_config: Option<LiveAuditConfig>,
 ) -> Result<()> {
     ensure!(
+        settings.provider == ProviderSelection::Openvino,
+        "live application requires the OpenVINO GPU inference provider"
+    );
+    ensure!(
         exact_capture_settings_json.len() <= settings.capture_settings_maximum_bytes,
         "capture settings request exceeds configured byte limit"
     );
@@ -416,20 +420,8 @@ pub fn run_live_application_with_audit<F: CaptureSourceFactory>(
         max_detections: settings.max_detections,
         intra_op_threads: settings.intra_op_threads,
     };
-    let mut detector = match settings.provider {
-        ProviderSelection::Openvino => {
-            FrameInferenceEngine::new_without_onnx_runtime(inference_options)
-        }
-        ProviderSelection::Cpu | ProviderSelection::Auto => {
-            let environment = ort::init()
-                .with_name("billiards-perception-live")
-                .with_telemetry(false)
-                .build()
-                .context("failed to initialize ONNX Runtime")?;
-            FrameInferenceEngine::new(environment, inference_options)
-        }
-    }
-    .context("failed to load the configured live detector")?;
+    let mut detector = FrameInferenceEngine::new_without_onnx_runtime(inference_options)
+        .context("failed to load the configured live detector")?;
 
     warm_up_detector(&mut detector, expected, settings.warmup_runs)
         .context("live detector warm-up failed")?;
