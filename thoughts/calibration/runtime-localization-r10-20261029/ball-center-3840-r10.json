@@ -1,0 +1,446 @@
+{
+  "schema_version": 1,
+  "calibration_revision": 2026102910,
+  "camera_profile_id": "camera-profile-v3:e57dc2f6a97684f78a68a7407cd0b04c20e9ef732a8abc8b091804928e5bc3cb",
+  "optics_profile_id": "mokose-uc40m-zero-radial-native4k-20261029",
+  "optics_revision": 1,
+  "refiner_revision": 10,
+  "table_revision": 1,
+  "rectification_revision": 0,
+  "image_space": "raw",
+  "source_width_px": 3840,
+  "source_height_px": 2160,
+  "coordinate_frame": "center_origin_x_corner0_to1_y_corner0_to3",
+  "table_width_mm": 2336.8,
+  "table_height_mm": 1155.7,
+  "ball_diameter_mm": 57.15,
+  "image_to_table_mm": [
+    [
+      0.6902107634063571,
+      -0.004571957815719926,
+      -1330.558839599836
+    ],
+    [
+      0.0003350325307512685,
+      0.6868086220371499,
+      -750.6162228291669
+    ],
+    [
+      3.1017850055433693e-6,
+      -0.000011847981195047793,
+      1.0068851104835896
+    ]
+  ],
+  "provenance": "Existing nine user reference positions; no new measurement or image. Centers re-derived from accepted refiner10 observations on the frozen saved 1280x720 image; 3840 coordinates are explicitly scaled 3x using the saved rail registration. Coordinate quality is empirical reference consistency, not independently certified millimeter accuracy.",
+  "solver_policy": {
+    "minimum_correspondences": 6,
+    "maximum_correspondences": 1024,
+    "relative_rank_tolerance": 1e-10,
+    "maximum_condition_number": 100000000.0,
+    "numerical_tolerance": 1e-10,
+    "maximum_fit_rms_mm": null
+  },
+  "correspondences": [
+    {
+      "image_point_px": {
+        "x_px": 1928.4134181432175,
+        "y_px": 1083.7306179905574
+      },
+      "center_table_mm": {
+        "x_mm": 3.175,
+        "y_mm": -3.175
+      },
+      "provenance": "middle-row-center-ball; actual target IntelGPU proposal; refiner10 accepted; saved 1280x720 center scaled 3x to native processing coordinates; R10 trace SHA256 14c8f6d5e907b51f468bdb5914fddccc547f821671d8619f912bf1e0d1d1a253; original physical measurement uncertainty unknown"
+    },
+    {
+      "image_point_px": {
+        "x_px": 3591.509792321427,
+        "y_px": 1085.9619092827288
+      },
+      "center_table_mm": {
+        "x_mm": 1139.825,
+        "y_mm": -3.175
+      },
+      "provenance": "far-right-purple-middle-row-ball; actual target IntelGPU proposal; refiner10 accepted; saved 1280x720 center scaled 3x to native processing coordinates; R10 trace SHA256 fc80a97c44e995ffa47904e53b380d7876608c95e53c9df54d86f50b92ab0317; original physical measurement uncertainty unknown"
+    },
+    {
+      "image_point_px": {
+        "x_px": 287.4832638121627,
+        "y_px": 1086.108054088801
+      },
+      "center_table_mm": {
+        "x_mm": -1139.825,
+        "y_mm": -3.175
+      },
+      "provenance": "far-left-yellow-middle-row-ball; actual target IntelGPU proposal; refiner10 accepted; saved 1280x720 center scaled 3x to native processing coordinates; R10 trace SHA256 68816f4dc7770619cad8ac1f29d5c6f4f3d0c662416141924f7ba87d157aa260; original physical measurement uncertainty unknown"
+    },
+    {
+      "image_point_px": {
+        "x_px": 1075.574461188211,
+        "y_px": 1091.3028681539336
+      },
+      "center_table_mm": {
+        "x_mm": -596.9,
+        "y_mm": -3.175
+      },
+      "provenance": "interior-purple-second-left-middle-row-ball; actual target IntelGPU proposal; refiner10 accepted; saved 1280x720 center scaled 3x to native processing coordinates; R10 trace SHA256 4f2833d38fdbd02f13c0b1a508e77eb3b11f005cf515dc3118047a37239004d0; original physical measurement uncertainty unknown"
+    },
+    {
+      "image_point_px": {
+        "x_px": 2773.5012507578754,
+        "y_px": 1085.218703373833
+      },
+      "center_table_mm": {
+        "x_mm": 577.85,
+        "y_mm": -3.175
+      },
+      "provenance": "interior-green-second-right-middle-row-ball; actual target IntelGPU proposal; refiner10 accepted; saved 1280x720 center scaled 3x to native processing coordinates; R10 trace SHA256 6a72661abb02df021b8dfeb6caf0e36423243f851d80e6c0e393e0eb5f98a947; original physical measurement uncertainty unknown"
+    },
+    {
+      "image_point_px": {
+        "x_px": 1057.129219377267,
+        "y_px": 290.5585658654718
+      },
+      "center_table_mm": {
+        "x_mm": -600.075,
+        "y_mm": -549.275
+      },
+      "provenance": "top-orange-solid-second-left-ball; actual target IntelGPU proposal; refiner10 accepted; saved 1280x720 center scaled 3x to native processing coordinates; R10 trace SHA256 8adb6852ad66baccd0ec80fefd7b8c15ad337fb96add4f486553c5312efd34f1; original physical measurement uncertainty unknown"
+    },
+    {
+      "image_point_px": {
+        "x_px": 2782.718802977466,
+        "y_px": 280.99384498970176
+      },
+      "center_table_mm": {
+        "x_mm": 577.85,
+        "y_mm": -549.275
+      },
+      "provenance": "top-red-striped-second-right-ball; actual target IntelGPU proposal; refiner10 accepted; saved 1280x720 center scaled 3x to native processing coordinates; R10 trace SHA256 de3c202a00a7ddad8b1daf0a9546dd05a727c40a72821ff6fd85f4cccadb44a9; original physical measurement uncertainty unknown"
+    },
+    {
+      "image_point_px": {
+        "x_px": 1085.9769500596944,
+        "y_px": 1880.1763595793425
+      },
+      "center_table_mm": {
+        "x_mm": -600.075,
+        "y_mm": 549.275
+      },
+      "provenance": "bottom-black-second-left-ball; actual target IntelGPU proposal; refiner10 accepted; saved 1280x720 center scaled 3x to native processing coordinates; R10 trace SHA256 a06a7d899a600ade4a5a742582bfde10224c480aad261bfb7187671e2a00b8d5; original physical measurement uncertainty unknown"
+    },
+    {
+      "image_point_px": {
+        "x_px": 2775.3581653873634,
+        "y_px": 1890.250578269052
+      },
+      "center_table_mm": {
+        "x_mm": 577.85,
+        "y_mm": 549.275
+      },
+      "provenance": "bottom-yellow-second-right-ball; actual target IntelGPU proposal; refiner10 accepted; saved 1280x720 center scaled 3x to native processing coordinates; R10 trace SHA256 98eef39e43bc4bf7af97a250434a5d0088b0f97383243d70dc0800573e974cee; original physical measurement uncertainty unknown"
+    }
+  ],
+  "fit_report": {
+    "normalized_design_condition_number": 11.51500339592488,
+    "rms_mm": 4.052644979530378,
+    "maximum_residual_mm": 8.067271261111728,
+    "residuals": [
+      {
+        "correspondence_index": 0,
+        "projected_table_mm": {
+          "x_mm": -4.501792957014633,
+          "y_mm": -5.65445871018046
+        },
+        "error_x_mm": -7.676792957014633,
+        "error_y_mm": -2.4794587101804604,
+        "distance_mm": 8.067271261111728
+      },
+      {
+        "correspondence_index": 1,
+        "projected_table_mm": {
+          "x_mm": 1137.5067959217085,
+          "y_mm": -3.546651443018494
+        },
+        "error_x_mm": -2.318204078291501,
+        "error_y_mm": -0.3716514430184943,
+        "distance_mm": 2.34780641103671
+      },
+      {
+        "correspondence_index": 2,
+        "projected_table_mm": {
+          "x_mm": -1142.9194581397355,
+          "y_mm": -4.5949250167502464
+        },
+        "error_x_mm": -3.0944581397354796,
+        "error_y_mm": -1.4199250167502466,
+        "distance_mm": 3.404681810649617
+      },
+      {
+        "correspondence_index": 3,
+        "projected_table_mm": {
+          "x_mm": -594.7860936318382,
+          "y_mm": -0.7416600237140352
+        },
+        "error_x_mm": 2.1139063681617927,
+        "error_y_mm": 2.4333399762859647,
+        "distance_mm": 3.2233125156500666
+      },
+      {
+        "correspondence_index": 4,
+        "projected_table_mm": {
+          "x_mm": 577.2616511568965,
+          "y_mm": -4.33803722856551
+        },
+        "error_x_mm": -0.5883488431035175,
+        "error_y_mm": -1.1630372285655106,
+        "distance_mm": 1.3033840401856205
+      },
+      {
+        "correspondence_index": 5,
+        "projected_table_mm": {
+          "x_mm": -598.2242917475165,
+          "y_mm": -547.0270437375107
+        },
+        "error_x_mm": 1.8507082524835141,
+        "error_y_mm": 2.2479562624893106,
+        "distance_mm": 2.9117740973288937
+      },
+      {
+        "correspondence_index": 6,
+        "projected_table_mm": {
+          "x_mm": 581.7292313214996,
+          "y_mm": -549.9920105156796
+        },
+        "error_x_mm": 3.87923132149956,
+        "error_y_mm": -0.7170105156795898,
+        "distance_mm": 3.9449384944886448
+      },
+      {
+        "correspondence_index": 7,
+        "projected_table_mm": {
+          "x_mm": -596.7768255350495,
+          "y_mm": 547.653229080874
+        },
+        "error_x_mm": 3.2981744649505345,
+        "error_y_mm": -1.6217709191259928,
+        "distance_mm": 3.675336136379163
+      },
+      {
+        "correspondence_index": 8,
+        "projected_table_mm": {
+          "x_mm": 580.3869105193047,
+          "y_mm": 552.3664286095458
+        },
+        "error_x_mm": 2.5369105193046835,
+        "error_y_mm": 3.091428609545801,
+        "distance_mm": 3.999105628872166
+      }
+    ],
+    "leave_one_out_rms_mm": 8.790999849591628,
+    "leave_one_out_maximum_residual_mm": 11.109796453444332,
+    "leave_one_out": [
+      {
+        "held_out_index": 0,
+        "training_correspondences": 8,
+        "normalized_design_condition_number": 11.590733121777449,
+        "projected_table_mm": [
+          -6.931870188589953,
+          -6.0573597198971125
+        ],
+        "error_mm": [
+          -10.106870188589953,
+          -2.8823597198971127
+        ],
+        "distance_mm": 10.509844078952536,
+        "source_point_extrapolated": false
+      },
+      {
+        "held_out_index": 1,
+        "training_correspondences": 8,
+        "normalized_design_condition_number": 10.725874658242097,
+        "projected_table_mm": [
+          1132.4017622717909,
+          -3.824673752137199
+        ],
+        "error_mm": [
+          -7.4232377282091875,
+          -0.6496737521371991
+        ],
+        "distance_mm": 7.451612869287047,
+        "source_point_extrapolated": true
+      },
+      {
+        "held_out_index": 2,
+        "training_correspondences": 8,
+        "normalized_design_condition_number": 10.736925710707691,
+        "projected_table_mm": [
+          -1149.308850873604,
+          -5.5980510763875095
+        ],
+        "error_mm": [
+          -9.483850873603842,
+          -2.4230510763875097
+        ],
+        "distance_mm": 9.788493444424379,
+        "source_point_extrapolated": true
+      },
+      {
+        "held_out_index": 3,
+        "training_correspondences": 8,
+        "normalized_design_condition_number": 11.444719849448367,
+        "projected_table_mm": [
+          -594.2578721250436,
+          -0.07579034515236273
+        ],
+        "error_mm": [
+          2.6421278749563726,
+          3.099209654847637
+        ],
+        "distance_mm": 4.072583969953509,
+        "source_point_extrapolated": false
+      },
+      {
+        "held_out_index": 4,
+        "training_correspondences": 8,
+        "normalized_design_condition_number": 11.468007548958678,
+        "projected_table_mm": [
+          577.1140221881312,
+          -4.6523195867221645
+        ],
+        "error_mm": [
+          -0.7359778118687927,
+          -1.4773195867221647
+        ],
+        "distance_mm": 1.650495834855733,
+        "source_point_extrapolated": false
+      },
+      {
+        "held_out_index": 5,
+        "training_correspondences": 8,
+        "normalized_design_condition_number": 12.793767872299872,
+        "projected_table_mm": [
+          -594.3666643840305,
+          -543.7657219799896
+        ],
+        "error_mm": [
+          5.708335615969531,
+          5.509278020010356
+        ],
+        "distance_mm": 7.933299427496448,
+        "source_point_extrapolated": true
+      },
+      {
+        "held_out_index": 6,
+        "training_correspondences": 8,
+        "normalized_design_condition_number": 12.849795533303052,
+        "projected_table_mm": [
+          588.5686803610057,
+          -552.196894685911
+        ],
+        "error_mm": [
+          10.718680361005681,
+          -2.92189468591107
+        ],
+        "distance_mm": 11.109796453444332,
+        "source_point_extrapolated": true
+      },
+      {
+        "held_out_index": 7,
+        "training_correspondences": 8,
+        "normalized_design_condition_number": 12.791231366878723,
+        "projected_table_mm": [
+          -590.8201778151919,
+          544.6699715099705
+        ],
+        "error_mm": [
+          9.254822184808177,
+          -4.60502849002944
+        ],
+        "distance_mm": 10.33721534391155,
+        "source_point_extrapolated": true
+      },
+      {
+        "held_out_index": 8,
+        "training_correspondences": 8,
+        "normalized_design_condition_number": 12.837274517390306,
+        "projected_table_mm": [
+          585.7628312427147,
+          556.9294974552196
+        ],
+        "error_mm": [
+          7.912831242714674,
+          7.654497455219598
+        ],
+        "distance_mm": 11.009279248327056,
+        "source_point_extrapolated": true
+      }
+    ],
+    "source_hull_area_fraction": 0.4832113355132295,
+    "table_hull_area_fraction": 0.7032257823698039,
+    "source_reference_hull_px": [
+      [
+        287.4832638121627,
+        1086.108054088801
+      ],
+      [
+        1057.129219377267,
+        290.5585658654718
+      ],
+      [
+        2782.718802977466,
+        280.99384498970176
+      ],
+      [
+        3591.509792321427,
+        1085.9619092827288
+      ],
+      [
+        2775.3581653873634,
+        1890.250578269052
+      ],
+      [
+        1085.9769500596944,
+        1880.1763595793425
+      ]
+    ],
+    "table_reference_hull_mm": [
+      [
+        -1139.825,
+        -3.175
+      ],
+      [
+        -600.075,
+        -549.275
+      ],
+      [
+        577.85,
+        -549.275
+      ],
+      [
+        1139.825,
+        -3.175
+      ],
+      [
+        577.85,
+        549.275
+      ],
+      [
+        -600.075,
+        549.275
+      ]
+    ],
+    "source_image_corners_extrapolated": [
+      true,
+      true,
+      true,
+      true
+    ],
+    "physical_table_corners_extrapolated": [
+      true,
+      true,
+      true,
+      true
+    ]
+  }
+}

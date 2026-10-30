@@ -1,0 +1,25 @@
+{
+  "scope": "saved-image application pipeline; no camera",
+  "elapsed_seconds": 20.000114743001177,
+  "sample_hz": 10.0,
+  "samples": 200,
+  "startup_minimum_precise_balls": 14,
+  "target_precise_balls": 15,
+  "precise_count_histogram": {
+    "14": 200
+  },
+  "freshness_status_histogram": {
+    "fresh": 200
+  },
+  "samples_with_fewer_than_target": 200,
+  "fewer_than_target_episodes": [
+    {
+      "start_seconds": 3.6130004446022213e-06,
+      "duration_seconds": 20.000111130000732
+    }
+  ],
+  "fewer_than_startup_minimum_episodes": [],
+  "http_errors": 0,
+  "distinct_observation_frame_ids": 19,
+  "production_eligible_accuracy_evidence": false
+}

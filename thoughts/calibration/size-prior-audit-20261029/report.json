@@ -1,0 +1,4142 @@
+{
+  "purpose": "Research feasibility, not production acceptance or independent accuracy",
+  "dependencies": {
+    "numpy": "2.5.4",
+    "opencv": "5.0.0"
+  },
+  "calibration_sha256": "f794afc2588a45f36a77d8f6e025fdb59f2c0372ad39c737a5bb02f90b72981d",
+  "synthetic": [
+    {
+      "arc_degrees": 60,
+      "fits": [
+        {
+          "radius_ratio": 0.96,
+          "center_error": 0.4297769957517405,
+          "rms": 0.08788097965354758,
+          "condition": 3.04728566376274
+        },
+        {
+          "radius_ratio": 1.0,
+          "center_error": 0.01810532881327012,
+          "rms": 0.08413399073699065,
+          "condition": 3.1814477596278694
+        },
+        {
+          "radius_ratio": 1.04,
+          "center_error": 0.4088867033707985,
+          "rms": 0.08411792194187558,
+          "condition": 3.3155827835279554
+        }
+      ]
+    },
+    {
+      "arc_degrees": 120,
+      "fits": [
+        {
+          "radius_ratio": 0.96,
+          "center_error": 0.47263872672910756,
+          "rms": 0.11046800069996747,
+          "condition": 1.4525876036659595
+        },
+        {
+          "radius_ratio": 1.0,
+          "center_error": 0.0013743994985195604,
+          "rms": 0.07403268926632203,
+          "condition": 1.5234250207642162
+        },
+        {
+          "radius_ratio": 1.04,
+          "center_error": 0.46693200405048796,
+          "rms": 0.1002874781056084,
+          "condition": 1.5948867495937122
+        }
+      ]
+    },
+    {
+      "arc_degrees": 180,
+      "fits": [
+        {
+          "radius_ratio": 0.96,
+          "center_error": 0.5004460693829927,
+          "rms": 0.19013426028831681,
+          "condition": 1.0616284794628255
+        },
+        {
+          "radius_ratio": 1.0,
+          "center_error": 0.0022008218693314575,
+          "rms": 0.07906665916950986,
+          "condition": 1.018341957581348
+        },
+        {
+          "radius_ratio": 1.04,
+          "center_error": 0.5097114448730907,
+          "rms": 0.20428251538130307,
+          "condition": 1.0245557402837355
+        }
+      ]
+    },
+    {
+      "arc_degrees": 240,
+      "fits": [
+        {
+          "radius_ratio": 0.96,
+          "center_error": 0.4135012264506157,
+          "rms": 0.32503660367683823,
+          "condition": 1.2600429030798799
+        },
+        {
+          "radius_ratio": 1.0,
+          "center_error": 0.00937279803954799,
+          "rms": 0.07292732588647222,
+          "condition": 1.2395570723708624
+        },
+        {
+          "radius_ratio": 1.04,
+          "center_error": 0.45903272318873284,
+          "rms": 0.31110854530633375,
+          "condition": 1.2165664783301655
+        }
+      ]
+    },
+    {
+      "arc_degrees": 300,
+      "fits": [
+        {
+          "radius_ratio": 0.96,
+          "center_error": 0.1550380382987001,
+          "rms": 0.39146744805628086,
+          "condition": 1.169134099360789
+        },
+        {
+          "radius_ratio": 1.0,
+          "center_error": 0.020479627403826927,
+          "rms": 0.09189053994509445,
+          "condition": 1.1681731054093993
+        },
+        {
+          "radius_ratio": 1.04,
+          "center_error": 0.2191575959803447,
+          "rms": 0.401705428581034,
+          "condition": 1.1670158092039267
+        }
+      ]
+    }
+  ],
+  "cases": [
+    {
+      "trace_path": "thoughts/calibration/actual-detector-refiner-final-20261029/cases/bottom-black-second-left-ball.json",
+      "trace_sha256": "3e0c048c24c8ef3055f5ec0c56f66af035fddefe893f09cc26b1b3728838a817",
+      "ball_id": "bottom-black-second-left-ball",
+      "runtime_status": "accepted",
+      "runtime_reason": null,
+      "runtime_stage": "complete",
+      "observed_candidates": 281,
+      "paths": [
+        {
+          "fit_id": 0,
+          "unconstrained_local_radius": 12.004481825035105,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                361.9386363607195,
+                626.6838270100841
+              ],
+              "local_rms": 1.1334081024341167,
+              "jacobian_condition": 1.000570813917913
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                361.9414964768777,
+                626.6621849298785
+              ],
+              "local_rms": 0.8815678933972839,
+              "jacobian_condition": 1.000549102542834
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                362.01395347160155,
+                626.8618662257807
+              ],
+              "local_rms": 0.8265081022953616,
+              "jacobian_condition": 1.0007530642299776
+            }
+          ],
+          "source_center_spread_4percent": 0.21242089355229643
+        },
+        {
+          "fit_id": 1,
+          "unconstrained_local_radius": 11.998681943377873,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                361.9353986049827,
+                626.7099739325893
+              ],
+              "local_rms": 1.1281099095391784,
+              "jacobian_condition": 1.0006387427299512
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                361.9396236614541,
+                626.695482317355
+              ],
+              "local_rms": 0.8777298809795456,
+              "jacobian_condition": 1.0006181616179421
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                362.01265248689253,
+                626.8863964346657
+              ],
+              "local_rms": 0.8282995928239049,
+              "jacobian_condition": 1.0008397593251994
+            }
+          ],
+          "source_center_spread_4percent": 0.20440501347436504
+        },
+        {
+          "fit_id": 2,
+          "unconstrained_local_radius": 12.005086901720924,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                361.93984038616594,
+                626.6861940967285
+              ],
+              "local_rms": 1.103751629164739,
+              "jacobian_condition": 1.00058815667988
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                361.9422890467179,
+                626.6636887406495
+              ],
+              "local_rms": 0.847292376273889,
+              "jacobian_condition": 1.0005665245925257
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                362.01651930454494,
+                626.8640094577576
+              ],
+              "local_rms": 0.7960717133836068,
+              "jacobian_condition": 1.000762011276226
+            }
+          ],
+          "source_center_spread_4percent": 0.21363174127399284
+        },
+        {
+          "fit_id": 3,
+          "unconstrained_local_radius": 12.00143058644371,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                361.9329605187179,
+                626.691627228654
+              ],
+              "local_rms": 1.1246138515379516,
+              "jacobian_condition": 1.000623918769417
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                361.9375368977881,
+                626.6705965258877
+              ],
+              "local_rms": 0.8741286127451999,
+              "jacobian_condition": 1.0006020504754847
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                362.00001885744354,
+                626.8799614032399
+              ],
+              "local_rms": 0.8220140334827518,
+              "jacobian_condition": 1.0008142576813746
+            }
+          ],
+          "source_center_spread_4percent": 0.21848946691105883
+        },
+        {
+          "fit_id": 4,
+          "unconstrained_local_radius": 11.999278650444584,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                361.9367012689704,
+                626.7126030387582
+              ],
+              "local_rms": 1.0983944647249582,
+              "jacobian_condition": 1.0006544300696392
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                361.94046580455927,
+                626.6970034203677
+              ],
+              "local_rms": 0.8434908402888706,
+              "jacobian_condition": 1.0006333224947082
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                362.01523714480555,
+                626.8885061001065
+              ],
+              "local_rms": 0.7980845422192834,
+              "jacobian_condition": 1.0008471065369686
+            }
+          ],
+          "source_center_spread_4percent": 0.2055821725475852
+        },
+        {
+          "fit_id": 5,
+          "unconstrained_local_radius": 11.99855699443838,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                361.94021504281847,
+                626.7077194720155
+              ],
+              "local_rms": 1.128227151731561,
+              "jacobian_condition": 1.0006050712011296
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                361.94549897106225,
+                626.6934883753702
+              ],
+              "local_rms": 0.8778443512772375,
+              "jacobian_condition": 1.000583612485362
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                362.0192738647518,
+                626.8850254344275
+              ],
+              "local_rms": 0.8284169304083678,
+              "jacobian_condition": 1.000817025310375
+            }
+          ],
+          "source_center_spread_4percent": 0.20525394011131848
+        },
+        {
+          "fit_id": 6,
+          "unconstrained_local_radius": 12.004484451341883,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                361.9347461698393,
+                626.6872505647602
+              ],
+              "local_rms": 1.191392774036658,
+              "jacobian_condition": 1.0006885936348657
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                361.9422889379595,
+                626.660671101659
+              ],
+              "local_rms": 0.9409470247855007,
+              "jacobian_condition": 1.0006669146755665
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                361.9812251642338,
+                626.8941037684496
+              ],
+              "local_rms": 0.8685208876755929,
+              "jacobian_condition": 1.0008690707032453
+            }
+          ],
+          "source_center_spread_4percent": 0.23665764226292
+        },
+        {
+          "fit_id": 7,
+          "unconstrained_local_radius": 12.014260927921232,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                361.960127731685,
+                626.6890871993241
+              ],
+              "local_rms": 1.1339983238352576,
+              "jacobian_condition": 1.0005576891381978
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                361.96221358606516,
+                626.6573303295144
+              ],
+              "local_rms": 0.8798328423584837,
+              "jacobian_condition": 1.000529387313052
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                362.03358440614096,
+                626.8604448551233
+              ],
+              "local_rms": 0.8200976009914,
+              "jacobian_condition": 1.0007217832514468
+            }
+          ],
+          "source_center_spread_4percent": 0.21528888608481894
+        }
+      ],
+      "predicted_local_radius": 11.894707099680048,
+      "local_focal": 695.7669359894517,
+      "conclusion": "Geometry-only sensitivity; no pixel, coverage, quadrant, or source-validity qualification is performed."
+    },
+    {
+      "trace_path": "thoughts/calibration/actual-detector-refiner-final-20261029/cases/bottom-left-pocket-ball.json",
+      "trace_sha256": "9f72fec69a13460ec91416b90a466e9358293c3228c4938d041a9b9ba80528f3",
+      "ball_id": "bottom-left-pocket-ball",
+      "runtime_status": "rejected",
+      "runtime_reason": "inadequate_coverage",
+      "runtime_stage": "coverage",
+      "observed_candidates": 210,
+      "paths": [
+        {
+          "fit_id": 0,
+          "unconstrained_local_radius": 10.210931976688048,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                105.81711548945415,
+                617.025805115815
+              ],
+              "local_rms": 2.5507657704052265,
+              "jacobian_condition": 1.1914964733585065
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                105.22172081984733,
+                617.5297496724876
+              ],
+              "local_rms": 2.2667787689564225,
+              "jacobian_condition": 1.1779643210970865
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                104.45888380744815,
+                618.335230714096
+              ],
+              "local_rms": 1.9606804593773135,
+              "jacobian_condition": 1.1582902428495796
+            }
+          ],
+          "source_center_spread_4percent": 1.8866342251317318
+        },
+        {
+          "fit_id": 1,
+          "unconstrained_local_radius": 10.247845342759236,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                105.89099141891306,
+                617.0198355922618
+              ],
+              "local_rms": 2.557323271804295,
+              "jacobian_condition": 1.1919830719534281
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                105.31517957227919,
+                617.5068167353207
+              ],
+              "local_rms": 2.27671916628956,
+              "jacobian_condition": 1.179155998181089
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                104.55936330600841,
+                618.3566700745562
+              ],
+              "local_rms": 1.9614458629028761,
+              "jacobian_condition": 1.1594738574455044
+            }
+          ],
+          "source_center_spread_4percent": 1.8868915878050334
+        },
+        {
+          "fit_id": 2,
+          "unconstrained_local_radius": 10.21687885955394,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                105.81635429022859,
+                617.014926197688
+              ],
+              "local_rms": 2.5545657964185935,
+              "jacobian_condition": 1.1917008559556022
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                105.22680994267004,
+                617.5009734808485
+              ],
+              "local_rms": 2.2744991659042824,
+              "jacobian_condition": 1.178509116233142
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                104.46182900300545,
+                618.3088747551351
+              ],
+              "local_rms": 1.967385089780039,
+              "jacobian_condition": 1.158822187240247
+            }
+          ],
+          "source_center_spread_4percent": 1.873243610170925
+        },
+        {
+          "fit_id": 3,
+          "unconstrained_local_radius": 10.21861950690955,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                105.80663387222914,
+                616.9940332876081
+              ],
+              "local_rms": 2.5591616191532034,
+              "jacobian_condition": 1.191707353020564
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                105.20998235226706,
+                617.5071619606116
+              ],
+              "local_rms": 2.2714214074486176,
+              "jacobian_condition": 1.1780423390678
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                104.46472965818062,
+                618.265721886011
+              ],
+              "local_rms": 1.9732710432143161,
+              "jacobian_condition": 1.1591012285767222
+            }
+          ],
+          "source_center_spread_4percent": 1.8487560171610156
+        },
+        {
+          "fit_id": 4,
+          "unconstrained_local_radius": 10.18915883771182,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                105.83479846410015,
+                617.0483889029908
+              ],
+              "local_rms": 2.5445746587335565,
+              "jacobian_condition": 1.1914556524337694
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                105.23437311241678,
+                617.5607513991741
+              ],
+              "local_rms": 2.260378365603992,
+              "jacobian_condition": 1.1778299101379166
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                104.4517989692983,
+                618.4104660649662
+              ],
+              "local_rms": 1.948262977000226,
+              "jacobian_condition": 1.1575042574277088
+            }
+          ],
+          "source_center_spread_4percent": 1.9411186975033032
+        },
+        {
+          "fit_id": 5,
+          "unconstrained_local_radius": 10.203778343659158,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                105.84408983747626,
+                617.01602932843
+              ],
+              "local_rms": 2.555396338048668,
+              "jacobian_condition": 1.1919932341422803
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                105.24977525048992,
+                617.5128904106224
+              ],
+              "local_rms": 2.273398463365011,
+              "jacobian_condition": 1.178582670812654
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                104.49939230399985,
+                618.3040933711653
+              ],
+              "local_rms": 1.9711142724061375,
+              "jacobian_condition": 1.1592771892114933
+            }
+          ],
+          "source_center_spread_4percent": 1.8620742291125603
+        },
+        {
+          "fit_id": 6,
+          "unconstrained_local_radius": 10.268434037930962,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                105.89803082919455,
+                616.9913353683179
+              ],
+              "local_rms": 2.5655067803809235,
+              "jacobian_condition": 1.192454755167553
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                105.32250424837935,
+                617.4788498507468
+              ],
+              "local_rms": 2.284167603718077,
+              "jacobian_condition": 1.1796954646005817
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                104.56094313775158,
+                618.3337994645266
+              ],
+              "local_rms": 1.9673929610868435,
+              "jacobian_condition": 1.1599235248427844
+            }
+          ],
+          "source_center_spread_4percent": 1.8947330535507394
+        },
+        {
+          "fit_id": 7,
+          "unconstrained_local_radius": 10.26387542969048,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                105.8767566282608,
+                617.0035794073137
+              ],
+              "local_rms": 2.5619036258371546,
+              "jacobian_condition": 1.191964279002991
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                105.3022194497423,
+                617.485797397913
+              ],
+              "local_rms": 2.2810580401247726,
+              "jacobian_condition": 1.1791872114326678
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                104.5827541511209,
+                618.2516080758819
+              ],
+              "local_rms": 1.9810080090552638,
+              "jacobian_condition": 1.1608718815267158
+            }
+          ],
+          "source_center_spread_4percent": 1.7977814017316527
+        }
+      ],
+      "predicted_local_radius": 10.331892211660662,
+      "local_focal": 695.7669577518357,
+      "conclusion": "Geometry-only sensitivity; no pixel, coverage, quadrant, or source-validity qualification is performed."
+    },
+    {
+      "trace_path": "thoughts/calibration/actual-detector-refiner-final-20261029/cases/bottom-middle-pocket-ball.json",
+      "trace_sha256": "ee2cb6a69928b1f48c59283c5055ca8ad1959f382417823bd2d09ecad59c5eca",
+      "ball_id": "bottom-middle-pocket-ball",
+      "runtime_status": "accepted",
+      "runtime_reason": null,
+      "runtime_stage": "complete",
+      "observed_candidates": 203,
+      "paths": [
+        {
+          "fit_id": 0,
+          "unconstrained_local_radius": 12.361604464448746,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                641.1915225656361,
+                628.9666146132952
+              ],
+              "local_rms": 0.3551586718118008,
+              "jacobian_condition": 1.258969831861911
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                641.1388489622035,
+                629.5202725633021
+              ],
+              "local_rms": 0.4421269269051429,
+              "jacobian_condition": 1.2444884629634316
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                641.1279542454223,
+                630.1576287028595
+              ],
+              "local_rms": 0.7754411230353228,
+              "jacobian_condition": 1.2266504050235336
+            }
+          ],
+          "source_center_spread_4percent": 1.1927093077843796
+        },
+        {
+          "fit_id": 1,
+          "unconstrained_local_radius": 12.356285970730896,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                641.2020627955812,
+                629.0017706711462
+              ],
+              "local_rms": 0.36265303603104276,
+              "jacobian_condition": 1.2579951021258573
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                641.1518164974862,
+                629.5545376839021
+              ],
+              "local_rms": 0.45131192363704037,
+              "jacobian_condition": 1.2434307472387263
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                641.1433206629002,
+                630.1963136940761
+              ],
+              "local_rms": 0.7817168821285456,
+              "jacobian_condition": 1.2253612851836255
+            }
+          ],
+          "source_center_spread_4percent": 1.1959864847825128
+        },
+        {
+          "fit_id": 2,
+          "unconstrained_local_radius": 12.385458005312556,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                641.2108154397351,
+                628.9858600485906
+              ],
+              "local_rms": 0.35851665039672503,
+              "jacobian_condition": 1.258446015537821
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                641.1516512602017,
+                629.5306313502142
+              ],
+              "local_rms": 0.42648827153386815,
+              "jacobian_condition": 1.2441143085267266
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                641.1372282406466,
+                630.1636345358496
+              ],
+              "local_rms": 0.7558586049963956,
+              "jacobian_condition": 1.2263143223279964
+            }
+          ],
+          "source_center_spread_4percent": 1.180071107479562
+        },
+        {
+          "fit_id": 3,
+          "unconstrained_local_radius": 12.379937859081451,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                641.2208673814016,
+                629.0218422703878
+              ],
+              "local_rms": 0.365218132178266,
+              "jacobian_condition": 1.257447191105726
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                641.1634474598793,
+                629.5651334256428
+              ],
+              "local_rms": 0.4354307076786711,
+              "jacobian_condition": 1.2430499204138405
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                641.1523380630059,
+                630.2020303954849
+              ],
+              "local_rms": 0.7619271372233225,
+              "jacobian_condition": 1.2250312946686146
+            }
+          ],
+          "source_center_spread_4percent": 1.1821760774521544
+        },
+        {
+          "fit_id": 4,
+          "unconstrained_local_radius": 12.364315288276112,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                641.1803105579716,
+                628.9597134785831
+              ],
+              "local_rms": 0.34104498091365953,
+              "jacobian_condition": 1.259147101510395
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                641.1313190265748,
+                629.5164851215181
+              ],
+              "local_rms": 0.42062370855756054,
+              "jacobian_condition": 1.2446475198298619
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                641.1152997569832,
+                630.1510147260467
+              ],
+              "local_rms": 0.7585371079968165,
+              "jacobian_condition": 1.2269907514468412
+            }
+          ],
+          "source_center_spread_4percent": 1.1930737891905134
+        },
+        {
+          "fit_id": 5,
+          "unconstrained_local_radius": 12.359916039561988,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                641.1892312993671,
+                628.994231498458
+              ],
+              "local_rms": 0.34941115627776226,
+              "jacobian_condition": 1.2581945683459554
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                641.1434216710715,
+                629.5498694120179
+              ],
+              "local_rms": 0.43081109594796385,
+              "jacobian_condition": 1.243618439053195
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                641.1300680416456,
+                630.1882054284014
+              ],
+              "local_rms": 0.7652605811677972,
+              "jacobian_condition": 1.2257492072739242
+            }
+          ],
+          "source_center_spread_4percent": 1.1954388468042167
+        },
+        {
+          "fit_id": 6,
+          "unconstrained_local_radius": 12.362721189199586,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                641.18649266849,
+                628.9536071515948
+              ],
+              "local_rms": 0.37347679180466814,
+              "jacobian_condition": 1.259349844674242
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                641.1303305923122,
+                629.4957583729395
+              ],
+              "local_rms": 0.4541555661208284,
+              "jacobian_condition": 1.2452447578845838
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                641.1153049668145,
+                630.1246944816036
+              ],
+              "local_rms": 0.781484302650527,
+              "jacobian_condition": 1.2277323919297436
+            }
+          ],
+          "source_center_spread_4percent": 1.1732490031433316
+        },
+        {
+          "fit_id": 7,
+          "unconstrained_local_radius": 12.388673657483109,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                641.1975153527845,
+                628.9786412991865
+              ],
+              "local_rms": 0.345157799575963,
+              "jacobian_condition": 1.258637132331742
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                641.143681863879,
+                629.5266811264106
+              ],
+              "local_rms": 0.4046179413569064,
+              "jacobian_condition": 1.2442791342646136
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                641.124639718944,
+                630.1563480771486
+              ],
+              "local_rms": 0.7387480084141489,
+              "jacobian_condition": 1.226673547127726
+            }
+          ],
+          "source_center_spread_4percent": 1.1799593691587025
+        }
+      ],
+      "predicted_local_radius": 12.721731746661586,
+      "local_focal": 695.76686231883,
+      "conclusion": "Geometry-only sensitivity; no pixel, coverage, quadrant, or source-validity qualification is performed."
+    },
+    {
+      "trace_path": "thoughts/calibration/actual-detector-refiner-final-20261029/cases/bottom-right-pocket-ball.json",
+      "trace_sha256": "6f6a53eb8c2fdec55a59752175956d7bd3baebc6a78c0aa80727d61c4123be5d",
+      "ball_id": "bottom-right-pocket-ball",
+      "runtime_status": "rejected",
+      "runtime_reason": "insufficient_boundary",
+      "runtime_stage": "background_sampling",
+      "observed_candidates": 0,
+      "paths": [],
+      "conclusion": "No recorded boundary candidates: a radius prior cannot repair this upstream rejection."
+    },
+    {
+      "trace_path": "thoughts/calibration/actual-detector-refiner-final-20261029/cases/bottom-yellow-second-right-ball.json",
+      "trace_sha256": "a7fb23c3e33c5b9e6a7e9ab67478edae4b81376bb629389a433c27b63260ab1b",
+      "ball_id": "bottom-yellow-second-right-ball",
+      "runtime_status": "accepted",
+      "runtime_reason": null,
+      "runtime_stage": "complete",
+      "observed_candidates": 286,
+      "paths": [
+        {
+          "fit_id": 0,
+          "unconstrained_local_radius": 12.018979933519857,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                925.1982369166616,
+                630.2087693616375
+              ],
+              "local_rms": 0.6586013517350244,
+              "jacobian_condition": 1.001473588390716
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                925.190949401045,
+                630.1323484914001
+              ],
+              "local_rms": 0.3698654358593614,
+              "jacobian_condition": 1.0015399101213294
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                925.1924890763933,
+                630.187580917398
+              ],
+              "local_rms": 0.5392037140560824,
+              "jacobian_condition": 1.0014986684318081
+            }
+          ],
+          "source_center_spread_4percent": 0.07676755363888167
+        },
+        {
+          "fit_id": 1,
+          "unconstrained_local_radius": 12.0267221947507,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                925.2035070504616,
+                630.2315021276422
+              ],
+              "local_rms": 0.6629918386771133,
+              "jacobian_condition": 1.0014000931048574
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                925.1934244144452,
+                630.1541881585374
+              ],
+              "local_rms": 0.3675291862848069,
+              "jacobian_condition": 1.0014696793231943
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                925.1929759828291,
+                630.2068849831433
+              ],
+              "local_rms": 0.5306835480602794,
+              "jacobian_condition": 1.0014353551222337
+            }
+          ],
+          "source_center_spread_4percent": 0.07796864349068519
+        },
+        {
+          "fit_id": 2,
+          "unconstrained_local_radius": 12.017698347805544,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                925.1957867117585,
+                630.2145838033956
+              ],
+              "local_rms": 0.6791319910506632,
+              "jacobian_condition": 1.0014746546791577
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                925.191951751243,
+                630.1299242952903
+              ],
+              "local_rms": 0.3957663917614224,
+              "jacobian_condition": 1.0015355005337765
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                925.1814168757909,
+                630.2094592676779
+              ],
+              "local_rms": 0.5477494988643851,
+              "jacobian_condition": 1.0015060238140927
+            }
+          ],
+          "source_center_spread_4percent": 0.08474632283937056
+        },
+        {
+          "fit_id": 3,
+          "unconstrained_local_radius": 12.011360452925748,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                925.1929962794709,
+                630.1877790587962
+              ],
+              "local_rms": 0.6535979991252236,
+              "jacobian_condition": 1.001548061274214
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                925.1878451271969,
+                630.1070004339663
+              ],
+              "local_rms": 0.3714641741586548,
+              "jacobian_condition": 1.0016146533630839
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                925.1902413318422,
+                630.1669777981065
+              ],
+              "local_rms": 0.5468841673486527,
+              "jacobian_condition": 1.0015675366886667
+            }
+          ],
+          "source_center_spread_4percent": 0.08094269948032981
+        },
+        {
+          "fit_id": 4,
+          "unconstrained_local_radius": 12.024991550658777,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                925.200819414244,
+                630.2384585088791
+              ],
+              "local_rms": 0.6831760285602662,
+              "jacobian_condition": 1.0014033900614838
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                925.1943084523475,
+                630.1522108910334
+              ],
+              "local_rms": 0.3931722467769241,
+              "jacobian_condition": 1.0014674961320449
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                925.1822289465226,
+                630.2285241801967
+              ],
+              "local_rms": 0.5391209209441314,
+              "jacobian_condition": 1.001444512979439
+            }
+          ],
+          "source_center_spread_4percent": 0.08649302982832463
+        },
+        {
+          "fit_id": 5,
+          "unconstrained_local_radius": 12.009717184769785,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                925.1903670074888,
+                630.1929166134586
+              ],
+              "local_rms": 0.6744800594715618,
+              "jacobian_condition": 1.0015481552381735
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                925.189292494148,
+                630.103120725303
+              ],
+              "local_rms": 0.39784021562976896,
+              "jacobian_condition": 1.0016083276818655
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                925.1795075631221,
+                630.1888251068938
+              ],
+              "local_rms": 0.5555495362816584,
+              "jacobian_condition": 1.001572796431065
+            }
+          ],
+          "source_center_spread_4percent": 0.08980231683293848
+        },
+        {
+          "fit_id": 6,
+          "unconstrained_local_radius": 12.016751303896847,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                925.195417467037,
+                630.2149794879423
+              ],
+              "local_rms": 0.7201256496182609,
+              "jacobian_condition": 1.0014908979175763
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                925.1943838068951,
+                630.1248275323111
+              ],
+              "local_rms": 0.45090542520870847,
+              "jacobian_condition": 1.001544893734901
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                925.1762783262288,
+                630.2187004701003
+              ],
+              "local_rms": 0.5755644398280126,
+              "jacobian_condition": 1.0015276849197343
+            }
+          ],
+          "source_center_spread_4percent": 0.09560301710372869
+        },
+        {
+          "fit_id": 7,
+          "unconstrained_local_radius": 12.023694940267104,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                925.2011567780794,
+                630.196840390575
+              ],
+              "local_rms": 0.6701443252375404,
+              "jacobian_condition": 1.0014984405046812
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                925.1941639789441,
+                630.119440886014
+              ],
+              "local_rms": 0.3795940336815844,
+              "jacobian_condition": 1.0015694233596137
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                925.2022573944851,
+                630.1596689647093
+              ],
+              "local_rms": 0.5392206035773651,
+              "jacobian_condition": 1.0015233499997291
+            }
+          ],
+          "source_center_spread_4percent": 0.07771475114821436
+        }
+      ],
+      "predicted_local_radius": 11.934922108730733,
+      "local_focal": 695.7669605143176,
+      "conclusion": "Geometry-only sensitivity; no pixel, coverage, quadrant, or source-validity qualification is performed."
+    },
+    {
+      "trace_path": "thoughts/calibration/actual-detector-refiner-final-20261029/cases/far-left-yellow-middle-row-ball.json",
+      "trace_sha256": "0c4d2c0aa934b25cd71fd3874ea3964932bfd377e086e298b6426d7c937ad056",
+      "ball_id": "far-left-yellow-middle-row-ball",
+      "runtime_status": "accepted",
+      "runtime_reason": null,
+      "runtime_stage": "complete",
+      "observed_candidates": 287,
+      "paths": [
+        {
+          "fit_id": 0,
+          "unconstrained_local_radius": 10.698970256777189,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                95.9730046544031,
+                362.0799402200486
+              ],
+              "local_rms": 0.6648881468831713,
+              "jacobian_condition": 1.0020284015951972
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                95.9222197461804,
+                361.99608119548293
+              ],
+              "local_rms": 0.532381426979445,
+              "jacobian_condition": 1.002243568850131
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                95.78803848466428,
+                361.93563918501303
+              ],
+              "local_rms": 0.7055047348420066,
+              "jacobian_condition": 1.00240681421909
+            }
+          ],
+          "source_center_spread_4percent": 0.2345959775021563
+        },
+        {
+          "fit_id": 1,
+          "unconstrained_local_radius": 10.705978023828374,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                95.95041415536629,
+                362.0745045836348
+              ],
+              "local_rms": 0.6675404810673918,
+              "jacobian_condition": 1.0021004774795694
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                95.90004197905562,
+                361.99054298859045
+              ],
+              "local_rms": 0.5298583701989684,
+              "jacobian_condition": 1.002322412891971
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                95.76623686544272,
+                361.9300051941512
+              ],
+              "local_rms": 0.6991005323306044,
+              "jacobian_condition": 1.002493714832672
+            }
+          ],
+          "source_center_spread_4percent": 0.23409687670860277
+        },
+        {
+          "fit_id": 2,
+          "unconstrained_local_radius": 10.692522826536765,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                95.99719844447573,
+                362.0833797974707
+              ],
+              "local_rms": 0.6640683021649125,
+              "jacobian_condition": 1.0019625788523387
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                95.93988479884548,
+                361.9994792854312
+              ],
+              "local_rms": 0.5368061551030023,
+              "jacobian_condition": 1.0021708561237295
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                95.80726418371306,
+                361.9394237148363
+              ],
+              "local_rms": 0.7134462732989866,
+              "jacobian_condition": 1.0023236306422014
+            }
+          ],
+          "source_center_spread_4percent": 0.23832410104496898
+        },
+        {
+          "fit_id": 3,
+          "unconstrained_local_radius": 10.703374948717768,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                95.97721057835929,
+                362.0937742004415
+              ],
+              "local_rms": 0.6693369239491758,
+              "jacobian_condition": 1.001992890552755
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                95.93046757958088,
+                362.0151951665652
+              ],
+              "local_rms": 0.5330943967357196,
+              "jacobian_condition": 1.002194586892938
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                95.79704721676633,
+                361.956837584231
+              ],
+              "local_rms": 0.7020413574300591,
+              "jacobian_condition": 1.0023524273913078
+            }
+          ],
+          "source_center_spread_4percent": 0.2262973126655705
+        },
+        {
+          "fit_id": 4,
+          "unconstrained_local_radius": 10.694558893134252,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                95.96809262956319,
+                362.06350455027683
+              ],
+              "local_rms": 0.6613337851735503,
+              "jacobian_condition": 1.0020716116542572
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                95.9156975237397,
+                361.9777729493789
+              ],
+              "local_rms": 0.5331144720409381,
+              "jacobian_condition": 1.0022917082095697
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                95.78070553538537,
+                361.91515867734114
+              ],
+              "local_rms": 0.7100122083322609,
+              "jacobian_condition": 1.0024618303117183
+            }
+          ],
+          "source_center_spread_4percent": 0.23899878887027992
+        },
+        {
+          "fit_id": 5,
+          "unconstrained_local_radius": 10.692812627183383,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                95.97951461333717,
+                362.0984641597329
+              ],
+              "local_rms": 0.6643044216194874,
+              "jacobian_condition": 1.0019795794741921
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                95.92600669940944,
+                362.00819696495086
+              ],
+              "local_rms": 0.5373149799209269,
+              "jacobian_condition": 1.0022109162419774
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                95.79226372307237,
+                361.95111634686964
+              ],
+              "local_rms": 0.7139179287949879,
+              "jacobian_condition": 1.0023632532765872
+            }
+          ],
+          "source_center_spread_4percent": 0.238273527401901
+        },
+        {
+          "fit_id": 6,
+          "unconstrained_local_radius": 10.703664610673005,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                95.95361380173847,
+                362.08205327319075
+              ],
+              "local_rms": 0.6694590725231586,
+              "jacobian_condition": 1.002027094615612
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                95.90051109218365,
+                362.0019009482791
+              ],
+              "local_rms": 0.5324466907361725,
+              "jacobian_condition": 1.002233198616985
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                95.76324960452843,
+                361.9424691632886
+              ],
+              "local_rms": 0.7011944589785415,
+              "jacobian_condition": 1.0024062381213783
+            }
+          ],
+          "source_center_spread_4percent": 0.23605561064419303
+        },
+        {
+          "fit_id": 7,
+          "unconstrained_local_radius": 10.69965810522136,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                95.96849557347461,
+                362.07680809974875
+              ],
+              "local_rms": 0.6110271915479834,
+              "jacobian_condition": 1.001999351729494
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                95.91862774544063,
+                361.99324600109026
+              ],
+              "local_rms": 0.47845550608129006,
+              "jacobian_condition": 1.002209984932248
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                95.7997331901814,
+                361.9454626379782
+              ],
+              "local_rms": 0.676871005077865,
+              "jacobian_condition": 1.0023453655130437
+            }
+          ],
+          "source_center_spread_4percent": 0.2138512855760301
+        }
+      ],
+      "predicted_local_radius": 10.821098161642983,
+      "local_focal": 695.7669402978028,
+      "conclusion": "Geometry-only sensitivity; no pixel, coverage, quadrant, or source-validity qualification is performed."
+    },
+    {
+      "trace_path": "thoughts/calibration/actual-detector-refiner-final-20261029/cases/far-right-purple-middle-row-ball.json",
+      "trace_sha256": "0c681a8926aa409027fdce22b043a949ef18f6d2fbbfcff922e2059fd1b17fea",
+      "ball_id": "far-right-purple-middle-row-ball",
+      "runtime_status": "accepted",
+      "runtime_reason": null,
+      "runtime_stage": "complete",
+      "observed_candidates": 281,
+      "paths": [
+        {
+          "fit_id": 0,
+          "unconstrained_local_radius": 11.179354468041232,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                1197.1634821008904,
+                361.95747888893624
+              ],
+              "local_rms": 1.2559658838028869,
+              "jacobian_condition": 1.0047269537726293
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                1197.1015683979022,
+                361.94739679766025
+              ],
+              "local_rms": 1.0706186522753087,
+              "jacobian_condition": 1.0048249853448863
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                1197.2592893372391,
+                361.90927133216843
+              ],
+              "local_rms": 1.0352956632510175,
+              "jacobian_condition": 1.004735858014495
+            }
+          ],
+          "source_center_spread_4percent": 0.16226350737089162
+        },
+        {
+          "fit_id": 1,
+          "unconstrained_local_radius": 11.179337943489747,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                1197.162910072202,
+                361.93522096186354
+              ],
+              "local_rms": 1.2535667490903295,
+              "jacobian_condition": 1.0048690693893374
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                1197.0953707478207,
+                361.9316835325192
+              ],
+              "local_rms": 1.064873750219818,
+              "jacobian_condition": 1.0049667679350391
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                1197.2594469700848,
+                361.90639194772064
+              ],
+              "local_rms": 1.025954603739158,
+              "jacobian_condition": 1.0048260422762954
+            }
+          ],
+          "source_center_spread_4percent": 0.16601406860293094
+        },
+        {
+          "fit_id": 2,
+          "unconstrained_local_radius": 11.177613710957845,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                1197.1616828884073,
+                361.8972375996778
+              ],
+              "local_rms": 1.244474008710059,
+              "jacobian_condition": 1.0051885029025056
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                1197.0960371417752,
+                361.91149220586334
+              ],
+              "local_rms": 1.0478648638322716,
+              "jacobian_condition": 1.0052581918751835
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                1197.2597347820258,
+                361.9065869625573
+              ],
+              "local_rms": 1.0020513427593296,
+              "jacobian_condition": 1.0050390918903318
+            }
+          ],
+          "source_center_spread_4percent": 0.16377111722003426
+        },
+        {
+          "fit_id": 3,
+          "unconstrained_local_radius": 11.19346460507755,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                1197.1388748408413,
+                361.9387140250438
+              ],
+              "local_rms": 1.2653355000392263,
+              "jacobian_condition": 1.0048067088790489
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                1197.0790841020782,
+                361.92191345286346
+              ],
+              "local_rms": 1.0761649714482802,
+              "jacobian_condition": 1.004912767126417
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                1197.229337226512,
+                361.87251129216463
+              ],
+              "local_rms": 1.0355039199023635,
+              "jacobian_condition": 1.0048690425915572
+            }
+          ],
+          "source_center_spread_4percent": 0.15816628870841834
+        },
+        {
+          "fit_id": 4,
+          "unconstrained_local_radius": 11.192903939980566,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                1197.139068053553,
+                361.91626076349615
+              ],
+              "local_rms": 1.2628256297429898,
+              "jacobian_condition": 1.004951493245869
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                1197.0744009807595,
+                361.905836551617
+              ],
+              "local_rms": 1.0702335570534578,
+              "jacobian_condition": 1.0050558297253915
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                1197.2297875336576,
+                361.86925217466455
+              ],
+              "local_rms": 1.0259420767721978,
+              "jacobian_condition": 1.004962991157076
+            }
+          ],
+          "source_center_spread_4percent": 0.15963520118870178
+        },
+        {
+          "fit_id": 5,
+          "unconstrained_local_radius": 11.17299761685065,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                1197.167104057407,
+                361.85823950279087
+              ],
+              "local_rms": 1.2306273623410389,
+              "jacobian_condition": 1.0055959478328165
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                1197.1012527163675,
+                361.8982941060205
+              ],
+              "local_rms": 1.0247646377403967,
+              "jacobian_condition": 1.0056165571266935
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                1197.258948659576,
+                361.9127557544153
+              ],
+              "local_rms": 0.9709827214073388,
+              "jacobian_condition": 1.0053279812648968
+            }
+          ],
+          "source_center_spread_4percent": 0.1583576640983452
+        },
+        {
+          "fit_id": 6,
+          "unconstrained_local_radius": 11.193118552095168,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                1197.1509453806252,
+                361.93739190947286
+              ],
+              "local_rms": 1.259109981519655,
+              "jacobian_condition": 1.0047923591405041
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                1197.0863661459769,
+                361.92116156986094
+              ],
+              "local_rms": 1.0706352426864385,
+              "jacobian_condition": 1.0049072142899151
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                1197.248267566127,
+                361.88338018374645
+              ],
+              "local_rms": 1.0313123556007875,
+              "jacobian_condition": 1.0048099625785445
+            }
+          ],
+          "source_center_spread_4percent": 0.16625132475669607
+        },
+        {
+          "fit_id": 7,
+          "unconstrained_local_radius": 11.192318196869577,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                1197.147310979651,
+                361.9156398166685
+              ],
+              "local_rms": 1.2567870546652748,
+              "jacobian_condition": 1.0049383623656918
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                1197.085664184339,
+                361.9041328376178
+              ],
+              "local_rms": 1.064424202932752,
+              "jacobian_condition": 1.0050451925466715
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                1197.2485820742145,
+                361.88100765521745
+              ],
+              "local_rms": 1.0218109612784239,
+              "jacobian_condition": 1.004900011200226
+            }
+          ],
+          "source_center_spread_4percent": 0.16455094318328192
+        }
+      ],
+      "predicted_local_radius": 10.884566037852087,
+      "local_focal": 695.7668424891428,
+      "conclusion": "Geometry-only sensitivity; no pixel, coverage, quadrant, or source-validity qualification is performed."
+    },
+    {
+      "trace_path": "thoughts/calibration/actual-detector-refiner-final-20261029/cases/interior-green-second-right-middle-row-ball.json",
+      "trace_sha256": "ac20d1cff2824ed8b4feed7ee4697b3adada6fad13ed152f61f4dc5a66bb6806",
+      "ball_id": "interior-green-second-right-middle-row-ball",
+      "runtime_status": "accepted",
+      "runtime_reason": null,
+      "runtime_stage": "complete",
+      "observed_candidates": 275,
+      "paths": [
+        {
+          "fit_id": 0,
+          "unconstrained_local_radius": 12.749394610192589,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                924.4183738790314,
+                361.8231491576434
+              ],
+              "local_rms": 0.5859020512652179,
+              "jacobian_condition": 1.0051243354992772
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                924.3369743739455,
+                361.7548673386366
+              ],
+              "local_rms": 0.4441465700468944,
+              "jacobian_condition": 1.005487945694642
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                924.2322873049093,
+                361.6826700518302
+              ],
+              "local_rms": 0.7629084580220116,
+              "jacobian_condition": 1.005907804337522
+            }
+          ],
+          "source_center_spread_4percent": 0.2331578697762012
+        },
+        {
+          "fit_id": 1,
+          "unconstrained_local_radius": 12.751752550873173,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                924.4250317916825,
+                361.82413094237245
+              ],
+              "local_rms": 0.5645051505167775,
+              "jacobian_condition": 1.0050109750816083
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                924.3485099513183,
+                361.7555279515881
+              ],
+              "local_rms": 0.42988247285597697,
+              "jacobian_condition": 1.0053608659879203
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                924.2617018718174,
+                361.68766747477775
+              ],
+              "local_rms": 0.7621834628144076,
+              "jacobian_condition": 1.005728331633768
+            }
+          ],
+          "source_center_spread_4percent": 0.21283547803667716
+        },
+        {
+          "fit_id": 2,
+          "unconstrained_local_radius": 12.753165305738305,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                924.4037419195655,
+                361.8264485757796
+              ],
+              "local_rms": 0.5980750706608889,
+              "jacobian_condition": 1.0051449146415423
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                924.3138103160645,
+                361.76161823689387
+              ],
+              "local_rms": 0.44932597128331164,
+              "jacobian_condition": 1.0055150579868268
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                924.2070922085554,
+                361.691348651183
+              ],
+              "local_rms": 0.7598587966061973,
+              "jacobian_condition": 1.0059392582762408
+            }
+          ],
+          "source_center_spread_4percent": 0.23858562082899357
+        },
+        {
+          "fit_id": 3,
+          "unconstrained_local_radius": 12.755163291156741,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                924.4103464548541,
+                361.8274084258491
+              ],
+              "local_rms": 0.5773585477773403,
+              "jacobian_condition": 1.0050301152040009
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                924.326859208777,
+                361.76253890131574
+              ],
+              "local_rms": 0.43565518838539186,
+              "jacobian_condition": 1.005382685690684
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                924.2357355168143,
+                361.69613962533174
+              ],
+              "local_rms": 0.7593736435525189,
+              "jacobian_condition": 1.0057583728629005
+            }
+          ],
+          "source_center_spread_4percent": 0.21845017205854125
+        },
+        {
+          "fit_id": 4,
+          "unconstrained_local_radius": 12.743058720653398,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                924.3918294752601,
+                361.84448125024954
+              ],
+              "local_rms": 0.583606033387014,
+              "jacobian_condition": 1.004955283831393
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                924.3188860597141,
+                361.7675959640362
+              ],
+              "local_rms": 0.45841822596858217,
+              "jacobian_condition": 1.0053340843636234
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                924.2136366168315,
+                361.70145415798765
+              ],
+              "local_rms": 0.7808356689893752,
+              "jacobian_condition": 1.0057347259135871
+            }
+          ],
+          "source_center_spread_4percent": 0.22849385968958033
+        },
+        {
+          "fit_id": 5,
+          "unconstrained_local_radius": 12.745119116111255,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                924.3985232001393,
+                361.8454752949367
+              ],
+              "local_rms": 0.562455012009877,
+              "jacobian_condition": 1.0048415481597333
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                924.3324353772443,
+                361.7678210483144
+              ],
+              "local_rms": 0.4450174594113554,
+              "jacobian_condition": 1.0052040619290559
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                924.2435534802005,
+                361.7063635586361
+              ],
+              "local_rms": 0.7803789287162323,
+              "jacobian_condition": 1.0055528299300007
+            }
+          ],
+          "source_center_spread_4percent": 0.20824910389836537
+        },
+        {
+          "fit_id": 6,
+          "unconstrained_local_radius": 12.746585594715805,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                924.3756276944343,
+                361.8476174350033
+              ],
+              "local_rms": 0.5953379563129636,
+              "jacobian_condition": 1.00498679659508
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                924.2962612947595,
+                361.77472508701544
+              ],
+              "local_rms": 0.4629014281359244,
+              "jacobian_condition": 1.005367311092465
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                924.1882607454096,
+                361.71017871761535
+              ],
+              "local_rms": 0.7775118484125116,
+              "jacobian_condition": 1.0057761322916374
+            }
+          ],
+          "source_center_spread_4percent": 0.232369909033188
+        },
+        {
+          "fit_id": 7,
+          "unconstrained_local_radius": 12.748603221379245,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                924.3842107057138,
+                361.8488238768817
+              ],
+              "local_rms": 0.5749537373365581,
+              "jacobian_condition": 1.004867855920525
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                924.3083938344561,
+                361.7760272403888
+              ],
+              "local_rms": 0.4499843841994681,
+              "jacobian_condition": 1.0052340682920682
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                924.2187460836354,
+                361.7157363797355
+              ],
+              "local_rms": 0.7772472497202634,
+              "jacobian_condition": 1.0055876990591215
+            }
+          ],
+          "source_center_spread_4percent": 0.21234599844634286
+        }
+      ],
+      "predicted_local_radius": 12.869199952356617,
+      "local_focal": 695.766909078986,
+      "conclusion": "Geometry-only sensitivity; no pixel, coverage, quadrant, or source-validity qualification is performed."
+    },
+    {
+      "trace_path": "thoughts/calibration/actual-detector-refiner-final-20261029/cases/interior-purple-second-left-middle-row-ball.json",
+      "trace_sha256": "24429ec232e598c79d021e34b1ae59d613d3f9cb458e08519929b3357fa2e6b3",
+      "ball_id": "interior-purple-second-left-middle-row-ball",
+      "runtime_status": "accepted",
+      "runtime_reason": null,
+      "runtime_stage": "complete",
+      "observed_candidates": 288,
+      "paths": [
+        {
+          "fit_id": 0,
+          "unconstrained_local_radius": 12.612475320723187,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                358.69167998945227,
+                363.60535219263704
+              ],
+              "local_rms": 0.7263799675281649,
+              "jacobian_condition": 1.0028773881747874
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                358.6551166443453,
+                363.55709696290006
+              ],
+              "local_rms": 0.6851665599571677,
+              "jacobian_condition": 1.002968273004037
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                358.67333591629847,
+                363.46717197367354
+              ],
+              "local_rms": 0.9647329443406434,
+              "jacobian_condition": 1.003343931322558
+            }
+          ],
+          "source_center_spread_4percent": 0.1393925318396657
+        },
+        {
+          "fit_id": 1,
+          "unconstrained_local_radius": 12.600618479020754,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                358.66945268074744,
+                363.5985115129265
+              ],
+              "local_rms": 0.7230283308175945,
+              "jacobian_condition": 1.0028877641179286
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                358.631374555604,
+                363.5479343548457
+              ],
+              "local_rms": 0.6873791639246901,
+              "jacobian_condition": 1.0029857273201694
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                358.6553446353504,
+                363.46131447535396
+              ],
+              "local_rms": 0.9701953720480716,
+              "jacobian_condition": 1.0033672485722207
+            }
+          ],
+          "source_center_spread_4percent": 0.1379204990696034
+        },
+        {
+          "fit_id": 2,
+          "unconstrained_local_radius": 12.604283614324677,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                358.70499551185276,
+                363.61278859183955
+              ],
+              "local_rms": 0.7168702838307285,
+              "jacobian_condition": 1.0028486334899647
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                358.67265065613867,
+                363.5672879147781
+              ],
+              "local_rms": 0.6812912284852012,
+              "jacobian_condition": 1.0029378626856553
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                358.69668509944535,
+                363.4781920026392
+              ],
+              "local_rms": 0.9662792194246104,
+              "jacobian_condition": 1.0033213714205689
+            }
+          ],
+          "source_center_spread_4percent": 0.134852900520319
+        },
+        {
+          "fit_id": 3,
+          "unconstrained_local_radius": 12.592255270489776,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                358.68308380054674,
+                363.60526395917447
+              ],
+              "local_rms": 0.7136348767339296,
+              "jacobian_condition": 1.0028608049109247
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                358.6531687271471,
+                363.5568491006288
+              ],
+              "local_rms": 0.6835652138890745,
+              "jacobian_condition": 1.0029685294729684
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                358.67813684500965,
+                363.47137061506544
+              ],
+              "local_rms": 0.9718824343330565,
+              "jacobian_condition": 1.0033452348967702
+            }
+          ],
+          "source_center_spread_4percent": 0.13398470049145192
+        },
+        {
+          "fit_id": 4,
+          "unconstrained_local_radius": 12.623320541288429,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                358.693248101809,
+                363.6246022214228
+              ],
+              "local_rms": 0.7285250538147506,
+              "jacobian_condition": 1.0028138269214106
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                358.6538492996193,
+                363.5780191792716
+              ],
+              "local_rms": 0.6819847145182527,
+              "jacobian_condition": 1.0028931850907346
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                358.674004979836,
+                363.484858103339
+              ],
+              "local_rms": 0.9584788024561084,
+              "jacobian_condition": 1.0032842862799964
+            }
+          ],
+          "source_center_spread_4percent": 0.1410628097064749
+        },
+        {
+          "fit_id": 5,
+          "unconstrained_local_radius": 12.610863191610608,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                358.6711669367191,
+                363.6172787467047
+              ],
+              "local_rms": 0.7252520623628569,
+              "jacobian_condition": 1.0028261490923336
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                358.63375120472955,
+                363.56768390985724
+              ],
+              "local_rms": 0.6841820480793804,
+              "jacobian_condition": 1.002923280211038
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                358.65602392749696,
+                363.479126457759
+              ],
+              "local_rms": 0.9640452464304567,
+              "jacobian_condition": 1.0033068255304014
+            }
+          ],
+          "source_center_spread_4percent": 0.13897973114538265
+        },
+        {
+          "fit_id": 6,
+          "unconstrained_local_radius": 12.614373250274037,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                358.706291295667,
+                363.63242297164066
+              ],
+              "local_rms": 0.7189666738249288,
+              "jacobian_condition": 1.0027832719057734
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                358.67301659167794,
+                363.58768843805905
+              ],
+              "local_rms": 0.6779460122906533,
+              "jacobian_condition": 1.0028686982615964
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                358.6979207383419,
+                363.49690643281434
+              ],
+              "local_rms": 0.9599521990858139,
+              "jacobian_condition": 1.003259065748469
+            }
+          ],
+          "source_center_spread_4percent": 0.13577480813979645
+        },
+        {
+          "fit_id": 7,
+          "unconstrained_local_radius": 12.588640212978726,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                358.7304454424233,
+                363.6262150024472
+              ],
+              "local_rms": 0.7008364977818369,
+              "jacobian_condition": 1.0027930214162442
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                358.71049853599186,
+                363.58351414784505
+              ],
+              "local_rms": 0.6757865675962459,
+              "jacobian_condition": 1.0028986635789203
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                358.73592827941206,
+                363.50194774714373
+              ],
+              "local_rms": 0.9704783031396716,
+              "jacobian_condition": 1.0032515205854862
+            }
+          ],
+          "source_center_spread_4percent": 0.12438815153425707
+        }
+      ],
+      "predicted_local_radius": 12.771104199909997,
+      "local_focal": 695.7669443484699,
+      "conclusion": "Geometry-only sensitivity; no pixel, coverage, quadrant, or source-validity qualification is performed."
+    },
+    {
+      "trace_path": "thoughts/calibration/actual-detector-refiner-final-20261029/cases/middle-row-center-ball.json",
+      "trace_sha256": "7cd73856213629ccbd73743481be60996eb5c9a8b404e550868d6039d06ddeee",
+      "ball_id": "middle-row-center-ball",
+      "runtime_status": "accepted",
+      "runtime_reason": null,
+      "runtime_stage": "complete",
+      "observed_candidates": 288,
+      "paths": [
+        {
+          "fit_id": 0,
+          "unconstrained_local_radius": 13.248863081778797,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                643.0334909357956,
+                361.21731090482245
+              ],
+              "local_rms": 0.36991590489236825,
+              "jacobian_condition": 1.0030940299767712
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                643.0242562895994,
+                361.18254746496314
+              ],
+              "local_rms": 0.7302257917006281,
+              "jacobian_condition": 1.0031862111531742
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                643.0004235607934,
+                361.14339028677
+              ],
+              "local_rms": 1.2415177417285257,
+              "jacobian_condition": 1.0033174286704098
+            }
+          ],
+          "source_center_spread_4percent": 0.08097968302479412
+        },
+        {
+          "fit_id": 1,
+          "unconstrained_local_radius": 13.25201467573079,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                643.0245607801344,
+                361.21230632952967
+              ],
+              "local_rms": 0.353202838544625,
+              "jacobian_condition": 1.0031250111122854
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                643.0150536264249,
+                361.17550099741953
+              ],
+              "local_rms": 0.71364288494047,
+              "jacobian_condition": 1.003222805089717
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                642.9872760075644,
+                361.1329758541853
+              ],
+              "local_rms": 1.2269931815399862,
+              "jacobian_condition": 1.0033696015548126
+            }
+          ],
+          "source_center_spread_4percent": 0.08765545381751384
+        },
+        {
+          "fit_id": 2,
+          "unconstrained_local_radius": 13.256641232409791,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                643.0521084468103,
+                361.20812587979947
+              ],
+              "local_rms": 0.37320955296787006,
+              "jacobian_condition": 1.0030198362875584
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                643.0479569487663,
+                361.16940163703276
+              ],
+              "local_rms": 0.7232484858238176,
+              "jacobian_condition": 1.003111500750176
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                643.0254213876846,
+                361.1305377604083
+              ],
+              "local_rms": 1.232400851581917,
+              "jacobian_condition": 1.003238099033955
+            }
+          ],
+          "source_center_spread_4percent": 0.08204946919657491
+        },
+        {
+          "fit_id": 3,
+          "unconstrained_local_radius": 13.259150534705308,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                643.0098141422244,
+                361.2270872886719
+              ],
+              "local_rms": 0.3782967174805251,
+              "jacobian_condition": 1.0031718039206958
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                642.9957600122053,
+                361.19868162015047
+              ],
+              "local_rms": 0.7246822548497747,
+              "jacobian_condition": 1.0032590297428852
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                642.973290621905,
+                361.1607603742899
+              ],
+              "local_rms": 1.2323911040742634,
+              "jacobian_condition": 1.00338365514239
+            }
+          ],
+          "source_center_spread_4percent": 0.07571807649404307
+        },
+        {
+          "fit_id": 4,
+          "unconstrained_local_radius": 13.240533637197716,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                643.0155271201894,
+                361.20723985077484
+              ],
+              "local_rms": 0.3724538438797266,
+              "jacobian_condition": 1.0031555093433884
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                643.0110542765483,
+                361.1733320082941
+              ],
+              "local_rms": 0.736230923909656,
+              "jacobian_condition": 1.0032368260218976
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                642.9867723995351,
+                361.13331127942627
+              ],
+              "local_rms": 1.2479602805469932,
+              "jacobian_condition": 1.0033711865649484
+            }
+          ],
+          "source_center_spread_4percent": 0.07932381497097311
+        },
+        {
+          "fit_id": 5,
+          "unconstrained_local_radius": 13.255285713086497,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                643.0190655665136,
+                361.2137660545498
+              ],
+              "local_rms": 0.3607485849618296,
+              "jacobian_condition": 1.003174680411206
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                643.0114132357726,
+                361.17935983423683
+              ],
+              "local_rms": 0.7185692609623222,
+              "jacobian_condition": 1.0032659920179832
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                642.9841865541628,
+                361.1389955988295
+              ],
+              "local_rms": 1.2306059282778798,
+              "jacobian_condition": 1.0034097217499311
+            }
+          ],
+          "source_center_spread_4percent": 0.0825055546687076
+        },
+        {
+          "fit_id": 6,
+          "unconstrained_local_radius": 13.232011700225389,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                642.9892838766868,
+                361.1936690515761
+              ],
+              "local_rms": 0.38840201794089735,
+              "jacobian_condition": 1.003239711153024
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                642.98985010884,
+                361.1574281483875
+              ],
+              "local_rms": 0.7539032662293271,
+              "jacobian_condition": 1.0033166698670184
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                642.9641112387761,
+                361.11434107342535
+              ],
+              "local_rms": 1.2642068228161225,
+              "jacobian_condition": 1.003461034602809
+            }
+          ],
+          "source_center_spread_4percent": 0.08322613662105507
+        },
+        {
+          "fit_id": 7,
+          "unconstrained_local_radius": 13.259827170379022,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                643.0417655461217,
+                361.2033819872336
+              ],
+              "local_rms": 0.3569870011491177,
+              "jacobian_condition": 1.0030531069788235
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                643.0382503398874,
+                361.1623417709072
+              ],
+              "local_rms": 0.7066344645110513,
+              "jacobian_condition": 1.0031498068048503
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                643.0123354039246,
+                361.1201277864017
+              ],
+              "local_rms": 1.2178417841037183,
+              "jacobian_condition": 1.003290641058582
+            }
+          ],
+          "source_center_spread_4percent": 0.08830286080248818
+        }
+      ],
+      "predicted_local_radius": 13.840954933664834,
+      "local_focal": 695.7669628283585,
+      "conclusion": "Geometry-only sensitivity; no pixel, coverage, quadrant, or source-validity qualification is performed."
+    },
+    {
+      "trace_path": "thoughts/calibration/actual-detector-refiner-final-20261029/cases/top-left-pocket-ball.json",
+      "trace_sha256": "54962cb0a8fe810184ee571375c5ae377d5046b4e34ffc920d0145e2139fbe77",
+      "ball_id": "top-left-pocket-ball",
+      "runtime_status": "rejected",
+      "runtime_reason": "inadequate_coverage",
+      "runtime_stage": "coverage",
+      "observed_candidates": 136,
+      "paths": [
+        {
+          "fit_id": 0,
+          "unconstrained_local_radius": 9.464762828346297,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                103.53576836165837,
+                106.34661944205547
+              ],
+              "local_rms": 2.0152834567620674,
+              "jacobian_condition": 1.1215633892810382
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                102.79978357376176,
+                105.87800877981036
+              ],
+              "local_rms": 2.028997633558534,
+              "jacobian_condition": 1.1174698841092343
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                101.95138999501181,
+                105.32264895013097
+              ],
+              "local_rms": 2.129563502847586,
+              "jacobian_condition": 1.1114326348084465
+            }
+          ],
+          "source_center_spread_4percent": 1.886470348833962
+        },
+        {
+          "fit_id": 1,
+          "unconstrained_local_radius": 9.488944190439438,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                103.52369706333555,
+                106.34964550921468
+              ],
+              "local_rms": 2.009913409364187,
+              "jacobian_condition": 1.1214060937209098
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                102.79796384039058,
+                105.87886509092165
+              ],
+              "local_rms": 2.020750642306558,
+              "jacobian_condition": 1.117315209793257
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                101.95552806243207,
+                105.32168435392724
+              ],
+              "local_rms": 2.1186638166282923,
+              "jacobian_condition": 1.1112511557511848
+            }
+          ],
+          "source_center_spread_4percent": 1.875062172882413
+        },
+        {
+          "fit_id": 2,
+          "unconstrained_local_radius": 9.475091447864399,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                103.60793553759568,
+                106.32852728388627
+              ],
+              "local_rms": 2.013998015706821,
+              "jacobian_condition": 1.122256553070269
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                102.84204610581297,
+                105.88140356089296
+              ],
+              "local_rms": 2.0277322319220947,
+              "jacobian_condition": 1.1179360143727786
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                102.00099232141542,
+                105.32085917965766
+              ],
+              "local_rms": 2.1260707499597657,
+              "jacobian_condition": 1.1120803988546644
+            }
+          ],
+          "source_center_spread_4percent": 1.8967502493231498
+        },
+        {
+          "fit_id": 3,
+          "unconstrained_local_radius": 9.50137630818262,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                103.58395622768522,
+                106.33833426759483
+              ],
+              "local_rms": 2.0092760180256746,
+              "jacobian_condition": 1.1219775905103315
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                102.84085650231908,
+                105.8821280301142
+              ],
+              "local_rms": 2.0195555981171354,
+              "jacobian_condition": 1.1177883712011352
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                102.00544481115129,
+                105.31964698465355
+              ],
+              "local_rms": 2.1152435569456296,
+              "jacobian_condition": 1.1119027178574086
+            }
+          ],
+          "source_center_spread_4percent": 1.8786756166390854
+        },
+        {
+          "fit_id": 4,
+          "unconstrained_local_radius": 9.469404036838064,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                103.58521378543489,
+                106.37000370769243
+              ],
+              "local_rms": 2.0167959926043686,
+              "jacobian_condition": 1.121801459237676
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                102.8370530398457,
+                105.91273250568665
+              ],
+              "local_rms": 2.0303307811354054,
+              "jacobian_condition": 1.1176431896734564
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                101.96714961226591,
+                105.37592181063181
+              ],
+              "local_rms": 2.132601181224601,
+              "jacobian_condition": 1.1114987747712515
+            }
+          ],
+          "source_center_spread_4percent": 1.8990340930474754
+        },
+        {
+          "fit_id": 5,
+          "unconstrained_local_radius": 9.49317615093589,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                103.56548077599084,
+                106.37695570260868
+              ],
+              "local_rms": 2.011792929758787,
+              "jacobian_condition": 1.1215760888504962
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                102.83546801877348,
+                105.91352304998415
+              ],
+              "local_rms": 2.022103616448793,
+              "jacobian_condition": 1.1174960596111978
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                101.97235378016993,
+                105.37426848261092
+              ],
+              "local_rms": 2.121517679631575,
+              "jacobian_condition": 1.111332310621613
+            }
+          ],
+          "source_center_spread_4percent": 1.8824014677959133
+        },
+        {
+          "fit_id": 6,
+          "unconstrained_local_radius": 9.481612343102777,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                103.55038486872591,
+                106.33866259362266
+              ],
+              "local_rms": 1.9930360190212766,
+              "jacobian_condition": 1.121752637556487
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                102.80569768908107,
+                105.87684274813068
+              ],
+              "local_rms": 2.004034703107464,
+              "jacobian_condition": 1.1177850201220743
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                101.95228849288894,
+                105.32484062160113
+              ],
+              "local_rms": 2.1036400458415727,
+              "jacobian_condition": 1.1120170656132307
+            }
+          ],
+          "source_center_spread_4percent": 1.8925504002316287
+        },
+        {
+          "fit_id": 7,
+          "unconstrained_local_radius": 9.439183021037946,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                103.53605468918309,
+                106.3805414061101
+              ],
+              "local_rms": 2.018837334813844,
+              "jacobian_condition": 1.121393741484958
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                102.79585155423169,
+                105.90616243531974
+              ],
+              "local_rms": 2.03427522499801,
+              "jacobian_condition": 1.1173955150960422
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                101.93381001676441,
+                105.34725194390357
+              ],
+              "local_rms": 2.1373129788247347,
+              "jacobian_condition": 1.1113526926673647
+            }
+          ],
+          "source_center_spread_4percent": 1.9065348418009798
+        }
+      ],
+      "predicted_local_radius": 10.577320605444699,
+      "local_focal": 695.766929788951,
+      "conclusion": "Geometry-only sensitivity; no pixel, coverage, quadrant, or source-validity qualification is performed."
+    },
+    {
+      "trace_path": "thoughts/calibration/actual-detector-refiner-final-20261029/cases/top-middle-pocket-ball.json",
+      "trace_sha256": "f5bb22b9401c8c4d5e431e277e85688e1cc366a5f79344829ff6e182e967c2fa",
+      "ball_id": "top-middle-pocket-ball",
+      "runtime_status": "accepted",
+      "runtime_reason": null,
+      "runtime_stage": "complete",
+      "observed_candidates": 221,
+      "paths": [
+        {
+          "fit_id": 0,
+          "unconstrained_local_radius": 12.882761409396167,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                641.4205837842923,
+                97.56488570544529
+              ],
+              "local_rms": 0.3428582218984826,
+              "jacobian_condition": 1.226247901422525
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                641.4028453577669,
+                97.10552043461757
+              ],
+              "local_rms": 0.318249439242145,
+              "jacobian_condition": 1.2185889769328575
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                641.3823585128195,
+                96.54940619393267
+              ],
+              "local_rms": 0.7113659998822884,
+              "jacobian_condition": 1.2087688283647957
+            }
+          ],
+          "source_center_spread_4percent": 1.016198705805654
+        },
+        {
+          "fit_id": 1,
+          "unconstrained_local_radius": 12.872226070891996,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                641.404514821431,
+                97.56537360698239
+              ],
+              "local_rms": 0.3349995128578601,
+              "jacobian_condition": 1.2263006746277751
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                641.3841965293043,
+                97.107319550581
+              ],
+              "local_rms": 0.32493386817974634,
+              "jacobian_condition": 1.2186758629460115
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                641.3639940741058,
+                96.55239634970572
+              ],
+              "local_rms": 0.7207938262882944,
+              "jacobian_condition": 1.2088765461337412
+            }
+          ],
+          "source_center_spread_4percent": 1.0137873814185925
+        },
+        {
+          "fit_id": 2,
+          "unconstrained_local_radius": 12.893153779712387,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                641.4032886923686,
+                97.56781238083728
+              ],
+              "local_rms": 0.3497711874321734,
+              "jacobian_condition": 1.2263570141026998
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                641.3861424453428,
+                97.11010305880232
+              ],
+              "local_rms": 0.3115458990707076,
+              "jacobian_condition": 1.2187582757710702
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                641.3645698007368,
+                96.5523524449741
+              ],
+              "local_rms": 0.7024130309080961,
+              "jacobian_condition": 1.2089624290879044
+            }
+          ],
+          "source_center_spread_4percent": 1.0161978320742677
+        },
+        {
+          "fit_id": 3,
+          "unconstrained_local_radius": 12.887342505951086,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                641.4128829883656,
+                97.59108936654106
+              ],
+              "local_rms": 0.3456223678574485,
+              "jacobian_condition": 1.226759687700525
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                641.394524233976,
+                97.13311008439743
+              ],
+              "local_rms": 0.3159197922110839,
+              "jacobian_condition": 1.2191635319463723
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                641.3725633515838,
+                96.57852569995383
+              ],
+              "local_rms": 0.7084932806225275,
+              "jacobian_condition": 1.2094204184872812
+            }
+          ],
+          "source_center_spread_4percent": 1.0133660996909166
+        },
+        {
+          "fit_id": 4,
+          "unconstrained_local_radius": 12.878928968829856,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                641.4261562017762,
+                97.53739135945713
+              ],
+              "local_rms": 0.3460147391833777,
+              "jacobian_condition": 1.2257257298482445
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                641.4088617096562,
+                97.08156963425216
+              ],
+              "local_rms": 0.32648533850615646,
+              "jacobian_condition": 1.2180929829064144
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                641.3905816311453,
+                96.5194535720819
+              ],
+              "local_rms": 0.7167728955492795,
+              "jacobian_condition": 1.2081200550835849
+            }
+          ],
+          "source_center_spread_4percent": 1.0185592221574309
+        },
+        {
+          "fit_id": 5,
+          "unconstrained_local_radius": 12.884309629610229,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                641.4269987232702,
+                97.58061991215926
+              ],
+              "local_rms": 0.3546300643750999,
+              "jacobian_condition": 1.2264504392650701
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                641.4104682744697,
+                97.12830192707463
+              ],
+              "local_rms": 0.3257446231880778,
+              "jacobian_condition": 1.2189461612939492
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                641.3956053208392,
+                96.5732516568067
+              ],
+              "local_rms": 0.7129947596985905,
+              "jacobian_condition": 1.2091779514848464
+            }
+          ],
+          "source_center_spread_4percent": 1.007857305181769
+        },
+        {
+          "fit_id": 6,
+          "unconstrained_local_radius": 12.86268683493096,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                641.3829844290008,
+                97.56396416645984
+              ],
+              "local_rms": 0.33119552500669347,
+              "jacobian_condition": 1.2263309618250686
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                641.3668787688811,
+                97.10632429054398
+              ],
+              "local_rms": 0.3377484206654266,
+              "jacobian_condition": 1.2186973904609488
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                641.344254568188,
+                96.55359183840407
+              ],
+              "local_rms": 0.7337898583659638,
+              "jacobian_condition": 1.2089311557296099
+            }
+          ],
+          "source_center_spread_4percent": 1.011114357241258
+        },
+        {
+          "fit_id": 7,
+          "unconstrained_local_radius": 12.8828152403548,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                641.3872151494068,
+                97.56839549328951
+              ],
+              "local_rms": 0.34164559427423674,
+              "jacobian_condition": 1.2264123998847374
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                641.3674164708706,
+                97.11202275294654
+              ],
+              "local_rms": 0.3179086671490907,
+              "jacobian_condition": 1.2188490381699144
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                641.3457529374889,
+                96.55804670388339
+              ],
+              "local_rms": 0.7116713053085916,
+              "jacobian_condition": 1.2091231829518698
+            }
+          ],
+          "source_center_spread_4percent": 1.011199184766058
+        }
+      ],
+      "predicted_local_radius": 13.136356323598784,
+      "local_focal": 695.7669445152706,
+      "conclusion": "Geometry-only sensitivity; no pixel, coverage, quadrant, or source-validity qualification is performed."
+    },
+    {
+      "trace_path": "thoughts/calibration/actual-detector-refiner-final-20261029/cases/top-orange-solid-second-left-ball.json",
+      "trace_sha256": "58b4361e29b32f18c8865ffe1cc335368f807aaf82f17d43f8d4276d986eec4b",
+      "ball_id": "top-orange-solid-second-left-ball",
+      "runtime_status": "accepted",
+      "runtime_reason": null,
+      "runtime_stage": "complete",
+      "observed_candidates": 286,
+      "paths": [
+        {
+          "fit_id": 0,
+          "unconstrained_local_radius": 12.08665665242587,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                352.41159334846344,
+                96.83583502770165
+              ],
+              "local_rms": 0.4648395496114332,
+              "jacobian_condition": 1.0020276986964007
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                352.4842564244361,
+                96.79942394914008
+              ],
+              "local_rms": 0.3200248494976222,
+              "jacobian_condition": 1.0021003977777405
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                352.4411978475578,
+                96.7525656152251
+              ],
+              "local_rms": 0.6786799437804188,
+              "jacobian_condition": 1.002224572438239
+            }
+          ],
+          "source_center_spread_4percent": 0.08837545711802199
+        },
+        {
+          "fit_id": 1,
+          "unconstrained_local_radius": 12.080388778365236,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                352.3694538283387,
+                96.83504726580928
+              ],
+              "local_rms": 0.47663813634046637,
+              "jacobian_condition": 1.0021315499858117
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                352.4702602990939,
+                96.79883628790857
+              ],
+              "local_rms": 0.3653940993198072,
+              "jacobian_condition": 1.002187509490672
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                352.41257246173484,
+                96.75041096270199
+              ],
+              "local_rms": 0.7131007953626592,
+              "jacobian_condition": 1.0023296704529718
+            }
+          ],
+          "source_center_spread_4percent": 0.1071129285691078
+        },
+        {
+          "fit_id": 2,
+          "unconstrained_local_radius": 12.089117966653397,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                352.3854802849345,
+                96.83220302479258
+              ],
+              "local_rms": 0.4894625747274562,
+              "jacobian_condition": 1.0021582041186516
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                352.48928912325357,
+                96.80012722902039
+              ],
+              "local_rms": 0.37959094151990214,
+              "jacobian_condition": 1.0022113187579715
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                352.4295571036488,
+                96.7499459124534
+              ],
+              "local_rms": 0.7182531640049302,
+              "jacobian_condition": 1.0023570259577042
+            }
+          ],
+          "source_center_spread_4percent": 0.10865142239094912
+        },
+        {
+          "fit_id": 3,
+          "unconstrained_local_radius": 12.09407707629849,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                352.42326133521595,
+                96.84560029706954
+              ],
+              "local_rms": 0.475523526479883,
+              "jacobian_condition": 1.0019621840093482
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                352.5008613746277,
+                96.8139707079912
+              ],
+              "local_rms": 0.32404314789247746,
+              "jacobian_condition": 1.0020152788685712
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                352.4621996957375,
+                96.77021361867405
+              ],
+              "local_rms": 0.6751156850018653,
+              "jacobian_condition": 1.00213072822535
+            }
+          ],
+          "source_center_spread_4percent": 0.08484896699201852
+        },
+        {
+          "fit_id": 4,
+          "unconstrained_local_radius": 12.07989164327454,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                352.4136656866103,
+                96.81737945021948
+              ],
+              "local_rms": 0.4591828081381298,
+              "jacobian_condition": 1.0020938510972506
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                352.48675283044844,
+                96.78050415503198
+              ],
+              "local_rms": 0.3234980416463616,
+              "jacobian_condition": 1.0021632002445098
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                352.4426588582294,
+                96.73216057805344
+              ],
+              "local_rms": 0.6857339427185518,
+              "jacobian_condition": 1.0022941118843198
+            }
+          ],
+          "source_center_spread_4percent": 0.09001588845190901
+        },
+        {
+          "fit_id": 5,
+          "unconstrained_local_radius": 12.094128376022073,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                352.41811725710727,
+                96.85211059885697
+              ],
+              "local_rms": 0.4731887857183934,
+              "jacobian_condition": 1.001984750620983
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                352.4919583922684,
+                96.81930127462186
+              ],
+              "local_rms": 0.32067285832520936,
+              "jacobian_condition": 1.0020461490942494
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                352.45149011460745,
+                96.77460741355524
+              ],
+              "local_rms": 0.6735473904069683,
+              "jacobian_condition": 1.0021652334704532
+            }
+          ],
+          "source_center_spread_4percent": 0.08438300391453628
+        },
+        {
+          "fit_id": 6,
+          "unconstrained_local_radius": 12.08294782778311,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                352.3426626094749,
+                96.83028189247364
+              ],
+              "local_rms": 0.4995269979338102,
+              "jacobian_condition": 1.0022799339172137
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                352.47393874281045,
+                96.79946769779126
+              ],
+              "local_rms": 0.41809333943700855,
+              "jacobian_condition": 1.0023106945636557
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                352.3996263998847,
+                96.74749109262405
+              ],
+              "local_rms": 0.7502253480577113,
+              "jacobian_condition": 1.0024777168613472
+            }
+          ],
+          "source_center_spread_4percent": 0.13484412400044835
+        },
+        {
+          "fit_id": 7,
+          "unconstrained_local_radius": 12.093490740254222,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                352.39586802572444,
+                96.82676504902001
+              ],
+              "local_rms": 0.4735627425918645,
+              "jacobian_condition": 1.0021033563454655
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                352.4645730900704,
+                96.78761927823895
+              ],
+              "local_rms": 0.31990076887534735,
+              "jacobian_condition": 1.0021889074821875
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                352.4214076333205,
+                96.73924467793327
+              ],
+              "local_rms": 0.6726003704644273,
+              "jacobian_condition": 1.0023190211060842
+            }
+          ],
+          "source_center_spread_4percent": 0.09117064720248812
+        }
+      ],
+      "predicted_local_radius": 12.188938106334067,
+      "local_focal": 695.7669270689216,
+      "conclusion": "Geometry-only sensitivity; no pixel, coverage, quadrant, or source-validity qualification is performed."
+    },
+    {
+      "trace_path": "thoughts/calibration/actual-detector-refiner-final-20261029/cases/top-red-striped-second-right-ball.json",
+      "trace_sha256": "ce8c16f14863133e4ca4f9dc9ac5ddf5986107ccd5786a547ede66167a5b48e5",
+      "ball_id": "top-red-striped-second-right-ball",
+      "runtime_status": "accepted",
+      "runtime_reason": null,
+      "runtime_stage": "complete",
+      "observed_candidates": 288,
+      "paths": [
+        {
+          "fit_id": 0,
+          "unconstrained_local_radius": 12.15457368269832,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                927.6295653687531,
+                93.66203488358605
+              ],
+              "local_rms": 0.4872970291351277,
+              "jacobian_condition": 1.0027814044069598
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                927.6091037153133,
+                93.64990245698453
+              ],
+              "local_rms": 0.334181896734204,
+              "jacobian_condition": 1.002840452371147
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                927.5849239938774,
+                93.60423642499872
+              ],
+              "local_rms": 0.6832533562180557,
+              "jacobian_condition": 1.0029445186943504
+            }
+          ],
+          "source_center_spread_4percent": 0.07303091239923484
+        },
+        {
+          "fit_id": 1,
+          "unconstrained_local_radius": 12.144473281160623,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                927.6090875591924,
+                93.65562651916487
+              ],
+              "local_rms": 0.4812595113813215,
+              "jacobian_condition": 1.0028571179551977
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                927.584339441741,
+                93.64136148462795
+              ],
+              "local_rms": 0.33821206934962034,
+              "jacobian_condition": 1.0029280844574686
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                927.5618292175694,
+                93.59455530590002
+              ],
+              "local_rms": 0.6913790777498227,
+              "jacobian_condition": 1.0030313396728638
+            }
+          ],
+          "source_center_spread_4percent": 0.07722074813542837
+        },
+        {
+          "fit_id": 2,
+          "unconstrained_local_radius": 12.164915587528888,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                927.6171893106971,
+                93.64959695791907
+              ],
+              "local_rms": 0.4965291819215429,
+              "jacobian_condition": 1.0028233700521534
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                927.5899070635772,
+                93.63359797064687
+              ],
+              "local_rms": 0.3329380501949701,
+              "jacobian_condition": 1.0029019988210823
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                927.5672277172031,
+                93.58723756988795
+              ],
+              "local_rms": 0.6752450050398622,
+              "jacobian_condition": 1.0030029117792092
+            }
+          ],
+          "source_center_spread_4percent": 0.07990528205367059
+        },
+        {
+          "fit_id": 3,
+          "unconstrained_local_radius": 12.146670039201194,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                927.6127277958603,
+                93.66484967294083
+              ],
+              "local_rms": 0.47563542179915974,
+              "jacobian_condition": 1.0029029981550306
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                927.5816570785342,
+                93.65137667750454
+              ],
+              "local_rms": 0.3305188584177802,
+              "jacobian_condition": 1.0029888881301676
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                927.5559848018264,
+                93.60474859109003
+              ],
+              "local_rms": 0.6877701488482928,
+              "jacobian_condition": 1.003101024252412
+            }
+          ],
+          "source_center_spread_4percent": 0.08265535319367401
+        },
+        {
+          "fit_id": 4,
+          "unconstrained_local_radius": 12.145769737335744,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                927.62189326048,
+                93.68486388215146
+              ],
+              "local_rms": 0.4838221325438708,
+              "jacobian_condition": 1.002701294743547
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                927.6044274284748,
+                93.66790422398728
+              ],
+              "local_rms": 0.3413150570201562,
+              "jacobian_condition": 1.0027573138251105
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                927.5808359913945,
+                93.62176924105171
+              ],
+              "local_rms": 0.6927675247161214,
+              "jacobian_condition": 1.002856128189312
+            }
+          ],
+          "source_center_spread_4percent": 0.07527704218596006
+        },
+        {
+          "fit_id": 5,
+          "unconstrained_local_radius": 12.16332738587091,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                927.629715052515,
+                93.68461172808759
+              ],
+              "local_rms": 0.4903476559991696,
+              "jacobian_condition": 1.0026812615609653
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                927.6106203704671,
+                93.66819960613371
+              ],
+              "local_rms": 0.3274593165874527,
+              "jacobian_condition": 1.002740484219359
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                927.5872179760065,
+                93.62285404754698
+              ],
+              "local_rms": 0.6745492695096375,
+              "jacobian_condition": 1.0028404072377128
+            }
+          ],
+          "source_center_spread_4percent": 0.074966743410185
+        },
+        {
+          "fit_id": 6,
+          "unconstrained_local_radius": 12.154920254030335,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                927.5971866402151,
+                93.64319048465825
+              ],
+              "local_rms": 0.49027618052305927,
+              "jacobian_condition": 1.0028984684103994
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                927.5646640074134,
+                93.62513229848723
+              ],
+              "local_rms": 0.33652011279397887,
+              "jacobian_condition": 1.0029910760034064
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                927.5440540119456,
+                93.5777135092654
+              ],
+              "local_rms": 0.683216697250041,
+              "jacobian_condition": 1.0030901921941309
+            }
+          ],
+          "source_center_spread_4percent": 0.08432265705860048
+        },
+        {
+          "fit_id": 7,
+          "unconstrained_local_radius": 12.13701197516802,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                927.5924685289503,
+                93.65806807792517
+              ],
+              "local_rms": 0.4691155242945312,
+              "jacobian_condition": 1.0029787723982493
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                927.5558296969315,
+                93.6428914897627
+              ],
+              "local_rms": 0.33414729424522654,
+              "jacobian_condition": 1.0030789365090458
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                927.5324119151945,
+                93.59502359236888
+              ],
+              "local_rms": 0.6956080731629656,
+              "jacobian_condition": 1.0031890333275089
+            }
+          ],
+          "source_center_spread_4percent": 0.08707125825938702
+        }
+      ],
+      "predicted_local_radius": 12.279771761049199,
+      "local_focal": 695.7668770267669,
+      "conclusion": "Geometry-only sensitivity; no pixel, coverage, quadrant, or source-validity qualification is performed."
+    },
+    {
+      "trace_path": "thoughts/calibration/actual-detector-refiner-final-20261029/cases/top-right-cue-pocket-ball.json",
+      "trace_sha256": "812284a930adcfdcce81a33aae9d65b4256911296f967cbb3971af3c8687f3e1",
+      "ball_id": "top-right-cue-pocket-ball",
+      "runtime_status": "accepted",
+      "runtime_reason": null,
+      "runtime_stage": "complete",
+      "observed_candidates": 238,
+      "paths": [
+        {
+          "fit_id": 0,
+          "unconstrained_local_radius": 10.293808222978802,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                1195.3568075234787,
+                96.85527887577014
+              ],
+              "local_rms": 0.9496423131262322,
+              "jacobian_condition": 1.0103178508403912
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                1195.442884967485,
+                96.81951614741928
+              ],
+              "local_rms": 0.9087501594044424,
+              "jacobian_condition": 1.0104118302946745
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                1195.6273790880848,
+                96.73810414130796
+              ],
+              "local_rms": 1.0494356537865575,
+              "jacobian_condition": 1.0106263610735515
+            }
+          ],
+          "source_center_spread_4percent": 0.29485401467454936
+        },
+        {
+          "fit_id": 1,
+          "unconstrained_local_radius": 10.288213936668816,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                1195.3353727460121,
+                96.85771266859459
+              ],
+              "local_rms": 0.7530290926330172,
+              "jacobian_condition": 1.010414924260009
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                1195.3990684672908,
+                96.82818745643107
+              ],
+              "local_rms": 0.743683763229335,
+              "jacobian_condition": 1.010491896340321
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                1195.5105234187902,
+                96.75926926301244
+              ],
+              "local_rms": 0.9468130401268435,
+              "jacobian_condition": 1.0106535971010828
+            }
+          ],
+          "source_center_spread_4percent": 0.20092003951127574
+        },
+        {
+          "fit_id": 2,
+          "unconstrained_local_radius": 10.2882801284628,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                1195.3567750670684,
+                96.87587099130747
+              ],
+              "local_rms": 0.9440181070007755,
+              "jacobian_condition": 1.0102841502390105
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                1195.4448553143188,
+                96.85125223624426
+              ],
+              "local_rms": 0.908396612536683,
+              "jacobian_condition": 1.0103697284331865
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                1195.6339911372731,
+                96.77495583231637
+              ],
+              "local_rms": 1.0537848125467781,
+              "jacobian_condition": 1.0105865689377804
+            }
+          ],
+          "source_center_spread_4percent": 0.29501291309698396
+        },
+        {
+          "fit_id": 3,
+          "unconstrained_local_radius": 10.283165912058918,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                1195.3389323131375,
+                96.87735247686406
+              ],
+              "local_rms": 0.7457137097826125,
+              "jacobian_condition": 1.0103762710848248
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                1195.4005883585228,
+                96.86055160563494
+              ],
+              "local_rms": 0.7435102023380188,
+              "jacobian_condition": 1.0104366242521456
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                1195.514258547975,
+                96.79635132298962
+              ],
+              "local_rms": 0.952047856500057,
+              "jacobian_condition": 1.0105970966892264
+            }
+          ],
+          "source_center_spread_4percent": 0.19313331030994985
+        },
+        {
+          "fit_id": 4,
+          "unconstrained_local_radius": 10.300466276004771,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                1195.358341136889,
+                96.87054754000766
+              ],
+              "local_rms": 0.9523568904009238,
+              "jacobian_condition": 1.0102892905892507
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                1195.4420096929723,
+                96.84231535746649
+              ],
+              "local_rms": 0.9086201643341648,
+              "jacobian_condition": 1.010374570143733
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                1195.6282313780985,
+                96.76117424243567
+              ],
+              "local_rms": 1.0463725495592853,
+              "jacobian_condition": 1.010592778727248
+            }
+          ],
+          "source_center_spread_4percent": 0.2912099938563875
+        },
+        {
+          "fit_id": 5,
+          "unconstrained_local_radius": 10.285397384323026,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                1195.3526581854362,
+                96.83716805836193
+              ],
+              "local_rms": 0.9481518494592555,
+              "jacobian_condition": 1.0103573622045714
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                1195.4467700514035,
+                96.79580417301727
+              ],
+              "local_rms": 0.909629250216195,
+              "jacobian_condition": 1.01046015116664
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                1195.6309758676305,
+                96.7155024316959
+              ],
+              "local_rms": 1.0531177865015047,
+              "jacobian_condition": 1.0106687682617308
+            }
+          ],
+          "source_center_spread_4percent": 0.30374867396257155
+        },
+        {
+          "fit_id": 6,
+          "unconstrained_local_radius": 10.295043275320579,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                1195.3378557773,
+                96.87243786861012
+              ],
+              "local_rms": 0.7564931675627853,
+              "jacobian_condition": 1.010381735166278
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                1195.3979188963153,
+                96.85343987725415
+              ],
+              "local_rms": 0.7436192121441433,
+              "jacobian_condition": 1.0104429636990193
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                1195.510850091702,
+                96.78233392459819
+              ],
+              "local_rms": 0.943543983862014,
+              "jacobian_condition": 1.0106106779757902
+            }
+          ],
+          "source_center_spread_4percent": 0.19505320695102668
+        },
+        {
+          "fit_id": 7,
+          "unconstrained_local_radius": 10.279672643759367,
+          "fixed_radius_variants": [
+            {
+              "radius_ratio": 0.96,
+              "center_source_px": [
+                1195.3310783388522,
+                96.8396664255535
+              ],
+              "local_rms": 0.7509177732522712,
+              "jacobian_condition": 1.0104615278223215
+            },
+            {
+              "radius_ratio": 1.0,
+              "center_source_px": [
+                1195.4018935806844,
+                96.80575650555318
+              ],
+              "local_rms": 0.7449180172173733,
+              "jacobian_condition": 1.0105466014764402
+            },
+            {
+              "radius_ratio": 1.04,
+              "center_source_px": [
+                1195.5118131612019,
+                96.73675946348533
+              ],
+              "local_rms": 0.9509611004371752,
+              "jacobian_condition": 1.0107043873396322
+            }
+          ],
+          "source_center_spread_4percent": 0.20797816917135878
+        }
+      ],
+      "predicted_local_radius": 10.582231582601917,
+      "local_focal": 695.7669673384266,
+      "conclusion": "Geometry-only sensitivity; no pixel, coverage, quadrant, or source-validity qualification is performed."
+    }
+  ]
+}

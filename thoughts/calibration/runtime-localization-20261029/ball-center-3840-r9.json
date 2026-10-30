@@ -1,0 +1,446 @@
+{
+  "schema_version": 1,
+  "calibration_revision": 2026102909,
+  "camera_profile_id": "saved-mokose-native4k",
+  "optics_profile_id": "saved-zero-radial-native4k",
+  "optics_revision": 1,
+  "refiner_revision": 9,
+  "table_revision": 1,
+  "rectification_revision": 0,
+  "image_space": "raw",
+  "source_width_px": 3840,
+  "source_height_px": 2160,
+  "coordinate_frame": "center_origin_x_corner0_to1_y_corner0_to3",
+  "table_width_mm": 2336.8,
+  "table_height_mm": 1155.7,
+  "ball_diameter_mm": 57.15,
+  "image_to_table_mm": [
+    [
+      0.6902107634063571,
+      -0.004571957815719926,
+      -1330.558839599836
+    ],
+    [
+      0.0003350325307512685,
+      0.6868086220371499,
+      -750.6162228291669
+    ],
+    [
+      3.1017850055433693e-6,
+      -0.000011847981195047793,
+      1.0068851104835896
+    ]
+  ],
+  "provenance": "Existing nine user reference positions; no new measurement or image. Coordinate quality is empirical reference consistency, not independent certified millimeter accuracy. Explicit3x geometry derivative, supportedapproximately by saved rail registration; not new independently observed native4K reference positions.",
+  "solver_policy": {
+    "minimum_correspondences": 6,
+    "maximum_correspondences": 1024,
+    "relative_rank_tolerance": 1e-10,
+    "maximum_condition_number": 100000000.0,
+    "numerical_tolerance": 1e-10,
+    "maximum_fit_rms_mm": null
+  },
+  "correspondences": [
+    {
+      "image_point_px": {
+        "x_px": 1928.4134181432175,
+        "y_px": 1083.7306179905574
+      },
+      "center_table_mm": {
+        "x_mm": 3.175,
+        "y_mm": -3.175
+      },
+      "provenance": "middle-row-center-ball; actual detector box; refiner9 accepted; summary thoughts/calibration/actual-gpu-refiner-r9-20261029/summary.json; trace SHA256 a35b7e6c74fc21f06efa61fd951053f4dba5b5f89475eff0df8ce9c76f5b8242; original physical measurement uncertainty unknown"
+    },
+    {
+      "image_point_px": {
+        "x_px": 3591.509792321427,
+        "y_px": 1085.9619092827288
+      },
+      "center_table_mm": {
+        "x_mm": 1139.825,
+        "y_mm": -3.175
+      },
+      "provenance": "far-right-purple-middle-row-ball; actual detector box; refiner9 accepted; summary thoughts/calibration/actual-gpu-refiner-r9-20261029/summary.json; trace SHA256 7dc693939c14118516b28f7b7bd3781d1059a1068de02f360076dffc5388acf4; original physical measurement uncertainty unknown"
+    },
+    {
+      "image_point_px": {
+        "x_px": 287.4832638121627,
+        "y_px": 1086.108054088801
+      },
+      "center_table_mm": {
+        "x_mm": -1139.825,
+        "y_mm": -3.175
+      },
+      "provenance": "far-left-yellow-middle-row-ball; actual detector box; refiner9 accepted; summary thoughts/calibration/actual-gpu-refiner-r9-20261029/summary.json; trace SHA256 b1be015515b07595a79c4b7a3149987e216e499ed8f6b880a24c3cd621c8328f; original physical measurement uncertainty unknown"
+    },
+    {
+      "image_point_px": {
+        "x_px": 1075.574461188211,
+        "y_px": 1091.3028681539336
+      },
+      "center_table_mm": {
+        "x_mm": -596.9,
+        "y_mm": -3.175
+      },
+      "provenance": "interior-purple-second-left-middle-row-ball; actual detector box; refiner9 accepted; summary thoughts/calibration/actual-gpu-refiner-r9-20261029/summary.json; trace SHA256 4077473f8df22d8a14c148d8b4362b9553bd968d113bda3448d2fce109a7d177; original physical measurement uncertainty unknown"
+    },
+    {
+      "image_point_px": {
+        "x_px": 2773.5012507578754,
+        "y_px": 1085.218703373833
+      },
+      "center_table_mm": {
+        "x_mm": 577.85,
+        "y_mm": -3.175
+      },
+      "provenance": "interior-green-second-right-middle-row-ball; actual detector box; refiner9 accepted; summary thoughts/calibration/actual-gpu-refiner-r9-20261029/summary.json; trace SHA256 c8ef5f7d7d105ab440473caccc22298ab1324b86e61d0526b4ebce5828bf1d10; original physical measurement uncertainty unknown"
+    },
+    {
+      "image_point_px": {
+        "x_px": 1057.129219377267,
+        "y_px": 290.5585658654718
+      },
+      "center_table_mm": {
+        "x_mm": -600.075,
+        "y_mm": -549.275
+      },
+      "provenance": "top-orange-solid-second-left-ball; actual detector box; refiner9 accepted; summary thoughts/calibration/actual-gpu-refiner-r9-20261029/summary.json; trace SHA256 51818acfd27b41bfd7f894b0b5d8a5e88f22b14758523ba23f50a3f102ec5540; original physical measurement uncertainty unknown"
+    },
+    {
+      "image_point_px": {
+        "x_px": 2782.718802977466,
+        "y_px": 280.99384498970176
+      },
+      "center_table_mm": {
+        "x_mm": 577.85,
+        "y_mm": -549.275
+      },
+      "provenance": "top-red-striped-second-right-ball; actual detector box; refiner9 accepted; summary thoughts/calibration/actual-gpu-refiner-r9-20261029/summary.json; trace SHA256 a9461a6c8162d4082b0eac9218084e4b5d80cfef6b7bc4c03cf55ca2b387a53f; original physical measurement uncertainty unknown"
+    },
+    {
+      "image_point_px": {
+        "x_px": 1085.9769500596944,
+        "y_px": 1880.1763595793425
+      },
+      "center_table_mm": {
+        "x_mm": -600.075,
+        "y_mm": 549.275
+      },
+      "provenance": "bottom-black-second-left-ball; actual detector box; refiner9 accepted; summary thoughts/calibration/actual-gpu-refiner-r9-20261029/summary.json; trace SHA256 3b8a53d22daa82db292f4b4ad278428b704622bfafc98610fd6b9b487a78a239; original physical measurement uncertainty unknown"
+    },
+    {
+      "image_point_px": {
+        "x_px": 2775.3581653873634,
+        "y_px": 1890.250578269052
+      },
+      "center_table_mm": {
+        "x_mm": 577.85,
+        "y_mm": 549.275
+      },
+      "provenance": "bottom-yellow-second-right-ball; actual detector box; refiner9 accepted; summary thoughts/calibration/actual-gpu-refiner-r9-20261029/summary.json; trace SHA256 713f7f44179f11590b700d471b633c57106ddba770280632af36e438bec5c427; original physical measurement uncertainty unknown"
+    }
+  ],
+  "fit_report": {
+    "normalized_design_condition_number": 11.51500339592488,
+    "rms_mm": 4.052644979530378,
+    "maximum_residual_mm": 8.067271261111728,
+    "residuals": [
+      {
+        "correspondence_index": 0,
+        "projected_table_mm": {
+          "x_mm": -4.501792957014633,
+          "y_mm": -5.65445871018046
+        },
+        "error_x_mm": -7.676792957014633,
+        "error_y_mm": -2.4794587101804604,
+        "distance_mm": 8.067271261111728
+      },
+      {
+        "correspondence_index": 1,
+        "projected_table_mm": {
+          "x_mm": 1137.5067959217085,
+          "y_mm": -3.546651443018494
+        },
+        "error_x_mm": -2.318204078291501,
+        "error_y_mm": -0.3716514430184943,
+        "distance_mm": 2.34780641103671
+      },
+      {
+        "correspondence_index": 2,
+        "projected_table_mm": {
+          "x_mm": -1142.9194581397355,
+          "y_mm": -4.5949250167502464
+        },
+        "error_x_mm": -3.0944581397354796,
+        "error_y_mm": -1.4199250167502466,
+        "distance_mm": 3.404681810649617
+      },
+      {
+        "correspondence_index": 3,
+        "projected_table_mm": {
+          "x_mm": -594.7860936318382,
+          "y_mm": -0.7416600237140352
+        },
+        "error_x_mm": 2.1139063681617927,
+        "error_y_mm": 2.4333399762859647,
+        "distance_mm": 3.2233125156500666
+      },
+      {
+        "correspondence_index": 4,
+        "projected_table_mm": {
+          "x_mm": 577.2616511568965,
+          "y_mm": -4.33803722856551
+        },
+        "error_x_mm": -0.5883488431035175,
+        "error_y_mm": -1.1630372285655106,
+        "distance_mm": 1.3033840401856205
+      },
+      {
+        "correspondence_index": 5,
+        "projected_table_mm": {
+          "x_mm": -598.2242917475165,
+          "y_mm": -547.0270437375107
+        },
+        "error_x_mm": 1.8507082524835141,
+        "error_y_mm": 2.2479562624893106,
+        "distance_mm": 2.9117740973288937
+      },
+      {
+        "correspondence_index": 6,
+        "projected_table_mm": {
+          "x_mm": 581.7292313214996,
+          "y_mm": -549.9920105156796
+        },
+        "error_x_mm": 3.87923132149956,
+        "error_y_mm": -0.7170105156795898,
+        "distance_mm": 3.9449384944886448
+      },
+      {
+        "correspondence_index": 7,
+        "projected_table_mm": {
+          "x_mm": -596.7768255350495,
+          "y_mm": 547.653229080874
+        },
+        "error_x_mm": 3.2981744649505345,
+        "error_y_mm": -1.6217709191259928,
+        "distance_mm": 3.675336136379163
+      },
+      {
+        "correspondence_index": 8,
+        "projected_table_mm": {
+          "x_mm": 580.3869105193047,
+          "y_mm": 552.3664286095458
+        },
+        "error_x_mm": 2.5369105193046835,
+        "error_y_mm": 3.091428609545801,
+        "distance_mm": 3.999105628872166
+      }
+    ],
+    "leave_one_out_rms_mm": 8.790999849591628,
+    "leave_one_out_maximum_residual_mm": 11.109796453444332,
+    "leave_one_out": [
+      {
+        "held_out_index": 0,
+        "training_correspondences": 8,
+        "normalized_design_condition_number": 11.590733121777449,
+        "projected_table_mm": [
+          -6.931870188589953,
+          -6.0573597198971125
+        ],
+        "error_mm": [
+          -10.106870188589953,
+          -2.8823597198971127
+        ],
+        "distance_mm": 10.509844078952536,
+        "source_point_extrapolated": false
+      },
+      {
+        "held_out_index": 1,
+        "training_correspondences": 8,
+        "normalized_design_condition_number": 10.725874658242097,
+        "projected_table_mm": [
+          1132.4017622717909,
+          -3.824673752137199
+        ],
+        "error_mm": [
+          -7.4232377282091875,
+          -0.6496737521371991
+        ],
+        "distance_mm": 7.451612869287047,
+        "source_point_extrapolated": true
+      },
+      {
+        "held_out_index": 2,
+        "training_correspondences": 8,
+        "normalized_design_condition_number": 10.736925710707691,
+        "projected_table_mm": [
+          -1149.308850873604,
+          -5.5980510763875095
+        ],
+        "error_mm": [
+          -9.483850873603842,
+          -2.4230510763875097
+        ],
+        "distance_mm": 9.788493444424379,
+        "source_point_extrapolated": true
+      },
+      {
+        "held_out_index": 3,
+        "training_correspondences": 8,
+        "normalized_design_condition_number": 11.444719849448367,
+        "projected_table_mm": [
+          -594.2578721250436,
+          -0.07579034515236273
+        ],
+        "error_mm": [
+          2.6421278749563726,
+          3.099209654847637
+        ],
+        "distance_mm": 4.072583969953509,
+        "source_point_extrapolated": false
+      },
+      {
+        "held_out_index": 4,
+        "training_correspondences": 8,
+        "normalized_design_condition_number": 11.468007548958678,
+        "projected_table_mm": [
+          577.1140221881312,
+          -4.6523195867221645
+        ],
+        "error_mm": [
+          -0.7359778118687927,
+          -1.4773195867221647
+        ],
+        "distance_mm": 1.650495834855733,
+        "source_point_extrapolated": false
+      },
+      {
+        "held_out_index": 5,
+        "training_correspondences": 8,
+        "normalized_design_condition_number": 12.793767872299872,
+        "projected_table_mm": [
+          -594.3666643840305,
+          -543.7657219799896
+        ],
+        "error_mm": [
+          5.708335615969531,
+          5.509278020010356
+        ],
+        "distance_mm": 7.933299427496448,
+        "source_point_extrapolated": true
+      },
+      {
+        "held_out_index": 6,
+        "training_correspondences": 8,
+        "normalized_design_condition_number": 12.849795533303052,
+        "projected_table_mm": [
+          588.5686803610057,
+          -552.196894685911
+        ],
+        "error_mm": [
+          10.718680361005681,
+          -2.92189468591107
+        ],
+        "distance_mm": 11.109796453444332,
+        "source_point_extrapolated": true
+      },
+      {
+        "held_out_index": 7,
+        "training_correspondences": 8,
+        "normalized_design_condition_number": 12.791231366878723,
+        "projected_table_mm": [
+          -590.8201778151919,
+          544.6699715099705
+        ],
+        "error_mm": [
+          9.254822184808177,
+          -4.60502849002944
+        ],
+        "distance_mm": 10.33721534391155,
+        "source_point_extrapolated": true
+      },
+      {
+        "held_out_index": 8,
+        "training_correspondences": 8,
+        "normalized_design_condition_number": 12.837274517390306,
+        "projected_table_mm": [
+          585.7628312427147,
+          556.9294974552196
+        ],
+        "error_mm": [
+          7.912831242714674,
+          7.654497455219598
+        ],
+        "distance_mm": 11.009279248327056,
+        "source_point_extrapolated": true
+      }
+    ],
+    "source_hull_area_fraction": 0.4832113355132295,
+    "table_hull_area_fraction": 0.7032257823698039,
+    "source_reference_hull_px": [
+      [
+        287.4832638121627,
+        1086.108054088801
+      ],
+      [
+        1057.129219377267,
+        290.5585658654718
+      ],
+      [
+        2782.718802977466,
+        280.99384498970176
+      ],
+      [
+        3591.509792321427,
+        1085.9619092827288
+      ],
+      [
+        2775.3581653873634,
+        1890.250578269052
+      ],
+      [
+        1085.9769500596944,
+        1880.1763595793425
+      ]
+    ],
+    "table_reference_hull_mm": [
+      [
+        -1139.825,
+        -3.175
+      ],
+      [
+        -600.075,
+        -549.275
+      ],
+      [
+        577.85,
+        -549.275
+      ],
+      [
+        1139.825,
+        -3.175
+      ],
+      [
+        577.85,
+        549.275
+      ],
+      [
+        -600.075,
+        549.275
+      ]
+    ],
+    "source_image_corners_extrapolated": [
+      true,
+      true,
+      true,
+      true
+    ],
+    "physical_table_corners_extrapolated": [
+      true,
+      true,
+      true,
+      true
+    ]
+  }
+}

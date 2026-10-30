@@ -1,0 +1,8 @@
+{
+  "optics_profile_path": "thoughts/calibration/runtime-localization-20261029/optics-1280-r8.json",
+  "ball_center_calibration_path": "thoughts/calibration/runtime-localization-20261029/ball-center-1280-r8.json",
+  "parameters": {
+    "batch_budget_ms": 150,
+    "proposal_budget_ms": 30
+  }
+}

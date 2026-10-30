@@ -1,0 +1,123 @@
+{
+  "audit_schema_version": 5,
+  "ball_id": "bottom-right-pocket-ball",
+  "diagnostic_wall_time_ms": 0.15804200000000002,
+  "intrinsics": {
+    "cx": 644.1755624688407,
+    "cy": 349.67152391690104,
+    "fx": 696.1731580029823,
+    "fy": 695.3611772093032,
+    "source_height_px": 720,
+    "source_width_px": 1280
+  },
+  "proposal": {
+    "ball_id": "bottom-right-pocket-ball",
+    "bbox_center_source_px": [
+      1190.12255859375,
+      628.4140014648438
+    ],
+    "bbox_side_source_px": 38.42822265625,
+    "bbox_xyxy_source_px": [
+      1170.908447265625,
+      609.9069213867188,
+      1209.336669921875,
+      646.9210815429688
+    ],
+    "detection_index_in_frozen_audit": 13,
+    "detector_confidence": 0.7334966063499451,
+    "localization_review_flags": [
+      "methods disagree by more than 2 px; neither establishes true center",
+      "no physical XY ground truth; pocket/jaw silhouette may be occluded"
+    ],
+    "origin": "manual saved segmentation/gradient annotations; not detector output",
+    "physical_reference_id": null,
+    "physical_reference_present": false,
+    "source_annotation_id": "bottom-right-pocket-ball"
+  },
+  "refinement": {
+    "center_image_px": null,
+    "detection_index": 13,
+    "outline": null,
+    "quality": {
+      "angular_coverage": null,
+      "background_sample_fraction": 0.859375,
+      "background_supported_fraction": 0.5989583333333334,
+      "boundary_candidates": null,
+      "candidate_outer_background_fraction": null,
+      "candidate_representatives_evaluated": 0,
+      "candidate_search_truncated": false,
+      "center_shift_px": null,
+      "center_spread_px": null,
+      "fit_id": null,
+      "foreground_fraction": null,
+      "inliers": null,
+      "iterations": 1,
+      "largest_gap_fraction": null,
+      "qualified_candidate_count": 0,
+      "residual_rms_px": null,
+      "source_residual_rms_px": null,
+      "stage": "background_sampling",
+      "supported_ray_fraction": null
+    },
+    "reason": "insufficient_boundary",
+    "status": "rejected"
+  },
+  "refiner_revision": 4,
+  "schema_version": 1,
+  "source_image_id": "measured-grid-720",
+  "trace": {
+    "dropped_events": 0,
+    "events": [
+      {
+        "data": {
+          "axis_image_px": [
+            1190.12255859375,
+            628.4140014648438
+          ],
+          "kind": "iteration_started"
+        },
+        "detection_index": 13,
+        "iteration": 1,
+        "stage": "iteration_start"
+      },
+      {
+        "data": {
+          "center_image_px": null,
+          "kind": "outcome",
+          "outline": null,
+          "quality": {
+            "angular_coverage": null,
+            "background_sample_fraction": 0.859375,
+            "background_supported_fraction": 0.5989583333333334,
+            "boundary_candidates": null,
+            "candidate_outer_background_fraction": null,
+            "candidate_representatives_evaluated": 0,
+            "candidate_search_truncated": false,
+            "center_shift_px": null,
+            "center_spread_px": null,
+            "fit_id": null,
+            "foreground_fraction": null,
+            "inliers": null,
+            "iterations": 1,
+            "largest_gap_fraction": null,
+            "qualified_candidate_count": 0,
+            "residual_rms_px": null,
+            "source_residual_rms_px": null,
+            "stage": "background_sampling",
+            "supported_ray_fraction": null
+          },
+          "reason": "insufficient_boundary",
+          "status": "rejected"
+        },
+        "detection_index": 13,
+        "iteration": 1,
+        "stage": "background_sampling"
+      }
+    ],
+    "maximum_bytes": 8388608,
+    "maximum_events": 8192,
+    "retained_bytes": 1179904,
+    "schema_version": 5
+  },
+  "trace_complete": true
+}

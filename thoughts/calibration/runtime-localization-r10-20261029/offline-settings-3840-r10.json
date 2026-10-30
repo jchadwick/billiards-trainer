@@ -1,0 +1,8 @@
+{
+  "optics_profile_path": "thoughts/calibration/runtime-localization-r10-20261029/offline-optics-3840-r10.json",
+  "ball_center_calibration_path": "thoughts/calibration/runtime-localization-r10-20261029/offline-ball-center-3840-r10.json",
+  "parameters": {
+    "batch_budget_ms": 600,
+    "proposal_budget_ms": 200
+  }
+}

@@ -1,0 +1,129 @@
+{
+  "ball_id": "track-2",
+  "center_from_live_state_px": [
+    309.375,
+    321.0
+  ],
+  "confidence": 0.86767578125,
+  "detection_index": 1,
+  "diagnostic_budget_ms": 10000,
+  "half_extent_from_live_state_px": [
+    58.5,
+    50.25
+  ],
+  "optics_profile_id": "mokose-uc40m-zero-radial-native4k-20261029",
+  "production_batch_budget_ms": 600,
+  "production_proposal_budget_ms": 200,
+  "reconstructed_live_box_xyxy_px": [
+    250.875,
+    270.75,
+    367.875,
+    371.25
+  ],
+  "refiner_revision": 10,
+  "scope": "exact live coarse-box regression on upscaled saved imagery; no physical accuracy claim",
+  "threshold_observations": [
+    {
+      "batch_budget_ms": 10000,
+      "center_image_px": null,
+      "maximum_center_spread_px": 1.5,
+      "proposal_budget_ms": 10000,
+      "quality": {
+        "angular_coverage": 0.875,
+        "background_sample_fraction": 1.0,
+        "background_supported_fraction": 1.0,
+        "boundary_candidates": 200,
+        "candidate_outer_background_fraction": 1.0,
+        "candidate_representatives_evaluated": 1,
+        "candidate_search_truncated": false,
+        "center_shift_px": 0.13311623771628123,
+        "center_spread_px": 1.6741442208963901,
+        "fit_id": 3,
+        "foreground_fraction": null,
+        "inliers": 40,
+        "iterations": 1,
+        "largest_gap_fraction": 0.11491176840832842,
+        "qualified_candidate_count": 0,
+        "qualified_seed_observations": 6,
+        "residual_rms_px": 0.7605231619203696,
+        "seed_center_spread_px": 1.524114995258326,
+        "seed_observations": 10,
+        "source_residual_rms_px": 1.1184256643739527,
+        "stage": "seed_agreement",
+        "supported_ray_fraction": 0.90625
+      },
+      "reason": "unstable_center",
+      "status": "rejected"
+    },
+    {
+      "batch_budget_ms": 10000,
+      "center_image_px": [
+        309.2295103471565,
+        321.33418360563894
+      ],
+      "maximum_center_spread_px": 1.6,
+      "proposal_budget_ms": 10000,
+      "quality": {
+        "angular_coverage": 0.875,
+        "background_sample_fraction": 1.0,
+        "background_supported_fraction": 1.0,
+        "boundary_candidates": 201,
+        "candidate_outer_background_fraction": 1.0,
+        "candidate_representatives_evaluated": 1,
+        "candidate_search_truncated": false,
+        "center_shift_px": 0.36448034427436504,
+        "center_spread_px": 1.524114995258326,
+        "fit_id": 7,
+        "foreground_fraction": 0.9583333333333334,
+        "inliers": 43,
+        "iterations": 2,
+        "largest_gap_fraction": 0.11677560170172266,
+        "qualified_candidate_count": 1,
+        "qualified_seed_observations": 7,
+        "residual_rms_px": 0.687641901775227,
+        "seed_center_spread_px": 1.524114995258326,
+        "seed_observations": 10,
+        "source_residual_rms_px": 1.0610028978403083,
+        "stage": "complete",
+        "supported_ray_fraction": 0.9166666666666666
+      },
+      "reason": null,
+      "status": "accepted"
+    },
+    {
+      "batch_budget_ms": 10000,
+      "center_image_px": [
+        309.4267141167222,
+        320.87733956271325
+      ],
+      "maximum_center_spread_px": 1.75,
+      "proposal_budget_ms": 10000,
+      "quality": {
+        "angular_coverage": 0.875,
+        "background_sample_fraction": 1.0,
+        "background_supported_fraction": 1.0,
+        "boundary_candidates": 200,
+        "candidate_outer_background_fraction": 1.0,
+        "candidate_representatives_evaluated": 1,
+        "candidate_search_truncated": false,
+        "center_shift_px": 0.13311623771628123,
+        "center_spread_px": 1.6741442208963901,
+        "fit_id": 3,
+        "foreground_fraction": 0.96875,
+        "inliers": 40,
+        "iterations": 1,
+        "largest_gap_fraction": 0.11491176840832842,
+        "qualified_candidate_count": 1,
+        "qualified_seed_observations": 1,
+        "residual_rms_px": 0.7605231619203696,
+        "seed_center_spread_px": null,
+        "seed_observations": 1,
+        "source_residual_rms_px": 1.1184256643739527,
+        "stage": "complete",
+        "supported_ray_fraction": 0.90625
+      },
+      "reason": null,
+      "status": "accepted"
+    }
+  ]
+}

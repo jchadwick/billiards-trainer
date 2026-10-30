@@ -1,0 +1,144 @@
+{
+  "schema_version": 1,
+  "scope": "paired R10 configuration audit; only maximum_center_spread_px changes from 1.5 to 1.6; no physical accuracy claim",
+  "refiner_revision": 10,
+  "source_width_reference_px": 3840,
+  "confidence_threshold_changed": false,
+  "saved_detector_corpus_pairs": [
+    {
+      "corpus": "15 actual Intel GPU proposals on measured-grid-720",
+      "input_image": {
+        "dimensions_px": [
+          1280,
+          720
+        ],
+        "id": "measured-grid-720",
+        "path": "thoughts/calibration/table-grid-20261026-114241.jpg",
+        "proposal_origin": "Actual target IntelGPU OpenVINO on saved JPEG",
+        "proposals_are_detector_output": true,
+        "sha256": "06ef40f52e0f93db17601585c4ed1d014895aaadcaf6b04c6abbd6e986d57e7b"
+      },
+      "corpus_sha256": "de8fe0233cd209a00eeefc149f5ef4b0d3a4019337264bef5693a99b80c04d24",
+      "baseline_summary": {
+        "accepted_count": 15,
+        "measured_accepted_count": 9,
+        "measured_count": 9,
+        "proposal_count": 15,
+        "trace_dropped_event_cases": 0
+      },
+      "relaxed_summary": {
+        "accepted_count": 15,
+        "measured_accepted_count": 9,
+        "measured_count": 9,
+        "proposal_count": 15,
+        "trace_dropped_event_cases": 0
+      },
+      "status_or_reason_changes": [],
+      "maximum_center_change_px": 0.0,
+      "maximum_outline_point_change_px": 0.0,
+      "center_changes": [],
+      "outline_changes": [],
+      "baseline_parameters": {
+        "maximum_center_spread_px": 1.5
+      },
+      "relaxed_parameters": {
+        "maximum_center_spread_px": 1.6
+      }
+    },
+    {
+      "corpus": "18 actual Intel GPU proposal-seed variants on measured-grid-720",
+      "input_image": {
+        "dimensions_px": [
+          1280,
+          720
+        ],
+        "id": "measured-grid-720",
+        "path": "thoughts/calibration/table-grid-20261026-114241.jpg",
+        "proposal_origin": "Actual target IntelGPU OpenVINO on saved JPEG",
+        "proposals_are_detector_output": true,
+        "sha256": "06ef40f52e0f93db17601585c4ed1d014895aaadcaf6b04c6abbd6e986d57e7b"
+      },
+      "corpus_sha256": "0dbba9583a8132b5a79e74754e24c62afb768712b2ba0e6263ec25ddc1d12634",
+      "baseline_summary": {
+        "accepted_count": 16,
+        "measured_accepted_count": 0,
+        "measured_count": 0,
+        "proposal_count": 18,
+        "trace_dropped_event_cases": 0
+      },
+      "relaxed_summary": {
+        "accepted_count": 16,
+        "measured_accepted_count": 0,
+        "measured_count": 0,
+        "proposal_count": 18,
+        "trace_dropped_event_cases": 0
+      },
+      "status_or_reason_changes": [],
+      "maximum_center_change_px": 0.0,
+      "maximum_outline_point_change_px": 0.0,
+      "center_changes": [],
+      "outline_changes": [],
+      "baseline_parameters": {
+        "maximum_center_spread_px": 1.5
+      },
+      "relaxed_parameters": {
+        "maximum_center_spread_px": 1.6
+      }
+    }
+  ],
+  "synthetic_known_center_pair": {
+    "case_count": 297,
+    "accepted_baseline_1_5": 285,
+    "accepted_relaxed_1_6": 285,
+    "status_or_reason_flips": [],
+    "maximum_center_change_px": 0.0,
+    "wrong_neighbor_count": 0,
+    "maximum_known_center_error_px": {
+      "1.5": 0.11197453005055454,
+      "1.6": 0.11197453005055454
+    },
+    "p95_known_center_error_px": {
+      "1.5": 0.057968007371208094,
+      "1.6": 0.057968007371208094
+    },
+    "source_report_sha256": "6c479bae1d11db1509896b80328f28b3986f55a3eb15ad1f6c1411469a6ada1e"
+  },
+  "exact_live_box": {
+    "confidence": 0.86767578125,
+    "detector_threshold": 0.3,
+    "baseline_1_5": {
+      "status": "rejected",
+      "reason": "unstable_center",
+      "accepted_seed_fits": 6,
+      "maximum_seed_spread_px": 1.524114995258326,
+      "reported_center_spread_px": 1.6741442208963901
+    },
+    "relaxed_1_6": {
+      "status": "accepted",
+      "accepted_seed_fits": 7,
+      "maximum_seed_spread_px": 1.524114995258326,
+      "center_image_px": [
+        309.2295103471565,
+        321.33418360563894
+      ]
+    },
+    "relaxed_1_75": {
+      "status": "accepted",
+      "accepted_seed_fits": 1,
+      "reported_center_spread_px": 1.6741442208963901,
+      "note": "passes the initial fit without multi-seed consensus"
+    },
+    "live_box_xyxy_px": [
+      250.875,
+      270.75,
+      367.875,
+      371.25
+    ]
+  },
+  "limitations": [
+    "The detector proposal corpora come from saved 1280x720 imagery, not a live native-4K camera frame.",
+    "The 18 proposal-seed variants have no independent physical center truth.",
+    "Synthetic known-center inputs test algorithmic center recovery but are not evidence of real optical or physical-table accuracy.",
+    "The exact far-corner live box has no independent physical XY reference; 1.6 is not a bound on table-position error."
+  ]
+}

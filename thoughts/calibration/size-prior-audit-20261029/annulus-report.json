@@ -1,0 +1,786 @@
+[
+  {
+    "ball_id": "bottom-right-pocket-ball",
+    "proposal_local_radius": 12.483823482928411,
+    "physical_local_radius": 10.343196041416913,
+    "roi_half": 34.585400390625004,
+    "runtime_quality": {
+      "angular_coverage": null,
+      "background_sample_fraction": 0.859375,
+      "background_supported_fraction": 0.5989583333333334,
+      "boundary_candidates": null,
+      "candidate_outer_background_fraction": null,
+      "candidate_representatives_evaluated": 0,
+      "candidate_search_truncated": false,
+      "center_shift_px": null,
+      "center_spread_px": null,
+      "fit_id": null,
+      "foreground_fraction": null,
+      "inliers": null,
+      "iterations": 1,
+      "largest_gap_fraction": null,
+      "qualified_candidate_count": 0,
+      "residual_rms_px": null,
+      "source_residual_rms_px": null,
+      "stage": "background_sampling",
+      "supported_ray_fraction": null
+    },
+    "sampling": [
+      {
+        "seed": "proposal",
+        "radius": 12.483823482928411,
+        "validity_counts": {
+          "valid": 165,
+          "roi": 27
+        },
+        "median_rgb": [
+          0.09680433574510541,
+          0.5864431205883451,
+          0.4869684213918492
+        ],
+        "supported_count": 115,
+        "supported_fraction": 0.5989583333333334,
+        "unsupported_rays": [
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          10,
+          11,
+          11,
+          12,
+          12,
+          13,
+          13,
+          14,
+          15,
+          15,
+          16,
+          16,
+          17,
+          17,
+          18,
+          18,
+          19,
+          19,
+          20,
+          20,
+          21,
+          21,
+          22,
+          22,
+          23,
+          23,
+          24,
+          24,
+          25,
+          25,
+          26,
+          26,
+          27,
+          27,
+          28,
+          29,
+          31,
+          91,
+          92,
+          93,
+          94
+        ],
+        "two_cluster_centers_rgb": [
+          [
+            0.12689161176378919,
+            0.5195649272386393,
+            0.42697507759726383
+          ],
+          [
+            0.09571074055900138,
+            0.6629624088807373,
+            0.5608681404717801
+          ]
+        ],
+        "two_cluster_supported_count": 126,
+        "radial_test_counts": {
+          "sampled": 9216,
+          "gradient": 3132,
+          "foreground": 3103,
+          "outer_background": 2099,
+          "direction": 1695
+        },
+        "supported_ray_count": 89
+      },
+      {
+        "seed": "proposal_annulus_roi_expanded",
+        "radius": 12.483823482928411,
+        "validity_counts": {
+          "valid": 192
+        },
+        "median_rgb": [
+          0.10172641385305273,
+          0.5862877775146874,
+          0.48626123892909545
+        ],
+        "supported_count": 135,
+        "supported_fraction": 0.703125,
+        "unsupported_rays": [
+          0,
+          2,
+          3,
+          3,
+          4,
+          4,
+          5,
+          5,
+          6,
+          6,
+          7,
+          7,
+          8,
+          8,
+          9,
+          9,
+          10,
+          10,
+          11,
+          11,
+          12,
+          12,
+          13,
+          13,
+          14,
+          15,
+          16,
+          16,
+          17,
+          17,
+          18,
+          18,
+          19,
+          19,
+          20,
+          20,
+          21,
+          21,
+          22,
+          22,
+          23,
+          23,
+          24,
+          24,
+          25,
+          25,
+          26,
+          26,
+          27,
+          27,
+          28,
+          29,
+          31,
+          91,
+          92,
+          93,
+          94
+        ],
+        "two_cluster_centers_rgb": [
+          [
+            0.14512857493909584,
+            0.49024123591303526,
+            0.39746484177884467
+          ],
+          [
+            0.09551457326056564,
+            0.6616204674206012,
+            0.5586480487650424
+          ]
+        ],
+        "two_cluster_supported_count": 159,
+        "radial_test_counts": {
+          "sampled": 9216,
+          "gradient": 3132,
+          "foreground": 3102,
+          "outer_background": 2137,
+          "direction": 1716
+        },
+        "supported_ray_count": 89
+      },
+      {
+        "seed": "physical_sampling_only",
+        "radius": 10.343196041416913,
+        "validity_counts": {
+          "valid": 192
+        },
+        "median_rgb": [
+          0.09941354847269197,
+          0.5518765814186319,
+          0.454241480652431
+        ],
+        "supported_count": 135,
+        "supported_fraction": 0.703125,
+        "unsupported_rays": [
+          1,
+          2,
+          3,
+          3,
+          4,
+          4,
+          5,
+          5,
+          6,
+          6,
+          7,
+          7,
+          8,
+          8,
+          9,
+          9,
+          10,
+          10,
+          11,
+          11,
+          12,
+          12,
+          13,
+          13,
+          14,
+          15,
+          16,
+          16,
+          17,
+          17,
+          18,
+          18,
+          19,
+          19,
+          20,
+          20,
+          21,
+          21,
+          22,
+          22,
+          23,
+          23,
+          24,
+          24,
+          25,
+          26,
+          26,
+          27,
+          28,
+          28,
+          29,
+          30,
+          31,
+          91,
+          92,
+          93,
+          94
+        ],
+        "two_cluster_centers_rgb": [
+          [
+            0.09101303565950376,
+            0.564748777781015,
+            0.45857131387703565
+          ],
+          [
+            0.5704100269116898,
+            0.5189300293114893,
+            0.4367066013716402
+          ]
+        ],
+        "two_cluster_supported_count": 158,
+        "radial_test_counts": {
+          "sampled": 9216,
+          "gradient": 3744,
+          "foreground": 3687,
+          "outer_background": 2729,
+          "direction": 2055
+        },
+        "supported_ray_count": 91
+      }
+    ]
+  },
+  {
+    "ball_id": "bottom-left-pocket-ball",
+    "proposal_local_radius": 12.914920105970337,
+    "physical_local_radius": 10.33189532792259,
+    "roi_half": 37.53867645263672,
+    "runtime_quality": {
+      "angular_coverage": 0.6875,
+      "background_sample_fraction": 0.9270833333333334,
+      "background_supported_fraction": 0.6770833333333334,
+      "boundary_candidates": 210,
+      "candidate_outer_background_fraction": null,
+      "candidate_representatives_evaluated": 1,
+      "candidate_search_truncated": false,
+      "center_shift_px": null,
+      "center_spread_px": null,
+      "fit_id": 3,
+      "foreground_fraction": null,
+      "inliers": 62,
+      "iterations": 1,
+      "largest_gap_fraction": 0.3627382486666698,
+      "qualified_candidate_count": 0,
+      "residual_rms_px": null,
+      "source_residual_rms_px": null,
+      "stage": "coverage",
+      "supported_ray_fraction": 0.78125
+    },
+    "sampling": [
+      {
+        "seed": "proposal",
+        "radius": 12.914920105970337,
+        "validity_counts": {
+          "valid": 178,
+          "roi": 14
+        },
+        "median_rgb": [
+          0.09782871890146928,
+          0.615642382645234,
+          0.5046128839567061
+        ],
+        "supported_count": 130,
+        "supported_fraction": 0.6770833333333334,
+        "unsupported_rays": [
+          20,
+          21,
+          22,
+          23,
+          24,
+          24,
+          25,
+          25,
+          26,
+          26,
+          27,
+          28,
+          29,
+          30,
+          30,
+          31,
+          31,
+          32,
+          32,
+          33,
+          33,
+          34,
+          34,
+          35,
+          35,
+          36,
+          36,
+          37,
+          37,
+          38,
+          38,
+          39,
+          39,
+          40,
+          40,
+          41,
+          41,
+          42,
+          43,
+          44,
+          45,
+          46,
+          47,
+          48,
+          49,
+          50,
+          51,
+          52
+        ],
+        "two_cluster_centers_rgb": [
+          [
+            0.1389281096606796,
+            0.17809119388857142,
+            0.15047560337866617
+          ],
+          [
+            0.09237234899110859,
+            0.6392156862745098,
+            0.5349969402232464
+          ]
+        ],
+        "two_cluster_supported_count": 165,
+        "radial_test_counts": {
+          "sampled": 9216,
+          "gradient": 3648,
+          "foreground": 3627,
+          "outer_background": 1646,
+          "direction": 1634
+        },
+        "supported_ray_count": 75
+      },
+      {
+        "seed": "proposal_annulus_roi_expanded",
+        "radius": 12.914920105970337,
+        "validity_counts": {
+          "valid": 192
+        },
+        "median_rgb": [
+          0.09782871890146928,
+          0.6072535334613016,
+          0.49720140040377625
+        ],
+        "supported_count": 142,
+        "supported_fraction": 0.7395833333333334,
+        "unsupported_rays": [
+          20,
+          21,
+          22,
+          23,
+          24,
+          25,
+          25,
+          26,
+          27,
+          28,
+          29,
+          30,
+          31,
+          31,
+          32,
+          32,
+          33,
+          33,
+          34,
+          35,
+          35,
+          36,
+          36,
+          37,
+          37,
+          38,
+          38,
+          39,
+          39,
+          40,
+          40,
+          41,
+          41,
+          42,
+          42,
+          43,
+          43,
+          44,
+          44,
+          45,
+          45,
+          46,
+          46,
+          47,
+          47,
+          48,
+          49,
+          50,
+          51,
+          52
+        ],
+        "two_cluster_centers_rgb": [
+          [
+            0.13436951144781115,
+            0.1723562424733806,
+            0.14352432219241817
+          ],
+          [
+            0.09255119881221865,
+            0.6392156862745098,
+            0.5350572759257448
+          ]
+        ],
+        "two_cluster_supported_count": 178,
+        "radial_test_counts": {
+          "sampled": 9216,
+          "gradient": 3648,
+          "foreground": 3623,
+          "outer_background": 1677,
+          "direction": 1665
+        },
+        "supported_ray_count": 76
+      },
+      {
+        "seed": "physical_sampling_only",
+        "radius": 10.33189532792259,
+        "validity_counts": {
+          "valid": 192
+        },
+        "median_rgb": [
+          0.0930025188565691,
+          0.5741406213978482,
+          0.46499089053584314
+        ],
+        "supported_count": 137,
+        "supported_fraction": 0.7135416666666666,
+        "unsupported_rays": [
+          20,
+          20,
+          21,
+          21,
+          22,
+          23,
+          23,
+          24,
+          26,
+          27,
+          28,
+          29,
+          30,
+          30,
+          31,
+          32,
+          33,
+          34,
+          34,
+          35,
+          35,
+          36,
+          36,
+          37,
+          37,
+          38,
+          38,
+          39,
+          39,
+          40,
+          40,
+          41,
+          41,
+          42,
+          42,
+          43,
+          43,
+          44,
+          44,
+          45,
+          45,
+          46,
+          46,
+          47,
+          47,
+          48,
+          48,
+          49,
+          49,
+          50,
+          50,
+          51,
+          51,
+          52,
+          52
+        ],
+        "two_cluster_centers_rgb": [
+          [
+            0.1531574734659292,
+            0.16737250801662298,
+            0.1384176752080707
+          ],
+          [
+            0.08800255380346458,
+            0.6203773851691938,
+            0.5019018999071545
+          ]
+        ],
+        "two_cluster_supported_count": 175,
+        "radial_test_counts": {
+          "sampled": 9216,
+          "gradient": 4609,
+          "foreground": 4608,
+          "outer_background": 2127,
+          "direction": 2118
+        },
+        "supported_ray_count": 73
+      }
+    ]
+  },
+  {
+    "ball_id": "top-left-pocket-ball",
+    "proposal_local_radius": 12.272266642494277,
+    "physical_local_radius": 10.577324220834532,
+    "roi_half": 35.360101318359376,
+    "runtime_quality": {
+      "angular_coverage": 0.625,
+      "background_sample_fraction": 0.921875,
+      "background_supported_fraction": 0.84375,
+      "boundary_candidates": 136,
+      "candidate_outer_background_fraction": null,
+      "candidate_representatives_evaluated": 1,
+      "candidate_search_truncated": false,
+      "center_shift_px": null,
+      "center_spread_px": null,
+      "fit_id": 5,
+      "foreground_fraction": null,
+      "inliers": 35,
+      "iterations": 1,
+      "largest_gap_fraction": 0.3417704626113599,
+      "qualified_candidate_count": 0,
+      "residual_rms_px": null,
+      "source_residual_rms_px": null,
+      "stage": "coverage",
+      "supported_ray_fraction": 0.8229166666666666
+    },
+    "sampling": [
+      {
+        "seed": "proposal",
+        "radius": 12.272266642494277,
+        "validity_counts": {
+          "valid": 177,
+          "roi": 15
+        },
+        "median_rgb": [
+          0.0920537667657839,
+          0.4741976624683155,
+          0.36572965425388704
+        ],
+        "supported_count": 162,
+        "supported_fraction": 0.84375,
+        "unsupported_rays": [
+          47,
+          48,
+          52,
+          53,
+          54,
+          55,
+          55,
+          56,
+          56,
+          57,
+          57,
+          58,
+          71,
+          72,
+          73
+        ],
+        "two_cluster_centers_rgb": [
+          [
+            0.12684511775644092,
+            0.1502589966517614,
+            0.12752317918314587
+          ],
+          [
+            0.08738576800901089,
+            0.5658066034585745,
+            0.4526464915804407
+          ]
+        ],
+        "two_cluster_supported_count": 177,
+        "radial_test_counts": {
+          "sampled": 9216,
+          "gradient": 1352,
+          "foreground": 1292,
+          "outer_background": 1213,
+          "direction": 938
+        },
+        "supported_ray_count": 79
+      },
+      {
+        "seed": "proposal_annulus_roi_expanded",
+        "radius": 12.272266642494277,
+        "validity_counts": {
+          "valid": 192
+        },
+        "median_rgb": [
+          0.09147125470547549,
+          0.4643955482328149,
+          0.3545570219037907
+        ],
+        "supported_count": 182,
+        "supported_fraction": 0.9479166666666666,
+        "unsupported_rays": [
+          52,
+          53,
+          53,
+          54,
+          54,
+          55,
+          55,
+          56,
+          57,
+          58
+        ],
+        "two_cluster_centers_rgb": [
+          [
+            0.12244095147915682,
+            0.15305102424625272,
+            0.12720482957822163
+          ],
+          [
+            0.0876972952257146,
+            0.5685523493789056,
+            0.4570713006695545
+          ]
+        ],
+        "two_cluster_supported_count": 192,
+        "radial_test_counts": {
+          "sampled": 9216,
+          "gradient": 1352,
+          "foreground": 1270,
+          "outer_background": 1210,
+          "direction": 943
+        },
+        "supported_ray_count": 80
+      },
+      {
+        "seed": "physical_sampling_only",
+        "radius": 10.577324220834532,
+        "validity_counts": {
+          "valid": 192
+        },
+        "median_rgb": [
+          0.08868316193418738,
+          0.46632001244072313,
+          0.3575547183130633
+        ],
+        "supported_count": 173,
+        "supported_fraction": 0.9010416666666666,
+        "unsupported_rays": [
+          47,
+          48,
+          49,
+          50,
+          51,
+          52,
+          53,
+          53,
+          54,
+          54,
+          55,
+          55,
+          56,
+          56,
+          57,
+          67,
+          70,
+          71,
+          72
+        ],
+        "two_cluster_centers_rgb": [
+          [
+            0.11108230515644615,
+            0.13795069463781734,
+            0.11507678074174923
+          ],
+          [
+            0.08295560667476591,
+            0.5328505326210837,
+            0.4287554083494663
+          ]
+        ],
+        "two_cluster_supported_count": 192,
+        "radial_test_counts": {
+          "sampled": 9216,
+          "gradient": 1769,
+          "foreground": 1638,
+          "outer_background": 1558,
+          "direction": 1163
+        },
+        "supported_ray_count": 74
+      }
+    ]
+  }
+]

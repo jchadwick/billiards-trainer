@@ -1,0 +1,95 @@
+{
+  "scope": "Accepted revision3 source centers against same six existing references; diagnostic only, uncertainty unknown; no calibrated runtime asset",
+  "ids": [
+    "bottom-black-second-left-ball",
+    "bottom-yellow-second-right-ball",
+    "far-left-yellow-middle-row-ball",
+    "interior-green-second-right-middle-row-ball",
+    "top-orange-solid-second-left-ball",
+    "top-red-striped-second-right-ball"
+  ],
+  "result": {
+    "point_ids": [
+      "bottom-black-second-left-ball",
+      "bottom-yellow-second-right-ball",
+      "far-left-yellow-middle-row-ball",
+      "interior-green-second-right-middle-row-ball",
+      "top-orange-solid-second-left-ball",
+      "top-red-striped-second-right-ball"
+    ],
+    "count": 6,
+    "leave_one_out_errors_mm": {
+      "bottom-black-second-left-ball": 13.910792110681859,
+      "bottom-yellow-second-right-ball": 11.428789165858701,
+      "far-left-yellow-middle-row-ball": 11.816980521779035,
+      "interior-green-second-right-middle-row-ball": 5.366101167069106,
+      "top-orange-solid-second-left-ball": 8.703763558187198,
+      "top-red-striped-second-right-ball": 10.837001813768
+    },
+    "leave_one_out_predictions_mm": {
+      "bottom-black-second-left-ball": [
+        582.097569522844,
+        1125.1688645535037
+      ],
+      "bottom-yellow-second-right-ball": [
+        1750.9570832544473,
+        1137.5394413692406
+      ],
+      "far-left-yellow-middle-row-ball": [
+        16.912161240176374,
+        572.7725750436716
+      ],
+      "interior-green-second-right-middle-row-ball": [
+        1741.7291652458234,
+        571.7841359664194
+      ],
+      "top-orange-solid-second-left-ball": [
+        574.2297468753636,
+        34.96948703296141
+      ],
+      "top-red-striped-second-right-ball": [
+        1754.8413542327285,
+        21.969756570769732
+      ]
+    },
+    "leave_one_out_rms_mm": 10.69080241547239,
+    "leave_one_out_p95_mm": 13.387339213456153,
+    "leave_one_out_max_mm": 13.910792110681859,
+    "training_residuals_mm": {
+      "bottom-black-second-left-ball": 2.999343934143859,
+      "bottom-yellow-second-right-ball": 2.6713851403392876,
+      "far-left-yellow-middle-row-ball": 2.880533870321592,
+      "interior-green-second-right-middle-row-ball": 3.4843430755676184,
+      "top-orange-solid-second-left-ball": 2.9054127718818483,
+      "top-red-striped-second-right-ball": 1.9222572766192985
+    },
+    "normalized_design_conditions_by_fold": [
+      9.195042764071335,
+      8.474277414104467,
+      5.6550698319661565,
+      5.637034934551602,
+      9.274117179153242,
+      8.483084733940373
+    ],
+    "normalized_design_condition_all_points": 5.521387958240614,
+    "diagnostic_homography_normalized": [
+      [
+        1.1325699865595584,
+        -0.00762680623802287,
+        -0.010292887484637652
+      ],
+      [
+        -0.0002213198405412777,
+        1.1285321747745347,
+        -0.007137029636671957
+      ],
+      [
+        0.0056260174549771875,
+        -0.022828118984537148,
+        1.0
+      ]
+    ],
+    "independently_validated_accuracy": false,
+    "reference_uncertainty_mm": null
+  }
+}

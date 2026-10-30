@@ -1,0 +1,31 @@
+{
+  "scope": "offline saved-MJPEG qualification fixture only",
+  "production_eligible": false,
+  "frame_id": "2",
+  "camera_profile_id": "camera-profile-v3:66f514812c14b65524d7de505e2a5fdfaa776444ae65887fcafcc1dc1279a67f",
+  "dimensions": [
+    3840,
+    2160
+  ],
+  "preview_jpeg_sha256": "ee5e9f24714dd8bbfa9801f329e6f67e4dd766f5a69ae6639684970a6fb47a5b",
+  "corners_px": [
+    {
+      "x_px": 246.0,
+      "y_px": 165.0
+    },
+    {
+      "x_px": 3645.0,
+      "y_px": 165.0
+    },
+    {
+      "x_px": 3645.0,
+      "y_px": 1998.0
+    },
+    {
+      "x_px": 246.0,
+      "y_px": 1998.0
+    }
+  ],
+  "store_revision": 2,
+  "visibility_reference_present": true
+}

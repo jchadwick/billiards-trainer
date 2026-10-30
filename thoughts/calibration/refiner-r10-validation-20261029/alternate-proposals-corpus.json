@@ -1,0 +1,601 @@
+{
+  "schema_version": 1,
+  "name": "native-localization-corpus-v1",
+  "created_date": "2026-10-27",
+  "purpose": "Alternate saved-image proposal qualification; no camera capture or physical accuracy claim",
+  "path_convention": "repository-relative paths",
+  "table_model": {
+    "playing_area_mm": [
+      2336.8,
+      1155.7
+    ],
+    "physical_ball_diameter_mm": 57.15,
+    "coordinates": "2D X/Y only; physical diameter does not depend on image position"
+  },
+  "source_data": {
+    "ball_outline_annotations": {
+      "path": "thoughts/calibration/ball-outline-consistency.json",
+      "sha256": "50b410fa0b0911b1112bf6816a28558e271d5599701e6bbf5e03fa27e93650eb"
+    },
+    "measured_grid_physical_references": {
+      "path": "thoughts/calibration/table-grid-20261026-114241-measurements.json",
+      "sha256": "fc2eb93e5f0144e1b15b446078be11e494c80c8da8e427295c6e51d283e7d335"
+    },
+    "checkerboard_frozen_baseline": {
+      "path": "thoughts/calibration/checkerboard-eight-view-baseline.json",
+      "sha256": "d0bb14b97f87fe13fe296638af726466ee11f4af7e1cd20a964b16f244ccf191"
+    },
+    "checkerboard_session_manifest": {
+      "path": "thoughts/calibration/checkerboard-session/manifest.json",
+      "sha256": "20c3c61497547daa159f11dbd8151794d93ae7836945830850a63980d1a701a2"
+    },
+    "original_identity_audit": {
+      "path": "thoughts/calibration/offline-refiner-identity-check.json",
+      "sha256": "d285d5945d27ac09a3a355829dadf4a7f342e73a04b7457c659e6a18a94f53c1"
+    },
+    "framing_comparison": {
+      "path": "thoughts/calibration/stream-4k-framing.json",
+      "sha256": "1e42bc3e4042498ff083d862926ac4d4cc01908ad784b76471b5485d96ac78e7"
+    }
+  },
+  "optics_models": {
+    "frozen_zero_radial_720": {
+      "image_size_px": [
+        1280,
+        720
+      ],
+      "camera_matrix": [
+        [
+          696.1731580029823,
+          0.0,
+          644.1755624688407
+        ],
+        [
+          0.0,
+          695.3611772093032,
+          349.67152391690104
+        ],
+        [
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "distortion_k1_k2_p1_p2_k3": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "source_data_id": "checkerboard_frozen_baseline",
+      "source_json_pointer": "/models/zero/full_fit",
+      "status": "exploratory_only_not_activated",
+      "limitations": "Fixed eight-view zero-added-radial fit, not established zero lens distortion and not a qualified runtime optics profile; verify matching camera framing."
+    },
+    "scaled_frozen_zero_radial_4k_diagnostic": {
+      "image_size_px": [
+        3840,
+        2160
+      ],
+      "camera_matrix": [
+        [
+          2088.519474008947,
+          0.0,
+          1932.526687406522
+        ],
+        [
+          0.0,
+          2086.0835316279095,
+          1049.014571750703
+        ],
+        [
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "distortion_k1_k2_p1_p2_k3": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "parent_model_id": "frozen_zero_radial_720",
+      "derivation": "Multiply the first two matrix rows by 3.0 for a direct 3x pixel-coordinate scale; leave the last row unchanged.",
+      "status": "derived_diagnostic_only_not_qualified_for_runtime",
+      "limitations": "4K framing is approximately registered, not proven identical optics or a production calibration."
+    }
+  },
+  "physical_reference_sets": {
+    "measured_grid_nine": {
+      "image_id": "measured-grid-720",
+      "arrangement_id": "measured-grid-20261026-114241",
+      "source_data_id": "measured_grid_physical_references",
+      "coordinate_convention": {
+        "origin": "upper-left cushion nose intersection",
+        "positive_x": "image-right",
+        "positive_y": "image-down",
+        "units": "mm"
+      },
+      "uncertainty": "Unknown; decimal digits indicate unit conversion, not physical accuracy.",
+      "observations": [
+        {
+          "id": "middle-row-center-ball",
+          "center_from_upper_left_mm": [
+            1171.575,
+            574.675
+          ],
+          "measurement_uncertainty_mm": null,
+          "measurement_reference_confirmed": true,
+          "source": "user-reported physical measurement; precision is not independently established"
+        },
+        {
+          "id": "far-right-purple-middle-row-ball",
+          "center_from_upper_left_mm": [
+            2308.225,
+            574.675
+          ],
+          "measurement_uncertainty_mm": null,
+          "measurement_reference_confirmed": true,
+          "source": "user-reported physical measurement; precision is not independently established"
+        },
+        {
+          "id": "far-left-yellow-middle-row-ball",
+          "center_from_upper_left_mm": [
+            28.575,
+            574.675
+          ],
+          "measurement_uncertainty_mm": null,
+          "measurement_reference_confirmed": true,
+          "source": "user-reported physical measurement; precision is not independently established"
+        },
+        {
+          "id": "interior-purple-second-left-middle-row-ball",
+          "center_from_upper_left_mm": [
+            571.5,
+            574.675
+          ],
+          "measurement_uncertainty_mm": null,
+          "measurement_reference_confirmed": true,
+          "source": "user-reported physical measurement; precision is not independently established"
+        },
+        {
+          "id": "interior-green-second-right-middle-row-ball",
+          "center_from_upper_left_mm": [
+            1746.25,
+            574.675
+          ],
+          "measurement_uncertainty_mm": null,
+          "measurement_reference_confirmed": true,
+          "source": "user-reported physical measurement; precision is not independently established"
+        },
+        {
+          "id": "top-orange-solid-second-left-ball",
+          "center_from_upper_left_mm": [
+            568.325,
+            28.575
+          ],
+          "measurement_uncertainty_mm": null,
+          "measurement_reference_confirmed": true,
+          "source": "user-reported physical measurement; precision is not independently established"
+        },
+        {
+          "id": "top-red-striped-second-right-ball",
+          "center_from_upper_left_mm": [
+            1746.25,
+            28.575
+          ],
+          "measurement_uncertainty_mm": null,
+          "measurement_reference_confirmed": true,
+          "source": "user-reported physical measurement; precision is not independently established"
+        },
+        {
+          "id": "bottom-black-second-left-ball",
+          "center_from_upper_left_mm": [
+            568.325,
+            1127.125
+          ],
+          "measurement_uncertainty_mm": null,
+          "measurement_reference_confirmed": true,
+          "source": "user-reported physical measurement; precision is not independently established"
+        },
+        {
+          "id": "bottom-yellow-second-right-ball",
+          "center_from_upper_left_mm": [
+            1746.25,
+            1127.125
+          ],
+          "measurement_uncertainty_mm": null,
+          "measurement_reference_confirmed": true,
+          "source": "user-reported physical measurement; precision is not independently established"
+        }
+      ]
+    }
+  },
+  "frozen_identity_audit": {
+    "source_data_id": "original_identity_audit",
+    "implementation_checkpoint": "e595fe255291dd9e820295743fface33f8eae538",
+    "refiner_source_sha256": "a8a1dc215afa88bacfa31da88434707c5b8b39823adab14e0143ca682f063ef0",
+    "source_image_id": "measured-grid-720",
+    "candidate_indices": "0 through 15 per fixed proposal; detection index affected old RANSAC seed",
+    "repeat_count": 3,
+    "limit": "Repeated trials on one source image are not independent placements; diagnostic work budgets are not performance qualification."
+  },
+  "images": [
+    {
+      "path": "thoughts/calibration/table-grid-2026-10-26.jpg",
+      "sha256": "8371e508f79c5556cfd2fe6632b9095ba87d8f7052741b2f6b01563b448c385b",
+      "id": "alternate-grid-720",
+      "dimensions_px": [
+        1280,
+        720
+      ],
+      "arrangement_id": "measured-grid-20261026-114241",
+      "intended_use": "diagnosis_and_tuning",
+      "optics_model_id": "frozen_zero_radial_720",
+      "ball_proposals": {
+        "status": "Actual saved source-checkpoint PyTorch CPU proposals on alternate image",
+        "definition": "square centered at segmentation_bbox_midpoint_px; side=max(gradient_ellipse.diameters_px)+4.0 source px",
+        "annotation_source": "ball_outline_annotations",
+        "detector_generated": true,
+        "proposals": [
+          {
+            "detection_index_in_frozen_audit": 0,
+            "ball_id": "far-left-yellow-middle-row-ball",
+            "bbox_xyxy_source_px": [
+              75.26094818115234,
+              341.71112060546875,
+              117.5770034790039,
+              376.22955322265625
+            ],
+            "bbox_center_source_px": [
+              96.41897583007812,
+              358.9703369140625
+            ],
+            "bbox_side_source_px": 42.31605529785156,
+            "origin": "Actual saved source-checkpoint PyTorch CPU proposals; nearest earlier label is identity only",
+            "source_annotation_id": "far-left-yellow-middle-row-ball",
+            "localization_review_flags": [],
+            "physical_reference_id": null,
+            "physical_reference_present": false,
+            "detector_confidence": 0.9536133
+          },
+          {
+            "detection_index_in_frozen_audit": 1,
+            "ball_id": "bottom-yellow-second-right-ball",
+            "bbox_xyxy_source_px": [
+              906.2540283203125,
+              612.295166015625,
+              945.4068603515625,
+              648.9810791015625
+            ],
+            "bbox_center_source_px": [
+              925.8304443359375,
+              630.6381225585938
+            ],
+            "bbox_side_source_px": 39.15283203125,
+            "origin": "Actual saved source-checkpoint PyTorch CPU proposals; nearest earlier label is identity only",
+            "source_annotation_id": "bottom-yellow-second-right-ball",
+            "localization_review_flags": [],
+            "physical_reference_id": null,
+            "physical_reference_present": false,
+            "detector_confidence": 0.94970703
+          },
+          {
+            "detection_index_in_frozen_audit": 2,
+            "ball_id": "far-right-purple-middle-row-ball",
+            "bbox_xyxy_source_px": [
+              1177.9345703125,
+              347.66754150390625,
+              1218.69384765625,
+              381.95611572265625
+            ],
+            "bbox_center_source_px": [
+              1198.314208984375,
+              364.81182861328125
+            ],
+            "bbox_side_source_px": 40.75927734375,
+            "origin": "Actual saved source-checkpoint PyTorch CPU proposals; nearest earlier label is identity only",
+            "source_annotation_id": "far-right-purple-middle-row-ball",
+            "localization_review_flags": [],
+            "physical_reference_id": null,
+            "physical_reference_present": false,
+            "detector_confidence": 0.94628906
+          },
+          {
+            "detection_index_in_frozen_audit": 3,
+            "ball_id": "top-orange-solid-second-left-ball",
+            "bbox_xyxy_source_px": [
+              341.68756103515625,
+              79.39505004882812,
+              379.46063232421875,
+              116.40750122070312
+            ],
+            "bbox_center_source_px": [
+              360.5740966796875,
+              97.90127563476562
+            ],
+            "bbox_side_source_px": 37.7730712890625,
+            "origin": "Actual saved source-checkpoint PyTorch CPU proposals; nearest earlier label is identity only",
+            "source_annotation_id": "top-orange-solid-second-left-ball",
+            "localization_review_flags": [],
+            "physical_reference_id": null,
+            "physical_reference_present": false,
+            "detector_confidence": 0.9394531
+          },
+          {
+            "detection_index_in_frozen_audit": 4,
+            "ball_id": "bottom-left-pocket-ball",
+            "bbox_xyxy_source_px": [
+              85.78988647460938,
+              600.2266845703125,
+              127.85693359375,
+              636.2049560546875
+            ],
+            "bbox_center_source_px": [
+              106.82341003417969,
+              618.2158203125
+            ],
+            "bbox_side_source_px": 42.067047119140625,
+            "origin": "Actual saved source-checkpoint PyTorch CPU proposals; nearest earlier label is identity only",
+            "source_annotation_id": "bottom-left-pocket-ball",
+            "localization_review_flags": [
+              "methods disagree by more than 2 px; neither establishes true center",
+              "no physical XY ground truth; pocket/jaw silhouette may be occluded"
+            ],
+            "physical_reference_id": null,
+            "physical_reference_present": false,
+            "detector_confidence": 0.93603516
+          },
+          {
+            "detection_index_in_frozen_audit": 5,
+            "ball_id": "top-red-striped-second-right-ball",
+            "bbox_xyxy_source_px": [
+              912.2774658203125,
+              75.66534423828125,
+              949.7403564453125,
+              112.88824462890625
+            ],
+            "bbox_center_source_px": [
+              931.0089111328125,
+              94.27679443359375
+            ],
+            "bbox_side_source_px": 37.462890625,
+            "origin": "Actual saved source-checkpoint PyTorch CPU proposals; nearest earlier label is identity only",
+            "source_annotation_id": "top-red-striped-second-right-ball",
+            "localization_review_flags": [],
+            "physical_reference_id": null,
+            "physical_reference_present": false,
+            "detector_confidence": 0.93359375
+          },
+          {
+            "detection_index_in_frozen_audit": 6,
+            "ball_id": "middle-row-center-ball",
+            "bbox_xyxy_source_px": [
+              614.694091796875,
+              346.7454833984375,
+              647.90625,
+              378.497314453125
+            ],
+            "bbox_center_source_px": [
+              631.3001708984375,
+              362.62139892578125
+            ],
+            "bbox_side_source_px": 33.212158203125,
+            "origin": "Actual saved source-checkpoint PyTorch CPU proposals; nearest earlier label is identity only",
+            "source_annotation_id": "middle-row-center-ball",
+            "localization_review_flags": [
+              "methods disagree by more than 2 px; neither establishes true center"
+            ],
+            "physical_reference_id": null,
+            "physical_reference_present": false,
+            "detector_confidence": 0.9301758
+          },
+          {
+            "detection_index_in_frozen_audit": 7,
+            "ball_id": "top-middle-pocket-ball",
+            "bbox_xyxy_source_px": [
+              616.4105224609375,
+              76.87213134765625,
+              651.85791015625,
+              112.74114990234375
+            ],
+            "bbox_center_source_px": [
+              634.1342163085938,
+              94.806640625
+            ],
+            "bbox_side_source_px": 35.8690185546875,
+            "origin": "Actual saved source-checkpoint PyTorch CPU proposals; nearest earlier label is identity only",
+            "source_annotation_id": "top-middle-pocket-ball",
+            "localization_review_flags": [
+              "methods disagree by more than 2 px; neither establishes true center",
+              "no physical XY ground truth; pocket/jaw silhouette may be occluded"
+            ],
+            "physical_reference_id": null,
+            "physical_reference_present": false,
+            "detector_confidence": 0.9291992
+          },
+          {
+            "detection_index_in_frozen_audit": 8,
+            "ball_id": "top-right-cue-pocket-ball",
+            "bbox_xyxy_source_px": [
+              1174.8990478515625,
+              78.15029907226562,
+              1218.0357666015625,
+              116.05679321289062
+            ],
+            "bbox_center_source_px": [
+              1196.4674072265625,
+              97.10354614257812
+            ],
+            "bbox_side_source_px": 43.13671875,
+            "origin": "Actual saved source-checkpoint PyTorch CPU proposals; nearest earlier label is identity only",
+            "source_annotation_id": "top-right-cue-pocket-ball",
+            "localization_review_flags": [
+              "methods disagree by more than 2 px; neither establishes true center",
+              "no physical XY ground truth; pocket/jaw silhouette may be occluded"
+            ],
+            "physical_reference_id": null,
+            "physical_reference_present": false,
+            "detector_confidence": 0.9316406
+          },
+          {
+            "detection_index_in_frozen_audit": 9,
+            "ball_id": "bottom-black-second-left-ball",
+            "bbox_xyxy_source_px": [
+              352.6441650390625,
+              609.6438598632812,
+              387.31182861328125,
+              643.0996704101562
+            ],
+            "bbox_center_source_px": [
+              369.9779968261719,
+              626.3717651367188
+            ],
+            "bbox_side_source_px": 34.66766357421875,
+            "origin": "Actual saved source-checkpoint PyTorch CPU proposals; nearest earlier label is identity only",
+            "source_annotation_id": "bottom-black-second-left-ball",
+            "localization_review_flags": [
+              "segmentation threshold sensitivity exceeds 1 px"
+            ],
+            "physical_reference_id": null,
+            "physical_reference_present": false,
+            "detector_confidence": 0.9243164
+          },
+          {
+            "detection_index_in_frozen_audit": 10,
+            "ball_id": "bottom-middle-pocket-ball",
+            "bbox_xyxy_source_px": [
+              624.9752807617188,
+              612.3582763671875,
+              658.5266723632812,
+              646.1192626953125
+            ],
+            "bbox_center_source_px": [
+              641.7509765625,
+              629.23876953125
+            ],
+            "bbox_side_source_px": 33.760986328125,
+            "origin": "Actual saved source-checkpoint PyTorch CPU proposals; nearest earlier label is identity only",
+            "source_annotation_id": "bottom-middle-pocket-ball",
+            "localization_review_flags": [
+              "no physical XY ground truth; pocket/jaw silhouette may be occluded"
+            ],
+            "physical_reference_id": null,
+            "physical_reference_present": false,
+            "detector_confidence": 0.87890625
+          },
+          {
+            "detection_index_in_frozen_audit": 11,
+            "ball_id": "interior-purple-second-left-middle-row-ball",
+            "bbox_xyxy_source_px": [
+              346.1498107910156,
+              346.916259765625,
+              378.8646545410156,
+              380.142578125
+            ],
+            "bbox_center_source_px": [
+              362.5072326660156,
+              363.5294189453125
+            ],
+            "bbox_side_source_px": 33.226318359375,
+            "origin": "Actual saved source-checkpoint PyTorch CPU proposals; nearest earlier label is identity only",
+            "source_annotation_id": "interior-purple-second-left-middle-row-ball",
+            "localization_review_flags": [
+              "methods disagree by more than 2 px; neither establishes true center"
+            ],
+            "physical_reference_id": null,
+            "physical_reference_present": false,
+            "detector_confidence": 0.8925781
+          },
+          {
+            "detection_index_in_frozen_audit": 12,
+            "ball_id": "interior-green-second-right-middle-row-ball",
+            "bbox_xyxy_source_px": [
+              908.1634521484375,
+              351.46435546875,
+              936.1756591796875,
+              377.786865234375
+            ],
+            "bbox_center_source_px": [
+              922.1695556640625,
+              364.6256103515625
+            ],
+            "bbox_side_source_px": 28.01220703125,
+            "origin": "Actual saved source-checkpoint PyTorch CPU proposals; nearest earlier label is identity only",
+            "source_annotation_id": "interior-green-second-right-middle-row-ball",
+            "localization_review_flags": [
+              "gradient center sensitive to omitted arc"
+            ],
+            "physical_reference_id": null,
+            "physical_reference_present": false,
+            "detector_confidence": 0.65625
+          },
+          {
+            "detection_index_in_frozen_audit": 13,
+            "ball_id": "top-left-pocket-ball",
+            "bbox_xyxy_source_px": [
+              83.404052734375,
+              90.03048706054688,
+              122.88497924804688,
+              123.33212280273438
+            ],
+            "bbox_center_source_px": [
+              103.14451599121094,
+              106.68130493164062
+            ],
+            "bbox_side_source_px": 39.480926513671875,
+            "origin": "Actual saved source-checkpoint PyTorch CPU proposals; nearest earlier label is identity only",
+            "source_annotation_id": "top-left-pocket-ball",
+            "localization_review_flags": [
+              "segmentation likely selected an internal highlight/fragment rather than full ball",
+              "segmentation threshold sensitivity exceeds 1 px",
+              "methods disagree by more than 2 px; neither establishes true center",
+              "gradient center sensitive to omitted arc",
+              "no physical XY ground truth; pocket/jaw silhouette may be occluded"
+            ],
+            "physical_reference_id": null,
+            "physical_reference_present": false,
+            "detector_confidence": 0.8701172
+          },
+          {
+            "detection_index_in_frozen_audit": 14,
+            "ball_id": "bottom-right-pocket-ball",
+            "bbox_xyxy_source_px": [
+              1170.7994384765625,
+              609.8367919921875,
+              1209.3463134765625,
+              646.8892822265625
+            ],
+            "bbox_center_source_px": [
+              1190.0728759765625,
+              628.363037109375
+            ],
+            "bbox_side_source_px": 38.546875,
+            "origin": "Actual saved source-checkpoint PyTorch CPU proposals; nearest earlier label is identity only",
+            "source_annotation_id": "bottom-right-pocket-ball",
+            "localization_review_flags": [
+              "methods disagree by more than 2 px; neither establishes true center",
+              "no physical XY ground truth; pocket/jaw silhouette may be occluded"
+            ],
+            "physical_reference_id": null,
+            "physical_reference_present": false,
+            "detector_confidence": 0.73095703
+          }
+        ]
+      },
+      "physical_reference_status": "No independent physical reference for this view",
+      "notes": "Only this exact image and arrangement match the nine recorded physical XY references; six pocket-adjacent cases have no recorded XY.",
+      "proposal_origin": "Actual saved source-checkpoint PyTorch CPU proposals on alternate image"
+    }
+  ],
+  "limitations": [
+    "All proposal and reference coordinates belong to their named source images and arrangements only.",
+    "Reviewed proposals are not detector output, pixel-center ground truth, or independently measured physical XY.",
+    "Reserved images were previously inspected and are held out only from further tuning.",
+    "No qualified production optics profile or ball-center asset is asserted.",
+    "Saved still images cannot establish motion response, sustained availability, or live FPS."
+  ]
+}
