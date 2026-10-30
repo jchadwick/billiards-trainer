@@ -445,16 +445,26 @@ impl PhaseScheduler {
         Ok(())
     }
 
+    /// Advance evidence expiry and phase transitions without consuming cadence
+    /// slots. Use this when time passes without a source frame; the next frame
+    /// can then receive any work that is due at its observation time.
+    pub fn advance_time(&mut self, now: Duration) -> Result<SchedulerEvidence, SchedulerError> {
+        self.check_time(now)?;
+        self.expire_evidence(now)?;
+        self.refresh_phase(now);
+        Ok(self.evidence_unchecked(now))
+    }
+
     /// Advance deadlines and return scheduled jobs due now. An unavailable due
-    /// job loses this slot and must wait for its next interval.
+    /// job loses this slot and must wait for its next interval. Call
+    /// [`advance_time`](Self::advance_time) instead when no source frame is
+    /// available, so timeouts cannot consume otherwise due work.
     pub fn tick(
         &mut self,
         now: Duration,
         available: WorkAvailability,
     ) -> Result<ScheduleDecision, SchedulerError> {
-        self.check_time(now)?;
-        self.expire_evidence(now)?;
-        self.refresh_phase(now);
+        let evidence = self.advance_time(now)?;
         let cadence = self.config.cadence(self.phase);
         let rates = [cadence.motion_hz, cadence.ball_hz, cadence.cue_hz];
         let available = [available.motion, available.ball, available.cue];
@@ -473,7 +483,6 @@ impl PhaseScheduler {
                 self.deadlines[index] = Some(now.saturating_add(period_for_hz(rate)));
             }
         }
-        let evidence = self.evidence_unchecked(now);
         Ok(ScheduleDecision {
             phase: evidence.phase,
             map_trusted: evidence.map_trusted,
@@ -860,6 +869,63 @@ mod tests {
     }
 
     #[test]
+    fn advancing_time_without_a_frame_does_not_consume_due_work() {
+        let mut s = scheduler();
+        let first = s.tick(ms(0), WorkAvailability::default()).unwrap();
+        assert!(first.run_motion && first.run_ball && first.run_cue);
+
+        // A receive timeout advances expiry state between frames. It must not
+        // make the due motion, ball, or cue jobs unavailable to the next frame.
+        s.advance_time(ms(200)).unwrap();
+        let next_frame = s.tick(ms(201), WorkAvailability::default()).unwrap();
+        assert!(next_frame.run_motion && next_frame.run_ball && next_frame.run_cue);
+    }
+
+    #[test]
+    fn asynchronous_phase_transition_does_not_consume_the_next_frame_deadline() {
+        // Use a 5 Hz motion cadence so the frame boundary and deadline match
+        // the live capture case that exposed a second, same-frame scheduler
+        // tick consuming motion work just before it was deliberately skipped.
+        let cadence = PhaseCadence {
+            motion_hz: 5.0,
+            ball_hz: 5.0,
+            cue_hz: 5.0,
+        };
+        let config = SchedulerConfig {
+            recovering: cadence,
+            pre_shot: cadence,
+            aiming: cadence,
+            shot: cadence,
+            ..SchedulerConfig::default()
+        };
+        let mut s = PhaseScheduler::new(config).unwrap();
+        settle(&mut s, 0);
+        s.observe_motion(ms(900), MotionEvidence::Quiet).unwrap();
+
+        let first = s.tick(ms(900), WorkAvailability::default()).unwrap();
+        assert!(first.run_motion && first.run_ball && first.run_cue);
+
+        // This source frame arrives a fraction before the 200 ms deadline.
+        let early = s.tick(ms(1_099), WorkAvailability::default()).unwrap();
+        assert!(!early.run_motion && !early.run_ball && !early.run_cue);
+        s.observe_motion(ms(1_099), MotionEvidence::Quiet).unwrap();
+
+        // The cue worker completes just after that frame and moves the phase
+        // to Aiming. Runtime evidence refreshes must not call tick here.
+        assert!(s
+            .observe_cue_at(ms(1_100), ms(1_099), CueEvidence::Visible)
+            .unwrap());
+        assert_eq!(s.phase(), Phase::Aiming);
+        s.advance_time(ms(1_100)).unwrap();
+
+        // The next frame is still entitled to the due slot. A tick at 1,100
+        // would have advanced its deadline and incorrectly hidden this work.
+        let next = s.tick(ms(1_299), WorkAvailability::default()).unwrap();
+        assert!(next.run_motion && next.run_ball && next.run_cue);
+        assert_eq!(next.phase, Phase::Aiming);
+    }
+
+    #[test]
     fn stale_motion_and_layout_remove_trust_and_guidance() {
         let mut s = scheduler();
         settle(&mut s, 0);
@@ -872,7 +938,7 @@ mod tests {
     }
 
     #[test]
-    fn evidence_windows_preserve_consensus_across_slow_inference() {
+    fn extended_evidence_windows_preserve_consensus_across_slow_inference() {
         let config = SchedulerConfig {
             motion_evidence_expiry: ms(3_000),
             layout_evidence_expiry: ms(3_000),
@@ -883,8 +949,8 @@ mod tests {
         s.observe_motion(ms(800), MotionEvidence::Quiet).unwrap();
         let generation = s.motion_generation();
 
-        // Slow inference must keep the capture generation valid across
-        // processing and accept matching layouts needed to establish trust.
+        // Slow model inference must keep the capture generation valid long
+        // enough to accept matching layouts needed to establish trust.
         for time in [800, 2_300, 3_800] {
             s.observe_layout(ms(time), layout(10.0)).unwrap();
             assert_eq!(s.motion_generation(), generation);

@@ -1,0 +1,126 @@
+{
+  "schema_version": 1,
+  "calibration_revision": 2026102910,
+  "camera_profile_id": "camera-profile-v3:e57dc2f6a97684f78a68a7407cd0b04c20e9ef732a8abc8b091804928e5bc3cb",
+  "optics_profile_id": "mokose-uc40m-zero-radial-native4k-20261029",
+  "optics_revision": 1,
+  "refiner_revision": 10,
+  "table_revision": 1,
+  "rectification_revision": 0,
+  "image_space": "raw",
+  "source_width_px": 3840,
+  "source_height_px": 2160,
+  "table_width_mm": 2336.8,
+  "table_height_mm": 1155.7,
+  "ball_diameter_mm": 57.15,
+  "provenance": "Existing nine user reference positions; no new measurement or image. Centers re-derived from accepted refiner10 observations on the frozen saved 1280x720 image; 3840 coordinates are explicitly scaled 3x using the saved rail registration. Coordinate quality is empirical reference consistency, not independently certified millimeter accuracy.",
+  "solver_policy": {
+    "minimum_correspondences": 6,
+    "maximum_correspondences": 1024,
+    "relative_rank_tolerance": 1e-10,
+    "maximum_condition_number": 100000000.0,
+    "numerical_tolerance": 1e-10,
+    "maximum_fit_rms_mm": null
+  },
+  "correspondences": [
+    {
+      "image_point_px": {
+        "x_px": 1928.4134181432175,
+        "y_px": 1083.7306179905574
+      },
+      "center_table_mm": {
+        "x_mm": 3.175,
+        "y_mm": -3.175
+      },
+      "provenance": "middle-row-center-ball; actual target IntelGPU proposal; refiner10 accepted; saved 1280x720 center scaled 3x to native processing coordinates; R10 trace SHA256 14c8f6d5e907b51f468bdb5914fddccc547f821671d8619f912bf1e0d1d1a253; original physical measurement uncertainty unknown"
+    },
+    {
+      "image_point_px": {
+        "x_px": 3591.509792321427,
+        "y_px": 1085.9619092827288
+      },
+      "center_table_mm": {
+        "x_mm": 1139.825,
+        "y_mm": -3.175
+      },
+      "provenance": "far-right-purple-middle-row-ball; actual target IntelGPU proposal; refiner10 accepted; saved 1280x720 center scaled 3x to native processing coordinates; R10 trace SHA256 fc80a97c44e995ffa47904e53b380d7876608c95e53c9df54d86f50b92ab0317; original physical measurement uncertainty unknown"
+    },
+    {
+      "image_point_px": {
+        "x_px": 287.4832638121627,
+        "y_px": 1086.108054088801
+      },
+      "center_table_mm": {
+        "x_mm": -1139.825,
+        "y_mm": -3.175
+      },
+      "provenance": "far-left-yellow-middle-row-ball; actual target IntelGPU proposal; refiner10 accepted; saved 1280x720 center scaled 3x to native processing coordinates; R10 trace SHA256 68816f4dc7770619cad8ac1f29d5c6f4f3d0c662416141924f7ba87d157aa260; original physical measurement uncertainty unknown"
+    },
+    {
+      "image_point_px": {
+        "x_px": 1075.574461188211,
+        "y_px": 1091.3028681539336
+      },
+      "center_table_mm": {
+        "x_mm": -596.9,
+        "y_mm": -3.175
+      },
+      "provenance": "interior-purple-second-left-middle-row-ball; actual target IntelGPU proposal; refiner10 accepted; saved 1280x720 center scaled 3x to native processing coordinates; R10 trace SHA256 4f2833d38fdbd02f13c0b1a508e77eb3b11f005cf515dc3118047a37239004d0; original physical measurement uncertainty unknown"
+    },
+    {
+      "image_point_px": {
+        "x_px": 2773.5012507578754,
+        "y_px": 1085.218703373833
+      },
+      "center_table_mm": {
+        "x_mm": 577.85,
+        "y_mm": -3.175
+      },
+      "provenance": "interior-green-second-right-middle-row-ball; actual target IntelGPU proposal; refiner10 accepted; saved 1280x720 center scaled 3x to native processing coordinates; R10 trace SHA256 6a72661abb02df021b8dfeb6caf0e36423243f851d80e6c0e393e0eb5f98a947; original physical measurement uncertainty unknown"
+    },
+    {
+      "image_point_px": {
+        "x_px": 1057.129219377267,
+        "y_px": 290.5585658654718
+      },
+      "center_table_mm": {
+        "x_mm": -600.075,
+        "y_mm": -549.275
+      },
+      "provenance": "top-orange-solid-second-left-ball; actual target IntelGPU proposal; refiner10 accepted; saved 1280x720 center scaled 3x to native processing coordinates; R10 trace SHA256 8adb6852ad66baccd0ec80fefd7b8c15ad337fb96add4f486553c5312efd34f1; original physical measurement uncertainty unknown"
+    },
+    {
+      "image_point_px": {
+        "x_px": 2782.718802977466,
+        "y_px": 280.99384498970176
+      },
+      "center_table_mm": {
+        "x_mm": 577.85,
+        "y_mm": -549.275
+      },
+      "provenance": "top-red-striped-second-right-ball; actual target IntelGPU proposal; refiner10 accepted; saved 1280x720 center scaled 3x to native processing coordinates; R10 trace SHA256 de3c202a00a7ddad8b1daf0a9546dd05a727c40a72821ff6fd85f4cccadb44a9; original physical measurement uncertainty unknown"
+    },
+    {
+      "image_point_px": {
+        "x_px": 1085.9769500596944,
+        "y_px": 1880.1763595793425
+      },
+      "center_table_mm": {
+        "x_mm": -600.075,
+        "y_mm": 549.275
+      },
+      "provenance": "bottom-black-second-left-ball; actual target IntelGPU proposal; refiner10 accepted; saved 1280x720 center scaled 3x to native processing coordinates; R10 trace SHA256 a06a7d899a600ade4a5a742582bfde10224c480aad261bfb7187671e2a00b8d5; original physical measurement uncertainty unknown"
+    },
+    {
+      "image_point_px": {
+        "x_px": 2775.3581653873634,
+        "y_px": 1890.250578269052
+      },
+      "center_table_mm": {
+        "x_mm": 577.85,
+        "y_mm": 549.275
+      },
+      "provenance": "bottom-yellow-second-right-ball; actual target IntelGPU proposal; refiner10 accepted; saved 1280x720 center scaled 3x to native processing coordinates; R10 trace SHA256 98eef39e43bc4bf7af97a250434a5d0088b0f97383243d70dc0800573e974cee; original physical measurement uncertainty unknown"
+    }
+  ]
+}

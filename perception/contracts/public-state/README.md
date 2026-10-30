@@ -48,3 +48,24 @@ Run the contract tests with:
 ```sh
 make test-rust
 ```
+
+## Native fitted outlines
+
+A current accepted native-pixel observation may include `outline` on its public
+ball: `{ "points": [{ "x": ..., "y": ... }, ...], "scale": [1, 1] }`.
+Points use the same canonical coordinate conversion as `position`. The source
+scene carries the corresponding optional `measurement.image_outline_px` in
+native source pixels, and the resolved measurement retains the exact fitted
+`BallOutline`. Its half-extents replace coarse box extents for that observation;
+the raw detector box and midpoint remain unchanged.
+
+Contours contain 3–512 finite, nondegenerate vertices bounded by the refiner's
+ROI resource extent. Vertices may cross an image edge; consumers clip their
+canvas rather than clamping individual vertices. Only an observed ball paired
+with the exact source session, frame and timestamp may carry a precise outline.
+Lost, predicted and retained observations omit it. The server verifies that
+public vertices are the canonical conversion of the acknowledged source contour.
+Absence of an accepted contour preserves the existing coarse footprint.
+
+A fitted outline identifies image geometry, not independent physical-position
+accuracy. Regulation diameter remains a fixed 57.15 mm, and table output is X/Y.

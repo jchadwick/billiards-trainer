@@ -92,6 +92,7 @@ impl Rgb8FrameDetector for TestDetector {
                 decode_and_nms_ms: 0.1,
                 engine_total_ms: 0.4,
             },
+            ball_refinements: None,
         })
     }
 
@@ -302,9 +303,11 @@ fn pipeline_config(
     CapturePipelineConfig {
         engine_instance_id: "rust-live-runtime-test".to_owned(),
         capture_configuration_revision: revision,
+        capture_calibration_revision: 0,
         image_space: BatchImageSpace::Raw,
         maximum_frame_age,
         phase_schedule: None,
+        localization_profile: None,
         calibration: None,
         scene_transport: SceneTransportConfig {
             address,

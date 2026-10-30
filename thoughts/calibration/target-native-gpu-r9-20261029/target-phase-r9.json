@@ -1,0 +1,28 @@
+{
+  "aiming": {
+    "ball_hz": 1,
+    "cue_hz": 5,
+    "motion_hz": 5
+  },
+  "cue_evidence_expiry_ms": 250,
+  "layout_consensus_count": 3,
+  "layout_evidence_expiry_ms": 10000,
+  "layout_position_tolerance_px": 30.0,
+  "motion_evidence_expiry_ms": 3000,
+  "pre_shot": {
+    "ball_hz": 1,
+    "cue_hz": 5,
+    "motion_hz": 5
+  },
+  "quiet_dwell_ms": 800,
+  "recovering": {
+    "ball_hz": 1,
+    "cue_hz": 5,
+    "motion_hz": 5
+  },
+  "shot": {
+    "ball_hz": 0,
+    "cue_hz": 0,
+    "motion_hz": 5
+  }
+}

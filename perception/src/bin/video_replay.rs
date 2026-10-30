@@ -4,6 +4,7 @@ use std::path::{Component, Path, PathBuf};
 use std::time::Duration;
 
 use anyhow::{ensure, Context, Result};
+use billiards_perception::ball_localization_profile::BallLocalizationSettings;
 use billiards_perception::detection_batch::ImageSpace;
 use billiards_perception::inference::{
     run_video_audit_with_schedule, AuditOptions, BatchOutputOptions, CalibrationAuditOptions,
@@ -218,7 +219,7 @@ struct Arguments {
     #[arg(long, value_enum)]
     source_image_space: Option<SourceImageSpaceArgument>,
 
-    /// Immutable table-calibration bundle used to add table-space measurements.
+    /// Immutable cloth/table-geometry bundle used for cue and geometry diagnostics.
     #[arg(long)]
     calibration_bundle: Option<PathBuf>,
 
@@ -233,6 +234,11 @@ struct Arguments {
     /// Rectification revision asserted as applied to the replay input.
     #[arg(long)]
     applied_rectification_revision: Option<u64>,
+
+    /// Optional typed settings JSON naming the exact replay optics and
+    /// ball-center calibration assets.
+    #[arg(long)]
+    ball_localization_settings_json: Option<PathBuf>,
 
     /// Optional raw detection-batch JSONL accuracy artifact.
     #[arg(long)]
@@ -420,6 +426,16 @@ fn main() -> Result<()> {
         .unwrap_or(SourceImageSpaceArgument::Raw);
     let scene_output =
         scene_snapshot_output_options(scene_snapshots_jsonl, batch_output.is_some(), &arguments)?;
+    let mut ball_localization_settings =
+        if let Some(path) = arguments.ball_localization_settings_json.as_deref() {
+            let bytes = read_bounded_file(path, 64 * 1024, "ball-localization settings")?;
+            serde_json::from_slice::<BallLocalizationSettings>(&bytes)
+                .context("ball-localization settings JSON is invalid")?
+        } else {
+            BallLocalizationSettings::default()
+        };
+    ball_localization_settings.validate()?;
+    ball_localization_settings.resolve_paths(&std::env::current_dir()?);
     let scoring_scene_path = scene_output
         .as_ref()
         .map(|output| match &output.destination {
@@ -444,6 +460,7 @@ fn main() -> Result<()> {
                 source_image_space: source_image_space.into(),
                 detection_batch_output: batch_output,
                 calibration,
+                ball_localization_settings,
                 scene_snapshot_output: scene_output,
             },
             video_stream_ordinal: arguments.video_stream_ordinal,
@@ -583,7 +600,7 @@ fn render_markdown(
     ));
     if let Some(calibration) = &report.calibration {
         output.push_str(&format!(
-            "- Calibration bundle SHA-256: `{}`; applied profile `{}`, calibration revision {}, rectification revision {}; calibrated {}/{} frames and {} detections\n",
+            "- Cloth-geometry diagnostic bundle SHA-256: `{}`; applied profile `{}`, calibration revision {}, rectification revision {}; usable on {}/{} frames and {} raw detector-box midpoints\n- This cloth homography is used for table/cue geometry diagnostics only; it does not produce ball-center X/Y.\n",
             calibration.bundle_sha256,
             calibration.applied_camera_profile_id,
             calibration.applied_calibration_revision,

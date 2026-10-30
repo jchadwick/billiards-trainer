@@ -290,6 +290,7 @@ impl Rgb8FrameDetector for TestDetector {
                 decode_and_nms_ms: 0.0,
                 engine_total_ms: 0.0,
             },
+            ball_refinements: None,
         })
     }
 

@@ -1,0 +1,10 @@
+{
+  "source_kind": "repeated frozen still",
+  "source_path": "thoughts/calibration/table-grid-20261026-114241.jpg",
+  "limitations": [
+    "No new camera capture",
+    "CPU ONNX is not target Coral parity",
+    "Repeated frames are not independent placements",
+    "Older video framing/calibration is diagnostic only"
+  ]
+}

@@ -1,0 +1,6339 @@
+{
+  "audit_schema_version": 5,
+  "ball_id": "interior-purple-second-left-middle-row-ball",
+  "diagnostic_wall_time_ms": 18.412333,
+  "intrinsics": {
+    "cx": 644.1755624688407,
+    "cy": 349.67152391690104,
+    "fx": 696.1731580029823,
+    "fy": 695.3611772093032,
+    "source_height_px": 720,
+    "source_width_px": 1280
+  },
+  "proposal": {
+    "ball_id": "interior-purple-second-left-middle-row-ball",
+    "bbox_center_source_px": [
+      358.8406982421875,
+      364.48907470703125
+    ],
+    "bbox_side_source_px": 33.8087158203125,
+    "bbox_xyxy_source_px": [
+      341.9797058105469,
+      347.584716796875,
+      375.7016906738281,
+      381.3934326171875
+    ],
+    "detection_index_in_frozen_audit": 10,
+    "detector_confidence": 0.8920999765396118,
+    "localization_review_flags": [
+      "methods disagree by more than 2 px; neither establishes true center"
+    ],
+    "origin": "manual saved segmentation/gradient annotations; not detector output",
+    "physical_reference_id": "interior-purple-second-left-middle-row-ball",
+    "physical_reference_present": true,
+    "source_annotation_id": "interior-purple-second-left-middle-row-ball"
+  },
+  "refinement": {
+    "center_image_px": null,
+    "detection_index": 10,
+    "outline": null,
+    "quality": {
+      "angular_coverage": null,
+      "background_sample_fraction": 0.90625,
+      "background_supported_fraction": 0.90625,
+      "boundary_candidates": 288,
+      "candidate_outer_background_fraction": null,
+      "candidate_representatives_evaluated": 1,
+      "candidate_search_truncated": false,
+      "center_shift_px": null,
+      "center_spread_px": null,
+      "fit_id": 6,
+      "foreground_fraction": null,
+      "inliers": null,
+      "iterations": 1,
+      "largest_gap_fraction": null,
+      "qualified_candidate_count": 0,
+      "residual_rms_px": null,
+      "source_residual_rms_px": null,
+      "stage": "fit_refinement",
+      "supported_ray_fraction": 1.0
+    },
+    "reason": "ambiguous_boundary",
+    "status": "rejected"
+  },
+  "refiner_revision": 3,
+  "schema_version": 1,
+  "source_image_id": "measured-grid-720",
+  "trace": {
+    "dropped_events": 0,
+    "events": [
+      {
+        "data": {
+          "axis_image_px": [
+            358.8406982421875,
+            364.48907470703125
+          ],
+          "kind": "iteration_started"
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "iteration_start"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            373.61466734707426,
+            364.4317663803219
+          ],
+          "point_local_px": [
+            12.74159503485561,
+            0.0
+          ],
+          "ray": 0,
+          "strength": 0.05204962760631159
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            372.73663208449557,
+            364.43517228508136
+          ],
+          "point_local_px": [
+            11.97900580583682,
+            0.0
+          ],
+          "ray": 0,
+          "strength": 0.040452275356978984
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            374.49192041696324,
+            364.42836350969327
+          ],
+          "point_local_px": [
+            13.504184263874398,
+            0.0
+          ],
+          "ray": 0,
+          "strength": 0.037536681072825984
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            373.4339403582003,
+            365.3179170247991
+          ],
+          "point_local_px": [
+            12.587488223999681,
+            0.8250275663469722
+          ],
+          "ray": 1,
+          "strength": 0.04760744170991028
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            375.62087567607176,
+            365.4421268832571
+          ],
+          "point_local_px": [
+            14.489879391354796,
+            0.9497168710845497
+          ],
+          "ray": 1,
+          "strength": 0.04432471782111226
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            372.5578086782066,
+            365.26815597742234
+          ],
+          "point_local_px": [
+            11.826531757057634,
+            0.775151844451941
+          ],
+          "ray": 1,
+          "strength": 0.03985111836497199
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            373.48244959485965,
+            366.2171898989283
+          ],
+          "point_local_px": [
+            12.632588923013651,
+            1.663111882709618
+          ],
+          "ray": 2,
+          "strength": 0.04757060673842012
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            375.3654188615347,
+            366.43943023871003
+          ],
+          "point_local_px": [
+            14.270730129987989,
+            1.8787772640086207
+          ],
+          "ray": 2,
+          "strength": 0.04519559203036964
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            372.61217864969166,
+            366.11447483396194
+          ],
+          "point_local_px": [
+            11.876523750563956,
+            1.5635740144177706
+          ],
+          "ray": 2,
+          "strength": 0.0405708523878984
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            373.322750080955,
+            367.10098507067704
+          ],
+          "point_local_px": [
+            12.496768859045268,
+            2.485761878349082
+          ],
+          "ray": 3,
+          "strength": 0.05006575157483493
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            372.4618867629055,
+            366.94572407264104
+          ],
+          "point_local_px": [
+            11.748832568229592,
+            2.3369881000937753
+          ],
+          "ray": 3,
+          "strength": 0.04295639573413929
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            374.1828688546995,
+            367.2561117864298
+          ],
+          "point_local_px": [
+            13.244705149860943,
+            2.6345356566043883
+          ],
+          "ray": 3,
+          "strength": 0.03712698563080489
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            373.52507576341685,
+            368.07740881211123
+          ],
+          "point_local_px": [
+            12.675738027863154,
+            3.396453768034404
+          ],
+          "ray": 4,
+          "strength": 0.045339247380977894
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            372.39497476987026,
+            367.8012527454706
+          ],
+          "point_local_px": [
+            11.693598519650996,
+            3.133290279954256
+          ],
+          "ray": 4,
+          "strength": 0.0424833573164939
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            371.54655868189707,
+            367.5939303459088
+          ],
+          "point_local_px": [
+            10.956993888491878,
+            2.9359176638941453
+          ],
+          "ray": 4,
+          "strength": 0.03903132370524514
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            372.6809335024003,
+            368.78920656572143
+          ],
+          "point_local_px": [
+            11.94504711676563,
+            4.054797116109781
+          ],
+          "ray": 5,
+          "strength": 0.05333978859883027
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            371.8496398046409,
+            368.53092536988515
+          ],
+          "point_local_px": [
+            11.222928399379292,
+            3.8096708420880305
+          ],
+          "ray": 5,
+          "strength": 0.046225598669902355
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            369.6294802222196,
+            367.8411264775794
+          ],
+          "point_local_px": [
+            9.297278486349066,
+            3.156000778030031
+          ],
+          "ray": 5,
+          "strength": 0.03817298505341329
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            371.39633334422166,
+            369.2613474341147
+          ],
+          "point_local_px": [
+            10.832311423711836,
+            4.486890303550453
+          ],
+          "ray": 6,
+          "strength": 0.05300857347482245
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            372.2075687797507,
+            369.5696900000429
+          ],
+          "point_local_px": [
+            11.53685200411586,
+            4.778720567196011
+          ],
+          "ray": 6,
+          "strength": 0.049501758031768046
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            369.6364096876681,
+            368.59241785789925
+          ],
+          "point_local_px": [
+            9.305806832836458,
+            3.8545913989850784
+          ],
+          "ray": 6,
+          "strength": 0.040719186153749504
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            371.4219628318336,
+            370.1934100442008
+          ],
+          "point_local_px": [
+            10.857634693332423,
+            5.354392886535685
+          ],
+          "ray": 7,
+          "strength": 0.05335483431069051
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            372.20927104673973,
+            370.55037496132275
+          ],
+          "point_local_px": [
+            11.541580185825804,
+            5.691677477813523
+          ],
+          "ray": 7,
+          "strength": 0.0453735659395055
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            370.6340404365594,
+            369.8361666581894
+          ],
+          "point_local_px": [
+            10.173689200839041,
+            5.017108295257846
+          ],
+          "ray": 7,
+          "strength": 0.04489953758611352
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            370.7345876411068,
+            370.8125248488152
+          ],
+          "point_local_px": [
+            10.26405306577219,
+            5.925953800500176
+          ],
+          "ray": 8,
+          "strength": 0.05464959286366278
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            369.97347119777396,
+            370.4078732062714
+          ],
+          "point_local_px": [
+            9.60363142078953,
+            5.544659185990782
+          ],
+          "ray": 8,
+          "strength": 0.04581561592522381
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            371.4951335652705,
+            371.2168731717804
+          ],
+          "point_local_px": [
+            10.924474710754852,
+            6.307248415009572
+          ],
+          "ray": 8,
+          "strength": 0.04458484175163405
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            369.64991704445924,
+            371.1489017474554
+          ],
+          "point_local_px": [
+            9.326109542550729,
+            6.2315071712277215
+          ],
+          "ray": 9,
+          "strength": 0.06256756894651717
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            371.59746945835326,
+            372.34883695701643
+          ],
+          "point_local_px": [
+            11.016962264146331,
+            7.3612988396656105
+          ],
+          "ray": 9,
+          "strength": 0.0506889932571687
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            370.38068531537294,
+            371.5991461527118
+          ],
+          "point_local_px": [
+            9.96017931314908,
+            6.65517904689193
+          ],
+          "ray": 9,
+          "strength": 0.04611800174142626
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            368.3389664730868,
+            371.21764695212954
+          ],
+          "point_local_px": [
+            8.192745059852363,
+            6.286514390056021
+          ],
+          "ray": 10,
+          "strength": 0.1310461232035785
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            369.7343715616038,
+            372.2061517743791
+          ],
+          "point_local_px": [
+            9.40275048407671,
+            7.214984207664294
+          ],
+          "ray": 10,
+          "strength": 0.10484696827689644
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            369.0369064233633,
+            371.71206754165325
+          ],
+          "point_local_px": [
+            8.797747771964538,
+            6.750749298860158
+          ],
+          "ray": 10,
+          "strength": 0.057705543311862326
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            367.61991405832157,
+            371.6049044032462
+          ],
+          "point_local_px": [
+            7.572931071022338,
+            6.641282305153119
+          ],
+          "ray": 11,
+          "strength": 0.19124923117641895
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            368.3917909180364,
+            372.23053480067716
+          ],
+          "point_local_px": [
+            8.241833500008536,
+            7.2278939914126985
+          ],
+          "ray": 11,
+          "strength": 0.15301309885865075
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            369.052940147632,
+            372.7664169819695
+          ],
+          "point_local_px": [
+            8.815178439139565,
+            7.730704008206626
+          ],
+          "ray": 11,
+          "strength": 0.11135933100575598
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            367.9256087333607,
+            372.89465158392
+          ],
+          "point_local_px": [
+            7.841332219564731,
+            7.84133221956473
+          ],
+          "ray": 12,
+          "strength": 0.1394784793089035
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            368.547450598195,
+            373.46999457769084
+          ],
+          "point_local_px": [
+            8.380564234663737,
+            8.380564234663735
+          ],
+          "ray": 12,
+          "strength": 0.09069289995627457
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            367.3033941128284,
+            372.31896370764537
+          ],
+          "point_local_px": [
+            7.302100204465724,
+            7.302100204465723
+          ],
+          "ray": 12,
+          "strength": 0.05994928922780543
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            367.5034348500042,
+            373.6381399292329
+          ],
+          "point_local_px": [
+            7.479298999809663,
+            8.52850596957405
+          ],
+          "ray": 13,
+          "strength": 0.16836424772064473
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            366.9233073388355,
+            373.02544388672743
+          ],
+          "point_local_px": [
+            6.976488983015736,
+            7.955161030443022
+          ],
+          "ray": 13,
+          "strength": 0.08170273755596592
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            368.08324070750064,
+            374.2504962603329
+          ],
+          "point_local_px": [
+            7.982109016603589,
+            9.101850908705078
+          ],
+          "ray": 13,
+          "strength": 0.0596027995369034
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            366.9258005410583,
+            374.25900195516414
+          ],
+          "point_local_px": [
+            6.982866753262226,
+            9.100249128020625
+          ],
+          "ray": 14,
+          "strength": 0.15352045294089736
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            366.3902028705965,
+            373.611793041628
+          ],
+          "point_local_px": [
+            6.518631844458089,
+            8.49524641590845
+          ],
+          "ray": 14,
+          "strength": 0.09606586434307275
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            367.81785942911455,
+            375.3369537379855
+          ],
+          "point_local_px": [
+            7.756591601269121,
+            10.108586981540915
+          ],
+          "ray": 14,
+          "strength": 0.0833929910005009
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            366.2165175752559,
+            374.7364657025816
+          ],
+          "point_local_px": [
+            6.37273112978246,
+            9.537466132750179
+          ],
+          "ray": 15,
+          "strength": 0.15228950910990624
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            365.72773695178364,
+            374.057391835179
+          ],
+          "point_local_px": [
+            5.949059254118253,
+            8.90339636215183
+          ],
+          "ray": 15,
+          "strength": 0.09518737923041005
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            366.7050741863227,
+            375.41522834453195
+          ],
+          "point_local_px": [
+            6.796403005446669,
+            10.171535903348529
+          ],
+          "ray": 15,
+          "strength": 0.08466465444697525
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            365.5484944824322,
+            375.2885324641818
+          ],
+          "point_local_px": [
+            5.798855595663714,
+            10.043912517444635
+          ],
+          "ray": 16,
+          "strength": 0.14252248686660832
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            365.10871014279434,
+            374.58048585273576
+          ],
+          "point_local_px": [
+            5.417560981154319,
+            9.383490872461975
+          ],
+          "ray": 16,
+          "strength": 0.11049941782752283
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            365.9880997688243,
+            375.99629080241647
+          ],
+          "point_local_px": [
+            6.180150210173109,
+            10.704334162427298
+          ],
+          "ray": 16,
+          "strength": 0.07549715252535957
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            364.76978778939105,
+            375.68167891212255
+          ],
+          "point_local_px": [
+            5.12953649235046,
+            10.401671031670169
+          ],
+          "ray": 17,
+          "strength": 0.16466275034161038
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            364.3809112047598,
+            374.94757940801605
+          ],
+          "point_local_px": [
+            4.792251901072621,
+            9.717725539176788
+          ],
+          "ray": 17,
+          "strength": 0.11409264430742351
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            365.15852663215566,
+            376.4155183948239
+          ],
+          "point_local_px": [
+            5.466821083628298,
+            11.08561652416355
+          ],
+          "ray": 17,
+          "strength": 0.06004365271075714
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            363.79700893623436,
+            375.6488248824538
+          ],
+          "point_local_px": [
+            4.292336794453416,
+            10.362617703442488
+          ],
+          "ray": 18,
+          "strength": 0.15580595585873128
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            363.46072846402103,
+            374.891647560362
+          ],
+          "point_local_px": [
+            4.000506530807857,
+            9.658077123038467
+          ],
+          "ray": 18,
+          "strength": 0.09077586301612617
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            364.1331886139065,
+            376.4057752530957
+          ],
+          "point_local_px": [
+            4.5841670580989735,
+            11.067158283846512
+          ],
+          "ray": 18,
+          "strength": 0.0822547412030802
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            363.09084934944116,
+            376.1944924873943
+          ],
+          "point_local_px": [
+            3.6871077050771572,
+            10.861869040686125
+          ],
+          "ray": 19,
+          "strength": 0.14701710004060464
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            362.8087747788179,
+            375.41762582758855
+          ],
+          "point_local_px": [
+            3.441981431055407,
+            10.13975032329979
+          ],
+          "ray": 19,
+          "strength": 0.12231434547391583
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            363.37285512409653,
+            376.9711696749847
+          ],
+          "point_local_px": [
+            3.9322339790989074,
+            11.58398775807246
+          ],
+          "ray": 19,
+          "strength": 0.08817512781707722
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            362.2537489243752,
+            376.4380135296746
+          ],
+          "point_local_px": [
+            2.968813099904164,
+            11.0797613270184
+          ],
+          "ray": 20,
+          "strength": 0.18402745211732946
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            362.02714042607903,
+            375.6446672436193
+          ],
+          "point_local_px": [
+            2.7714404838440534,
+            10.34315669585928
+          ],
+          "ray": 20,
+          "strength": 0.09323848023030253
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            362.4803150528485,
+            377.23121148086216
+          ],
+          "point_local_px": [
+            3.166185715964275,
+            11.816365958177517
+          ],
+          "ray": 20,
+          "strength": 0.08650343836917625
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            361.40132397602423,
+            376.63062758330574
+          ],
+          "point_local_px": [
+            2.237805581256905,
+            11.250208374352473
+          ],
+          "ray": 21,
+          "strength": 0.19036665649679824
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            361.5713830652079,
+            377.43698573089864
+          ],
+          "point_local_px": [
+            2.386579359512212,
+            11.998144665168152
+          ],
+          "ray": 21,
+          "strength": 0.09508692539880101
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            361.23124291198945,
+            375.82416523898786
+          ],
+          "point_local_px": [
+            2.0890318030015984,
+            10.502272083536797
+          ],
+          "ray": 21,
+          "strength": 0.09197319767298164
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            360.5184062654545,
+            376.635424788737
+          ],
+          "point_local_px": [
+            1.4806257908412326,
+            11.246469440189209
+          ],
+          "ray": 22,
+          "strength": 0.17497294936934418
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            360.63112995414275,
+            377.4515270939774
+          ],
+          "point_local_px": [
+            1.58016365913308,
+            12.002534612638904
+          ],
+          "ray": 22,
+          "strength": 0.11732839797195152
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            360.4056745926205,
+            375.81926467949967
+          ],
+          "point_local_px": [
+            1.381087922549385,
+            10.490404267739516
+          ],
+          "ray": 22,
+          "strength": 0.07729905227600475
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            359.6467720110611,
+            376.5856789843023
+          ],
+          "point_local_px": [
+            0.7335887428727509,
+            11.192401367939263
+          ],
+          "ray": 23,
+          "strength": 0.1533938447384406
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            359.7015706904374,
+            377.40803292376705
+          ],
+          "point_local_px": [
+            0.7834644647677821,
+            11.95335783488131
+          ],
+          "ray": 23,
+          "strength": 0.14240497942635041
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            359.75636870743904,
+            378.23037692309356
+          ],
+          "point_local_px": [
+            0.8333401866628133,
+            12.714314301823356
+          ],
+          "ray": 23,
+          "strength": 0.058323436423505855
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            358.7856911332895,
+            377.5828135574705
+          ],
+          "point_local_px": [
+            7.412850763407986e-16,
+            12.106104010673285
+          ],
+          "ray": 24,
+          "strength": 0.17202929682276272
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            358.78915735294623,
+            376.75772429370517
+          ],
+          "point_local_px": [
+            6.945899534216932e-16,
+            11.343514781654495
+          ],
+          "ray": 24,
+          "strength": 0.14469620258289193
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            358.7822247515625,
+            378.40794140001185
+          ],
+          "point_local_px": [
+            7.879801992599041e-16,
+            12.868693239692075
+          ],
+          "ray": 24,
+          "strength": 0.04116087344994523
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            357.87035520172043,
+            377.4270670022977
+          ],
+          "point_local_px": [
+            -0.7834644647677805,
+            11.95335783488131
+          ],
+          "ray": 25,
+          "strength": 0.17282898906922758
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            357.9321756062244,
+            376.60278952123576
+          ],
+          "point_local_px": [
+            -0.7335887428727494,
+            11.192401367939263
+          ],
+          "ray": 25,
+          "strength": 0.14121567306770558
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            357.8085282777208,
+            378.2514314105402
+          ],
+          "point_local_px": [
+            -0.8333401866628117,
+            12.714314301823356
+          ],
+          "ray": 25,
+          "strength": 0.049598868562215036
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            356.93775664140674,
+            377.4900159037235
+          ],
+          "point_local_px": [
+            -1.5801636591330788,
+            12.002534612638904
+          ],
+          "ray": 26,
+          "strength": 0.17147755526355488
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            357.0577729593421,
+            376.6700616331977
+          ],
+          "point_local_px": [
+            -1.4806257908412312,
+            11.246469440189209
+          ],
+          "ray": 26,
+          "strength": 0.14394760684946692
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            356.8177206686689,
+            378.310104456316
+          ],
+          "point_local_px": [
+            -1.6797015274249263,
+            12.758599785088599
+          ],
+          "ray": 26,
+          "strength": 0.04037421570262017
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            356.0227769841595,
+            377.3597384553629
+          ],
+          "point_local_px": [
+            -2.3617837298029922,
+            11.87348861669887
+          ],
+          "ray": 27,
+          "strength": 0.16657310036005296
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            356.2005761042875,
+            376.5476530631975
+          ],
+          "point_local_px": [
+            -2.2130099515476855,
+            11.125552325883193
+          ],
+          "ray": 27,
+          "strength": 0.1539030697066627
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            355.84493849390975,
+            378.1720036678825
+          ],
+          "point_local_px": [
+            -2.510557508058299,
+            12.621424907514546
+          ],
+          "ray": 27,
+          "strength": 0.05496272734680528
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            355.27568071329796,
+            376.6402755869388
+          ],
+          "point_local_px": [
+            -3.0017085359141813,
+            11.202528765544917
+          ],
+          "ray": 28,
+          "strength": 0.17614954827894122
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            355.04074015371174,
+            377.4410598499153
+          ],
+          "point_local_px": [
+            -3.199081151974292,
+            11.939133396704037
+          ],
+          "ray": 28,
+          "strength": 0.14719653441242792
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            354.8057342310716,
+            378.2420668999025
+          ],
+          "point_local_px": [
+            -3.3964537680344025,
+            12.675738027863154
+          ],
+          "ray": 28,
+          "strength": 0.03900188817743161
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            354.3275718501663,
+            376.6718618710238
+          ],
+          "point_local_px": [
+            -3.8096708420880305,
+            11.222928399379292
+          ],
+          "ray": 29,
+          "strength": 0.20043507015943574
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            354.0363812985467,
+            377.45790511608305
+          ],
+          "point_local_px": [
+            -4.054797116109781,
+            11.94504711676563
+          ],
+          "ray": 29,
+          "strength": 0.11223272813193867
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            354.6186652329464,
+            375.8860809246879
+          ],
+          "point_local_px": [
+            -3.564544568066281,
+            10.500809681992958
+          ],
+          "ray": 29,
+          "strength": 0.08726737682098701
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            353.3610066879651,
+            376.63992371342033
+          ],
+          "point_local_px": [
+            -4.632805435373228,
+            11.184581713913849
+          ],
+          "ray": 30,
+          "strength": 0.21681702375421186
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            353.7071799954539,
+            375.8723075898272
+          ],
+          "point_local_px": [
+            -4.340975171727671,
+            10.480041133509827
+          ],
+          "ray": 30,
+          "strength": 0.1057729013018972
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            353.0146990413012,
+            377.4078377251368
+          ],
+          "point_local_px": [
+            -4.924635699018786,
+            11.889122294317872
+          ],
+          "ray": 30,
+          "strength": 0.08506080497196362
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            352.4476522884628,
+            376.4179073073172
+          ],
+          "point_local_px": [
+            -5.410606985081991,
+            10.971625608747987
+          ],
+          "ray": 31,
+          "strength": 0.21538378483645496
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            352.8475001695034,
+            375.6718281342537
+          ],
+          "point_local_px": [
+            -5.073322393804152,
+            10.287680116254606
+          ],
+          "ray": 31,
+          "strength": 0.10238552581491747
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            352.04762819034914,
+            377.1643152851448
+          ],
+          "point_local_px": [
+            -5.747891576359828,
+            11.655571101241367
+          ],
+          "ray": 31,
+          "strength": 0.08022024625224608
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            351.69410873732625,
+            375.8961232241959
+          ],
+          "point_local_px": [
+            -6.053052005336641,
+            10.484193614099745
+          ],
+          "ray": 32,
+          "strength": 0.19845085137381596
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            351.24206307944837,
+            376.6176571457788
+          ],
+          "point_local_px": [
+            -6.4343466198460355,
+            11.144615259082405
+          ],
+          "ray": 32,
+          "strength": 0.1071597589372375
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            352.1459323375124,
+            375.17494374060914
+          ],
+          "point_local_px": [
+            -5.671757390827246,
+            9.823771969117082
+          ],
+          "ray": 32,
+          "strength": 0.09542423633882655
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            350.82031469180356,
+            375.56490666277773
+          ],
+          "point_local_px": [
+            -6.796403005446669,
+            10.171535903348529
+          ],
+          "ray": 33,
+          "strength": 0.24895733821654834
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            351.32231681348554,
+            374.87166161953894
+          ],
+          "point_local_px": [
+            -6.37273112978246,
+            9.537466132750179
+          ],
+          "ray": 33,
+          "strength": 0.07241160906350379
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            350.3180413894275,
+            376.2585261958124
+          ],
+          "point_local_px": [
+            -7.220074881110875,
+            10.805605673946877
+          ],
+          "ray": 33,
+          "strength": 0.06488010634555105
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            349.872324639461,
+            375.2862891075877
+          ],
+          "point_local_px": [
+            -7.601846631667741,
+            9.906919410836856
+          ],
+          "ray": 34,
+          "strength": 0.21667858263274292
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            350.42248024661444,
+            374.62394515234723
+          ],
+          "point_local_px": [
+            -7.137611722863604,
+            9.301916698724682
+          ],
+          "ray": 34,
+          "strength": 0.09641872832573453
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            349.3218462678428,
+            375.94902164578434
+          ],
+          "point_local_px": [
+            -8.06608154047188,
+            10.511922122949032
+          ],
+          "ray": 34,
+          "strength": 0.09259607947785808
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            349.1297563483274,
+            374.72965736554926
+          ],
+          "point_local_px": [
+            -8.233514025000552,
+            9.388523378270593
+          ],
+          "ray": 35,
+          "strength": 0.20506117388986095
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            349.72566412474856,
+            374.10124841119716
+          ],
+          "point_local_px": [
+            -7.730704008206626,
+            8.815178439139563
+          ],
+          "ray": 35,
+          "strength": 0.1281186885744926
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            348.5334727803512,
+            375.35846260735974
+          ],
+          "point_local_px": [
+            -8.73632404179448,
+            9.961868317401622
+          ],
+          "ray": 35,
+          "strength": 0.08371354710262999
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            348.3219198110295,
+            374.2272032617872
+          ],
+          "point_local_px": [
+            -8.919796249762745,
+            8.919796249762745
+          ],
+          "ray": 36,
+          "strength": 0.19823671666128795
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            348.9611337401431,
+            373.63542851755835
+          ],
+          "point_local_px": [
+            -8.380564234663735,
+            8.380564234663737
+          ],
+          "ray": 36,
+          "strength": 0.11074691708592695
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            347.6822763838776,
+            374.81937562890914
+          ],
+          "point_local_px": [
+            -9.45902826486175,
+            9.459028264861752
+          ],
+          "ray": 36,
+          "strength": 0.10188361269875457
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            347.4315927006883,
+            373.7618751577912
+          ],
+          "point_local_px": [
+            -9.675195847836106,
+            8.484919033397517
+          ],
+          "ray": 37,
+          "strength": 0.1757407034181474
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            348.1114974816027,
+            373.20927957209835
+          ],
+          "point_local_px": [
+            -9.101850908705076,
+            7.982109016603591
+          ],
+          "ray": 37,
+          "strength": 0.1314756530906398
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            346.75120491810696,
+            374.3148633052024
+          ],
+          "point_local_px": [
+            -10.248540786967135,
+            8.987729050191446
+          ],
+          "ray": 37,
+          "strength": 0.056290823177448976
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            346.5638727605489,
+            373.22919839875965
+          ],
+          "point_local_px": [
+            -10.411088337597,
+            7.988709055671192
+          ],
+          "ray": 38,
+          "strength": 0.14139117759925976
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            347.9988027887752,
+            372.2076423006926
+          ],
+          "point_local_px": [
+            -9.201082913372652,
+            7.060239238062918
+          ],
+          "ray": 38,
+          "strength": 0.1382653321650593
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            347.2816051382031,
+            372.7182300081413
+          ],
+          "point_local_px": [
+            -9.806085625484826,
+            7.524474146867055
+          ],
+          "ray": 38,
+          "strength": 0.07150130138462307
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            346.8531069233716,
+            371.9294087605486
+          ],
+          "point_local_px": [
+            -10.171535903348527,
+            6.7964030054466695
+          ],
+          "ray": 39,
+          "strength": 0.06239062257911611
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            347.6047526577202,
+            371.46288506911475
+          ],
+          "point_local_px": [
+            -9.537466132750177,
+            6.372731129782462
+          ],
+          "ray": 39,
+          "strength": 0.057117387925198604
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            346.10087664547706,
+            372.39629526041796
+          ],
+          "point_local_px": [
+            -10.805605673946875,
+            7.220074881110877
+          ],
+          "ray": 39,
+          "strength": 0.05412313853873172
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            346.35643706408473,
+            371.1933034044644
+          ],
+          "point_local_px": [
+            -10.594263888263523,
+            6.1166011077548745
+          ],
+          "ray": 40,
+          "strength": 0.06373194457436618
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            345.5728492942598,
+            371.6141013626673
+          ],
+          "point_local_px": [
+            -11.254685533246182,
+            6.497895722264269
+          ],
+          "ray": 40,
+          "strength": 0.058510455601149314
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            347.1393933786375,
+            370.7728445468695
+          ],
+          "point_local_px": [
+            -9.93384224328086,
+            5.73530649324548
+          ],
+          "ray": 40,
+          "strength": 0.051987384435558774
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            345.37239633727387,
+            370.6765070963543
+          ],
+          "point_local_px": [
+            -11.427589270410238,
+            5.635463379267223
+          ],
+          "ray": 41,
+          "strength": 0.06223994250164924
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            346.1837428765845,
+            370.30376880375155
+          ],
+          "point_local_px": [
+            -10.743643777916857,
+            5.298178787989384
+          ],
+          "ray": 41,
+          "strength": 0.050842014919777
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            344.56037468985465,
+            371.04955553835873
+          ],
+          "point_local_px": [
+            -12.111534762903618,
+            5.972747970545061
+          ],
+          "ray": 41,
+          "strength": 0.045349391447672444
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            345.66514304640316,
+            369.5829202914494
+          ],
+          "point_local_px": [
+            -11.184581713913847,
+            4.632805435373234
+          ],
+          "ray": 42,
+          "strength": 0.06027621950678162
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            344.8292095013074,
+            369.9061033629996
+          ],
+          "point_local_px": [
+            -11.88912229431787,
+            4.924635699018792
+          ],
+          "ray": 42,
+          "strength": 0.05165994944292512
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            343.99256212733525,
+            370.22956241032585
+          ],
+          "point_local_px": [
+            -12.593662874721891,
+            5.2164659626643495
+          ],
+          "ray": 42,
+          "strength": 0.04143513573812414
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            344.62446780265327,
+            369.0045279939457
+          ],
+          "point_local_px": [
+            -12.065400236330017,
+            4.095651495113408
+          ],
+          "ray": 43,
+          "strength": 0.0927857003803118
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            343.6240766858307,
+            369.322278847512
+          ],
+          "point_local_px": [
+            -12.90787207328074,
+            4.381632148138783
+          ],
+          "ray": 43,
+          "strength": 0.0763850496073247
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            345.4811365976808,
+            368.7324271763094
+          ],
+          "point_local_px": [
+            -11.343281518943682,
+            3.8505252210916576
+          ],
+          "ray": 43,
+          "strength": 0.06808560405024712
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            344.63294527842714,
+            368.06382164266773
+          ],
+          "point_local_px": [
+            -12.061900835230555,
+            3.231976587984315
+          ],
+          "ray": 44,
+          "strength": 0.11620244852819896
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            343.61281952081833,
+            368.32049076094967
+          ],
+          "point_local_px": [
+            -12.921272904916192,
+            3.462244640054444
+          ],
+          "ray": 44,
+          "strength": 0.11606489842212298
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            346.5246702642049,
+            367.587853478439
+          ],
+          "point_local_px": [
+            -10.4659241343858,
+            2.8043359198540747
+          ],
+          "ray": 44,
+          "strength": 0.0724145103864988
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            343.38128914999265,
+            367.3927886086495
+          ],
+          "point_local_px": [
+            -13.120049101391665,
+            2.6097400268951696
+          ],
+          "ray": 45,
+          "strength": 0.07317458871037709
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            346.4852173159994,
+            366.80978318382967
+          ],
+          "point_local_px": [
+            -10.502272083536797,
+            2.0890318030015966
+          ],
+          "ray": 45,
+          "strength": 0.058154707406016054
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            344.4170138066484,
+            367.1982502491401
+          ],
+          "point_local_px": [
+            -12.247456762106708,
+            2.436170618930645
+          ],
+          "ray": 45,
+          "strength": 0.05802423082347283
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            345.60757176409555,
+            366.15194690239355
+          ],
+          "point_local_px": [
+            -11.246469440189209,
+            1.4806257908412357
+          ],
+          "ray": 46,
+          "strength": 0.1653793011499003
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            343.5156537048794,
+            366.4148169340075
+          ],
+          "point_local_px": [
+            -13.010621509238499,
+            1.7128808168555474
+          ],
+          "ray": 46,
+          "strength": 0.10933855521798239
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            344.56216359362253,
+            366.28331269734474
+          ],
+          "point_local_px": [
+            -12.128545474713855,
+            1.5967533038483916
+          ],
+          "ray": 46,
+          "strength": 0.07579087036003569
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            345.37490225704744,
+            365.35793375250523
+          ],
+          "point_local_px": [
+            -11.446053523586611,
+            0.7502139835044263
+          ],
+          "ray": 47,
+          "strength": 0.18381358398822364
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            343.4201091748814,
+            365.48406366367755
+          ],
+          "point_local_px": [
+            -13.09479253529438,
+            0.8582780476103269
+          ],
+          "ray": 47,
+          "strength": 0.14991130261610613
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            344.3227980068189,
+            365.4258191040731
+          ],
+          "point_local_px": [
+            -12.333836068352332,
+            0.8084023257152958
+          ],
+          "ray": 47,
+          "strength": 0.05526607174715378
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            345.3495630476669,
+            364.5414069122713
+          ],
+          "point_local_px": [
+            -11.470612986490961,
+            1.4047449478164217e-15
+          ],
+          "ray": 48,
+          "strength": 0.12714074186207133
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            343.5418972928817,
+            364.5484188600371
+          ],
+          "point_local_px": [
+            -12.995791444528539,
+            1.5915254394928434e-15
+          ],
+          "ray": 48,
+          "strength": 0.10869476198683306
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            342.63683711055893,
+            364.55192959464415
+          ],
+          "point_local_px": [
+            -13.75838067354733,
+            1.6849156853310543e-15
+          ],
+          "ray": 48,
+          "strength": 0.05619195782808431
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            345.5325062743149,
+            363.73321849713204
+          ],
+          "point_local_px": [
+            -11.319227445762936,
+            -0.7419013631885848
+          ],
+          "ray": 49,
+          "strength": 0.07390480698488633
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            343.4287837048293,
+            363.6137348158108
+          ],
+          "point_local_px": [
+            -13.09479253529438,
+            -0.8582780476103237
+          ],
+          "ray": 49,
+          "strength": 0.07369846392948474
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            342.5258355248053,
+            363.5624506901583
+          ],
+          "point_local_px": [
+            -13.855749002236424,
+            -0.9081537695053544
+          ],
+          "ray": 49,
+          "strength": 0.05486562787124599
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            343.53295419049357,
+            362.68235470392335
+          ],
+          "point_local_px": [
+            -13.010621509238499,
+            -1.7128808168555445
+          ],
+          "ray": 50,
+          "strength": 0.06884722754406612
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            345.47322330399146,
+            362.91135794613405
+          ],
+          "point_local_px": [
+            -11.37248030226416,
+            -1.4972154355565412
+          ],
+          "ray": 50,
+          "strength": 0.06362673358328749
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            342.6361815776243,
+            362.5765117389222
+          ],
+          "point_local_px": [
+            -13.766686681688192,
+            -1.8124186851473918
+          ],
+          "ray": 50,
+          "strength": 0.05019617061537027
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            343.40767075578776,
+            361.70565113674326
+          ],
+          "point_local_px": [
+            -13.120049101391666,
+            -2.609740026895166
+          ],
+          "ray": 51,
+          "strength": 0.06303189873409143
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            345.47421594413225,
+            362.078362880526
+          ],
+          "point_local_px": [
+            -11.374864422821753,
+            -2.262601210966118
+          ],
+          "ray": 51,
+          "strength": 0.06125912216353435
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            344.29385131812876,
+            361.86547822620605
+          ],
+          "point_local_px": [
+            -12.37211281057599,
+            -2.46096624863986
+          ],
+          "ray": 51,
+          "strength": 0.05584225052130268
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            344.5200399889681,
+            360.989620518869
+          ],
+          "point_local_px": [
+            -12.184668273757076,
+            -3.264872023994331
+          ],
+          "ray": 52,
+          "strength": 0.16974734409245995
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            343.50231212655524,
+            360.7409244067521
+          ],
+          "point_local_px": [
+            -13.044040343442711,
+            -3.4951400760644593
+          ],
+          "ray": 52,
+          "strength": 0.0925284797196085
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            342.48356054015943,
+            360.49197813328675
+          ],
+          "point_local_px": [
+            -13.903412413128349,
+            -3.7254081281345885
+          ],
+          "ray": 52,
+          "strength": 0.06442602962564066
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            344.523126529917,
+            360.040635421031
+          ],
+          "point_local_px": [
+            -12.185753355894407,
+            -4.13650587411703
+          ],
+          "ray": 53,
+          "strength": 0.10512198836621224
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            343.52575486977656,
+            359.73075415311257
+          ],
+          "point_local_px": [
+            -13.028225192845133,
+            -4.422486527142405
+          ],
+          "ray": 53,
+          "strength": 0.06360710407904226
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            342.67008512348485,
+            359.46489937049023
+          ],
+          "point_local_px": [
+            -13.750343910231466,
+            -4.667612801164155
+          ],
+          "ray": 53,
+          "strength": 0.05700412749812943
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            343.62810424551606,
+            358.70691818141296
+          ],
+          "point_local_px": [
+            -12.945933164923902,
+            -5.362381094487125
+          ],
+          "ray": 54,
+          "strength": 0.06586158423417104
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            344.4618799350189,
+            359.0238280749535
+          ],
+          "point_local_px": [
+            -12.241392584519884,
+            -5.070550830841569
+          ],
+          "ray": 54,
+          "strength": 0.0542058283985424
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            345.5725212061595,
+            359.44597183787465
+          ],
+          "point_local_px": [
+            -11.302005143981187,
+            -4.68144381264749
+          ],
+          "ray": 54,
+          "strength": 0.04566166079854097
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            344.48549110884574,
+            357.980435234454
+          ],
+          "point_local_px": [
+            -12.225525678319181,
+            -6.0289620690913654
+          ],
+          "ray": 55,
+          "strength": 0.07046092146067026
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            345.2939319177124,
+            358.3469816528342
+          ],
+          "point_local_px": [
+            -11.5415801858258,
+            -5.691677477813526
+          ],
+          "ray": 55,
+          "strength": 0.05189052511441683
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            343.6764112210699,
+            357.61359905820575
+          ],
+          "point_local_px": [
+            -12.909471170812562,
+            -6.366246660369203
+          ],
+          "ray": 55,
+          "strength": 0.04629982845782417
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            345.37762181598805,
+            357.3313578592662
+          ],
+          "point_local_px": [
+            -11.47482608157374,
+            -6.624993927100733
+          ],
+          "ray": 56,
+          "strength": 0.061611083955768954
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            344.59736149019415,
+            356.91652826885326
+          ],
+          "point_local_px": [
+            -12.135247726556397,
+            -7.006288541610125
+          ],
+          "ray": 56,
+          "strength": 0.05736226358515166
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            346.15728996712164,
+            357.7458726168423
+          ],
+          "point_local_px": [
+            -10.814404436591076,
+            -6.243699312591337
+          ],
+          "ray": 56,
+          "strength": 0.04587972314598519
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            344.9251946239036,
+            355.91538876603704
+          ],
+          "point_local_px": [
+            -11.862388624944133,
+            -7.92619467388455
+          ],
+          "ray": 57,
+          "strength": 0.08636628768105206
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            346.2971942109579,
+            356.7607116442634
+          ],
+          "point_local_px": [
+            -10.699927378847157,
+            -7.149462901833502
+          ],
+          "ray": 57,
+          "strength": 0.07767045882145697
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            344.1760617476256,
+            355.4538294732176
+          ],
+          "point_local_px": [
+            -12.496458395542481,
+            -8.349866549548757
+          ],
+          "ray": 57,
+          "strength": 0.03757643655230525
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            346.1674599551416,
+            355.51135399828894
+          ],
+          "point_local_px": [
+            -10.814423479005118,
+            -8.298198994873948
+          ],
+          "ray": 58,
+          "strength": 0.15078966562404056
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            345.453861683111,
+            355.0058410552331
+          ],
+          "point_local_px": [
+            -11.419426191117292,
+            -8.762433903678083
+          ],
+          "ray": 58,
+          "strength": 0.11631841165699552
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            347.11816081865584,
+            356.1848303929461
+          ],
+          "point_local_px": [
+            -10.007753196188887,
+            -7.679219116468432
+          ],
+          "ray": 58,
+          "strength": 0.08909053090547975
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            346.72747301542125,
+            354.6709258437629
+          ],
+          "point_local_px": [
+            -10.34409827682231,
+            -9.0715307196571
+          ],
+          "ray": 59,
+          "strength": 0.1525227833493004
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            346.0519263713105,
+            354.12337410656704
+          ],
+          "point_local_px": [
+            -10.917443215953337,
+            -9.574340736451024
+          ],
+          "ray": 59,
+          "strength": 0.11000945712429942
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            347.40258201562085,
+            355.2181228568462
+          ],
+          "point_local_px": [
+            -9.77075333769128,
+            -8.568720702863171
+          ],
+          "ray": 59,
+          "strength": 0.0994320403026439
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            347.2465610253064,
+            353.7619011380261
+          ],
+          "point_local_px": [
+            -9.908388277444262,
+            -9.908388277444251
+          ],
+          "ray": 60,
+          "strength": 0.17498149702679305
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            347.88085108091633,
+            354.3487614961832
+          ],
+          "point_local_px": [
+            -9.369156262345257,
+            -9.369156262345246
+          ],
+          "ray": 60,
+          "strength": 0.10884292083558704
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            346.61188696356953,
+            353.1746854881989
+          ],
+          "point_local_px": [
+            -10.447620292543272,
+            -10.44762029254326
+          ],
+          "ray": 60,
+          "strength": 0.08905630810977873
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            348.23700405702414,
+            353.2900859707467
+          ],
+          "point_local_px": [
+            -9.071530719657101,
+            -10.344098276822306
+          ],
+          "ray": 61,
+          "strength": 0.19315911273274428
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            348.82753994733633,
+            353.913774721902
+          ],
+          "point_local_px": [
+            -8.568720702863173,
+            -9.770753337691277
+          ],
+          "ray": 61,
+          "strength": 0.11736919725375908
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            347.64613754168363,
+            352.66604803317534
+          ],
+          "point_local_px": [
+            -9.574340736451028,
+            -10.917443215953334
+          ],
+          "ray": 61,
+          "strength": 0.08385686902033623
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            349.06093889030717,
+            352.6713470098241
+          ],
+          "point_local_px": [
+            -8.37557147967464,
+            -10.915257264357146
+          ],
+          "ray": 62,
+          "strength": 0.17902572400776262
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            349.60536783762035,
+            353.3292275177516
+          ],
+          "point_local_px": [
+            -7.911336570870502,
+            -10.31025455224497
+          ],
+          "ray": 62,
+          "strength": 0.1096339854203491
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            348.51623118070506,
+            352.0131296493519
+          ],
+          "point_local_px": [
+            -8.839806388478777,
+            -11.520259976469319
+          ],
+          "ray": 62,
+          "strength": 0.09586443889167783
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            349.9262034037729,
+            352.1039673702105
+          ],
+          "point_local_px": [
+            -7.643746756775082,
+            -11.43967544454523
+          ],
+          "ray": 63,
+          "strength": 0.16198076438096717
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            349.4299239587516,
+            351.414475222079
+          ],
+          "point_local_px": [
+            -8.067418632439288,
+            -12.073745215143578
+          ],
+          "ray": 63,
+          "strength": 0.10734496098109957
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            350.4222536621059,
+            352.793141104143
+          ],
+          "point_local_px": [
+            -7.220074881110873,
+            -10.805605673946879
+          ],
+          "ray": 63,
+          "strength": 0.10679161792439604
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            350.82899063342984,
+            351.5903379558588
+          ],
+          "point_local_px": [
+            -6.8791903367736715,
+            -11.91510717822884
+          ],
+          "ray": 64,
+          "strength": 0.20896890727438067
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            351.2746086062265,
+            352.3077766347756
+          ],
+          "point_local_px": [
+            -6.497895722264275,
+            -11.254685533246178
+          ],
+          "ray": 64,
+          "strength": 0.08637400009501627
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            350.38318992098243,
+            350.8726050686702
+          ],
+          "point_local_px": [
+            -7.260484951283066,
+            -12.5755288232115
+          ],
+          "ray": 64,
+          "strength": 0.06349869378503284
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            351.8309089437324,
+            351.2563858508312
+          ],
+          "point_local_px": [
+            -6.028962069091364,
+            -12.225525678319183
+          ],
+          "ray": 65,
+          "strength": 0.1874118398690779
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            352.2242438937635,
+            351.9989016082131
+          ],
+          "point_local_px": [
+            -5.691677477813525,
+            -11.541580185825802
+          ],
+          "ray": 65,
+          "strength": 0.09955132497335928
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            351.4374338016003,
+            350.5136054466283
+          ],
+          "point_local_px": [
+            -6.366246660369201,
+            -12.909471170812564
+          ],
+          "ray": 65,
+          "strength": 0.0820971023788045
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            352.73115335369584,
+            350.7326742612336
+          ],
+          "point_local_px": [
+            -5.265104339938604,
+            -12.711086304789232
+          ],
+          "ray": 66,
+          "strength": 0.15271635145924686
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            353.0706577696484,
+            351.49711069376673
+          ],
+          "point_local_px": [
+            -4.973274076293046,
+            -12.006545724385207
+          ],
+          "ray": 66,
+          "strength": 0.1252547138720228
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            352.3915466441463,
+            349.96800750193967
+          ],
+          "point_local_px": [
+            -5.556934603584161,
+            -13.415626885193252
+          ],
+          "ray": 66,
+          "strength": 0.07278538638807991
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            353.81699189166136,
+            350.6531944865818
+          ],
+          "point_local_px": [
+            -4.340777769135158,
+            -12.78751895371635
+          ],
+          "ray": 67,
+          "strength": 0.17910353194456202
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            354.10126388997065,
+            351.43611312159
+          ],
+          "point_local_px": [
+            -4.095651495113409,
+            -12.065400236330017
+          ],
+          "ray": 67,
+          "strength": 0.09812037011202655
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            353.5326502663933,
+            349.87008409071177
+          ],
+          "point_local_px": [
+            -4.585904043156909,
+            -13.509637671102688
+          ],
+          "ray": 67,
+          "strength": 0.07755298704148149
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            354.8862139446802,
+            350.64460084890163
+          ],
+          "point_local_px": [
+            -3.429349204044421,
+            -12.798505466389676
+          ],
+          "ray": 68,
+          "strength": 0.20133906868547957
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            354.6582254946379,
+            349.8464234130839
+          ],
+          "point_local_px": [
+            -3.626721820104531,
+            -13.53511009754879
+          ],
+          "ray": 68,
+          "strength": 0.08795989196753673
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            355.11415963730724,
+            351.4426285929081
+          ],
+          "point_local_px": [
+            -3.23197658798431,
+            -12.061900835230556
+          ],
+          "ray": 68,
+          "strength": 0.07217558500161017
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            355.90511255971455,
+            350.5695985744627
+          ],
+          "point_local_px": [
+            -2.5601487674767407,
+            -12.870737004453105
+          ],
+          "ray": 69,
+          "strength": 0.22094918647696316
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            355.7343205167465,
+            349.75976502747426
+          ],
+          "point_local_px": [
+            -2.7089225457320474,
+            -13.618673295268781
+          ],
+          "ray": 69,
+          "strength": 0.08750211003927467
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            356.075882489902,
+            351.3793272707148
+          ],
+          "point_local_px": [
+            -2.4113749892214336,
+            -12.122800713637428
+          ],
+          "ray": 69,
+          "strength": 0.050158780468376636
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            356.9164432381086,
+            350.55776210562675
+          ],
+          "point_local_px": [
+            -1.6962911721402345,
+            -12.884610647163548
+          ],
+          "ray": 70,
+          "strength": 0.22876367500605563
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            356.80345629169784,
+            349.7397538546471
+          ],
+          "point_local_px": [
+            -1.7958290404320822,
+            -13.640675819613245
+          ],
+          "ray": 70,
+          "strength": 0.09329287057966555
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            356.6904613331551,
+            348.9216875970535
+          ],
+          "point_local_px": [
+            -1.8953669087239295,
+            -14.396740992062938
+          ],
+          "ray": 70,
+          "strength": 0.04877346896299676
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            357.9065694978575,
+            350.47077241197576
+          ],
+          "point_local_px": [
+            -0.8499654272944833,
+            -12.967966457470704
+          ],
+          "ray": 71,
+          "strength": 0.2280569416691602
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            357.85174911907063,
+            349.6480928333548
+          ],
+          "point_local_px": [
+            -0.8998411491895142,
+            -13.728922924412752
+          ],
+          "ray": 71,
+          "strength": 0.09079740444820456
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            357.96138921387615,
+            351.29344204455384
+          ],
+          "point_local_px": [
+            -0.8000897053994526,
+            -12.20700999052866
+          ],
+          "ray": 71,
+          "strength": 0.05183777109626872
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            358.8991256320853,
+            350.58118170261884
+          ],
+          "point_local_px": [
+            -2.363940597779712e-15,
+            -12.868693239692075
+          ],
+          "ray": 72,
+          "strength": 0.2237954185954369
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            358.9025865502131,
+            349.7573544000022
+          ],
+          "point_local_px": [
+            -2.5040259665370285e-15,
+            -13.631282468710864
+          ],
+          "ray": 72,
+          "strength": 0.091959197031858
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            358.9060473066536,
+            348.9335655849887
+          ],
+          "point_local_px": [
+            -2.6441113352943446e-15,
+            -14.393871697729653
+          ],
+          "ray": 72,
+          "strength": 0.05500111042510967
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            359.891589944015,
+            350.47709319700925
+          ],
+          "point_local_px": [
+            0.8499654272944785,
+            -12.967966457470705
+          ],
+          "ray": 73,
+          "strength": 0.25968860583174064
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            359.97373178238655,
+            349.38186148239964
+          ],
+          "point_local_px": [
+            0.9164663898211859,
+            -13.9825750800601
+          ],
+          "ray": 73,
+          "strength": 0.10970953903560363
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            359.82997599855753,
+            351.29861787268095
+          ],
+          "point_local_px": [
+            0.8000897053994481,
+            -12.20700999052866
+          ],
+          "ray": 73,
+          "strength": 0.05937204560658104
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            360.8779977955374,
+            350.57019685902924
+          ],
+          "point_local_px": [
+            1.6962911721402298,
+            -12.88461064716355
+          ],
+          "ray": 74,
+          "strength": 0.2474977113863112
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            361.03715617377173,
+            349.48282312378893
+          ],
+          "point_local_px": [
+            1.8290083298626927,
+            -13.892697543763141
+          ],
+          "ray": 74,
+          "strength": 0.11024371185491023
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            360.7586062662854,
+            351.38588255876465
+          ],
+          "point_local_px": [
+            1.5967533038483828,
+            -12.128545474713857
+          ],
+          "ray": 74,
+          "strength": 0.0606491680938734
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            361.88414890201614,
+            350.5883207502992
+          ],
+          "point_local_px": [
+            2.560148767476736,
+            -12.870737004453106
+          ],
+          "ray": 75,
+          "strength": 0.20623201341399489
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            361.7076060007086,
+            351.39466844841564
+          ],
+          "point_local_px": [
+            2.411374989221429,
+            -12.12280071363743
+          ],
+          "ray": 75,
+          "strength": 0.11463909315091883
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            362.0900664043934,
+            349.6478065590511
+          ],
+          "point_local_px": [
+            2.73371817544126,
+            -13.743329343738061
+          ],
+          "ray": 75,
+          "strength": 0.1098325473137199
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            362.70121961654957,
+            351.33066234554644
+          ],
+          "point_local_px": [
+            3.2648720239943247,
+            -12.184668273757078
+          ],
+          "ray": 76,
+          "strength": 0.18682599113315745
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            362.9340345164668,
+            350.53712329733565
+          ],
+          "point_local_px": [
+            3.4622446400544344,
+            -12.921272904916194
+          ],
+          "ray": 76,
+          "strength": 0.12830939099353036
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            363.2055704424841,
+            349.61160538433506
+          ],
+          "point_local_px": [
+            3.6925126921245637,
+            -13.780644974601833
+          ],
+          "ray": 76,
+          "strength": 0.09739464283195819
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            363.6666396868191,
+            351.4618708623131
+          ],
+          "point_local_px": [
+            4.095651495113405,
+            -12.065400236330019
+          ],
+          "ray": 77,
+          "strength": 0.22246882484705927
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            363.37855848965455,
+            352.2395206789033
+          ],
+          "point_local_px": [
+            3.8505252210916545,
+            -11.343281518943684
+          ],
+          "ray": 77,
+          "strength": 0.07111491154171275
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            364.29048765887893,
+            349.7778482123537
+          ],
+          "point_local_px": [
+            4.6267584221605285,
+            -13.629990790667076
+          ],
+          "ray": 77,
+          "strength": 0.07064343188668612
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            364.6287931392632,
+            351.6543619438968
+          ],
+          "point_local_px": [
+            4.924635699018782,
+            -11.889122294317874
+          ],
+          "ray": 78,
+          "strength": 0.20031488556726768
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            364.28684478860464,
+            352.41260950869525
+          ],
+          "point_local_px": [
+            4.632805435373225,
+            -11.18458171391385
+          ],
+          "ray": 78,
+          "strength": 0.11316909364345505
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            365.19841418168403,
+            350.39126543402404
+          ],
+          "point_local_px": [
+            5.411019471761378,
+            -13.063356594991243
+          ],
+          "ray": 78,
+          "strength": 0.09253573875381534
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            365.32031186497966,
+            352.3987148409666
+          ],
+          "point_local_px": [
+            5.523035182174602,
+            -11.199607439579115
+          ],
+          "ray": 79,
+          "strength": 0.19227038270441374
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            365.71450985239966,
+            351.66317784696713
+          ],
+          "point_local_px": [
+            5.86031977345244,
+            -11.883552932072497
+          ],
+          "ray": 79,
+          "strength": 0.12272135661487246
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            366.23983903903945,
+            350.6829621606057
+          ],
+          "point_local_px": [
+            6.310032561822891,
+            -12.795480255397004
+          ],
+          "ray": 79,
+          "strength": 0.09421702625512941
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            366.2285703424593,
+            352.6969023108018
+          ],
+          "point_local_px": [
+            6.307248415009575,
+            -10.92447471075485
+          ],
+          "ray": 80,
+          "strength": 0.20258947075194564
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            367.11777952055866,
+            351.2775886326358
+          ],
+          "point_local_px": [
+            7.069837644028364,
+            -12.245318000720172
+          ],
+          "ray": 80,
+          "strength": 0.1082932418991626
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            366.6732832701309,
+            351.98707254672905
+          ],
+          "point_local_px": [
+            6.688543029518969,
+            -11.584896355737511
+          ],
+          "ray": 80,
+          "strength": 0.10084664041095052
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            366.9566969368427,
+            353.28120202483814
+          ],
+          "point_local_px": [
+            6.937626964001397,
+            -10.382892493547981
+          ],
+          "ray": 81,
+          "strength": 0.21048904192563625
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            368.10738720507504,
+            351.69214434898123
+          ],
+          "point_local_px": [
+            7.926194673884549,
+            -11.862388624944133
+          ],
+          "ray": 81,
+          "strength": 0.09758327250105732
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            366.4631038178789,
+            353.96283456844554
+          ],
+          "point_local_px": [
+            6.513955088337189,
+            -9.748822722949631
+          ],
+          "ray": 81,
+          "strength": 0.09165626235255633
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            367.72375855046414,
+            353.79457078355756
+          ],
+          "point_local_px": [
+            7.6018466316677324,
+            -9.906919410836863
+          ],
+          "ray": 82,
+          "strength": 0.21581735563213963
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            367.1837049248358,
+            354.44475274987684
+          ],
+          "point_local_px": [
+            7.137611722863595,
+            -9.301916698724689
+          ],
+          "ray": 82,
+          "strength": 0.09605553483026139
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            368.26349853535226,
+            353.14476641594985
+          ],
+          "point_local_px": [
+            8.06608154047187,
+            -10.51192212294904
+          ],
+          "ray": 82,
+          "strength": 0.07466537050476975
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            368.2577378415221,
+            354.5584239555839
+          ],
+          "point_local_px": [
+            8.065910686069248,
+            -9.197408398560247
+          ],
+          "ray": 83,
+          "strength": 0.1884736511585082
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            368.8416535531955,
+            353.9426611205927
+          ],
+          "point_local_px": [
+            8.568720702863173,
+            -9.770753337691275
+          ],
+          "ray": 83,
+          "strength": 0.10556797374543264
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            369.91122012622435,
+            352.8147597265152
+          ],
+          "point_local_px": [
+            9.490539066985372,
+            -10.82188572609816
+          ],
+          "ray": 83,
+          "strength": 0.06256905429373985
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            367.26120234520306,
+            356.6934973034688
+          ],
+          "point_local_px": [
+            7.2122282019492205,
+            -7.212228201949224
+          ],
+          "ray": 84,
+          "strength": 0.10488611578299631
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            369.4523492753618,
+            354.6649660792499
+          ],
+          "point_local_px": [
+            9.099540254795745,
+            -9.09954025479575
+          ],
+          "ray": 84,
+          "strength": 0.09319650329152727
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            370.4939631461724,
+            353.70065545660907
+          ],
+          "point_local_px": [
+            9.998260279960757,
+            -9.99826027996076
+          ],
+          "ray": 84,
+          "strength": 0.08037948486719815
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            371.6630765277259,
+            354.06763064960944
+          ],
+          "point_local_px": [
+            11.01300070580851,
+            -9.658142405916678
+          ],
+          "ray": 85,
+          "strength": 0.05758062606753485
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            370.9997967965986,
+            354.6067141533429
+          ],
+          "point_local_px": [
+            10.439655766677479,
+            -9.15533238912275
+          ],
+          "ray": 85,
+          "strength": 0.051466889187186754
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            369.67184066894794,
+            355.68601630672197
+          ],
+          "point_local_px": [
+            9.292965888415424,
+            -8.149712355534897
+          ],
+          "ray": 85,
+          "strength": 0.04691952887542053
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            372.01131272403364,
+            355.11264430655285
+          ],
+          "point_local_px": [
+            11.318592405765262,
+            -8.685061418877398
+          ],
+          "ray": 86,
+          "strength": 0.04735946264806609
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            370.3785560717553,
+            356.2750372330262
+          ],
+          "point_local_px": [
+            9.906919410836855,
+            -7.601846631667745
+          ],
+          "ray": 86,
+          "strength": 0.04161903837125521
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            371.3119032176372,
+            355.61056826956894
+          ],
+          "point_local_px": [
+            10.713589693653086,
+            -8.22082651007326
+          ],
+          "ray": 86,
+          "strength": 0.038955005704763665
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            372.8786944638641,
+            355.77611656944885
+          ],
+          "point_local_px": [
+            12.073745215143573,
+            -8.0674186324393
+          ],
+          "ray": 87,
+          "strength": 0.048306516127243355
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            372.14657157882147,
+            356.23052302092606
+          ],
+          "point_local_px": [
+            11.439675444545225,
+            -7.6437467567750925
+          ],
+          "ray": 87,
+          "strength": 0.041892041907183805
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            371.16953353206,
+            356.83694087899
+          ],
+          "point_local_px": [
+            10.594249083747425,
+            -7.078850922556147
+          ],
+          "ray": 87,
+          "strength": 0.04079566934499225
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            372.69115307207846,
+            357.05118027192236
+          ],
+          "point_local_px": [
+            11.91510717822884,
+            -6.8791903367736715
+          ],
+          "ray": 88,
+          "strength": 0.04567416425131167
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            373.57995700729094,
+            356.5738797121348
+          ],
+          "point_local_px": [
+            12.685599097375277,
+            -7.324034053701299
+          ],
+          "ray": 88,
+          "strength": 0.04389831354939779
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            371.2927938784135,
+            357.80211937049967
+          ],
+          "point_local_px": [
+            10.704334162427294,
+            -6.180150210173113
+          ],
+          "ray": 88,
+          "strength": 0.041584393415063495
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            372.6506439105442,
+            358.14468877579463
+          ],
+          "point_local_px": [
+            11.883552932072496,
+            -5.860319773452446
+          ],
+          "ray": 89,
+          "strength": 0.05600088970080709
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            371.8611660215674,
+            358.50738045700257
+          ],
+          "point_local_px": [
+            11.199607439579113,
+            -5.523035182174606
+          ],
+          "ray": 89,
+          "strength": 0.04430758024145558
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            370.67573395268437,
+            359.0519762664916
+          ],
+          "point_local_px": [
+            10.173689200839041,
+            -5.017108295257848
+          ],
+          "ray": 89,
+          "strength": 0.0400736131691074
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            373.33025270065355,
+            358.8872194605777
+          ],
+          "point_local_px": [
+            12.476239444654555,
+            -5.167827585390085
+          ],
+          "ray": 90,
+          "strength": 0.05766154264827847
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            372.3822912301336,
+            359.2537140241124
+          ],
+          "point_local_px": [
+            11.654275434183198,
+            -4.8273589444702685
+          ],
+          "ray": 90,
+          "strength": 0.04869435074472236
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            374.14205099237546,
+            358.5733674002828
+          ],
+          "point_local_px": [
+            13.18078002505858,
+            -5.4596578490356436
+          ],
+          "ray": 90,
+          "strength": 0.04142437261968374
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            373.407787743457,
+            359.86217924068006
+          ],
+          "point_local_px": [
+            12.546812714587576,
+            -4.25906901112791
+          ],
+          "ray": 91,
+          "strength": 0.06470555871592114
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            374.23956878941596,
+            359.5979834347705
+          ],
+          "point_local_px": [
+            13.268931431973908,
+            -4.504195285149659
+          ],
+          "ray": 91,
+          "strength": 0.05224276016660279
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            372.43647318874764,
+            360.1706946039717
+          ],
+          "point_local_px": [
+            11.704340877636849,
+            -3.9730883581025345
+          ],
+          "ray": 91,
+          "strength": 0.04018426622673799
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            373.41123505307894,
+            360.82304940745234
+          ],
+          "point_local_px": [
+            12.552970589336631,
+            -3.363558332024396
+          ],
+          "ray": 92,
+          "strength": 0.06244576122303575
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            374.2595004449253,
+            360.6096212800177
+          ],
+          "point_local_px": [
+            13.28957522049575,
+            -3.5609309480845077
+          ],
+          "ray": 92,
+          "strength": 0.05048820199991113
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            372.5622288984018,
+            361.03666391479277
+          ],
+          "point_local_px": [
+            11.816365958177515,
+            -3.166185715964285
+          ],
+          "ray": 92,
+          "strength": 0.04223727548293399
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            373.6301195202058,
+            361.7112034503898
+          ],
+          "point_local_px": [
+            12.746080955983825,
+            -2.5353531377675234
+          ],
+          "ray": 93,
+          "strength": 0.06373845287371956
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            374.4910480389338,
+            361.5494967452226
+          ],
+          "point_local_px": [
+            13.494017246799503,
+            -2.6841269160228305
+          ],
+          "ray": 93,
+          "strength": 0.05510757074871253
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            372.7684303828747,
+            361.87305302122525
+          ],
+          "point_local_px": [
+            11.99814466516815,
+            -2.3865793595122167
+          ],
+          "ray": 93,
+          "strength": 0.04287492342683473
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            373.49596386813107,
+            362.6474967726424
+          ],
+          "point_local_px": [
+            12.632588923013651,
+            -1.6631118827096196
+          ],
+          "ray": 94,
+          "strength": 0.059076586691852645
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            374.5111415081914,
+            362.5199297404823
+          ],
+          "point_local_px": [
+            13.514664957538296,
+            -1.779239395716775
+          ],
+          "ray": 94,
+          "strength": 0.05341535187744447
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            372.624972558596,
+            362.75694537750735
+          ],
+          "point_local_px": [
+            11.876523750563956,
+            -1.5635740144177719
+          ],
+          "ray": 94,
+          "strength": 0.037431222452960426
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            373.5866533505224,
+            363.53761543242405
+          ],
+          "point_local_px": [
+            12.714314301823356,
+            -0.8333401866628073
+          ],
+          "ray": 95,
+          "strength": 0.05547419041570594
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            374.60808850291755,
+            363.471708955562
+          ],
+          "point_local_px": [
+            13.602096846589076,
+            -0.8915285288736766
+          ],
+          "ray": 95,
+          "strength": 0.04582749852791674
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "kind": "boundary_candidate",
+          "point_image_px": [
+            372.71029074740363,
+            363.59416133403096
+          ],
+          "point_local_px": [
+            11.95335783488131,
+            -0.7834644647677764
+          ],
+          "ray": 95,
+          "strength": 0.03853895129327998
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "boundary_sampling"
+      },
+      {
+        "data": {
+          "candidate_indices": [
+            0,
+            3,
+            6,
+            9,
+            12,
+            15,
+            19,
+            21,
+            24,
+            27,
+            30,
+            33,
+            36,
+            39,
+            42,
+            45,
+            48,
+            51,
+            54,
+            57,
+            60,
+            63,
+            66,
+            69,
+            72,
+            75,
+            78,
+            81,
+            84,
+            87,
+            90,
+            93,
+            96,
+            99,
+            102,
+            105,
+            108,
+            111,
+            114,
+            117,
+            120,
+            123,
+            126,
+            129,
+            132,
+            137,
+            138,
+            141,
+            144,
+            147,
+            151,
+            154,
+            156,
+            159,
+            162,
+            165,
+            169,
+            171,
+            174,
+            177,
+            180,
+            183,
+            186,
+            189,
+            192,
+            195,
+            198,
+            201,
+            204,
+            207,
+            210,
+            213,
+            216,
+            219,
+            222,
+            225,
+            228,
+            231,
+            234,
+            237,
+            240,
+            243,
+            246,
+            249,
+            253,
+            256,
+            258,
+            261,
+            264,
+            267,
+            270,
+            273,
+            276,
+            279,
+            282,
+            285
+          ],
+          "center_image_px": [
+            358.62483324104323,
+            363.6040859657735
+          ],
+          "center_local_px": [
+            -0.18795301615079374,
+            -0.8192571874674878
+          ],
+          "fit_id": 0,
+          "kind": "cyclic_hypothesis",
+          "path_cost": 205.0375968510037,
+          "radius_local_px": 12.612475320723187,
+          "source_residual_rms_px": 0.36117348053802517,
+          "support": 61
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "hypothesis_generation"
+      },
+      {
+        "data": {
+          "candidate_indices": [
+            0,
+            3,
+            6,
+            9,
+            12,
+            15,
+            18,
+            21,
+            24,
+            27,
+            30,
+            33,
+            36,
+            39,
+            42,
+            45,
+            48,
+            51,
+            54,
+            57,
+            60,
+            63,
+            66,
+            69,
+            72,
+            75,
+            78,
+            81,
+            84,
+            87,
+            90,
+            93,
+            96,
+            99,
+            102,
+            105,
+            108,
+            111,
+            114,
+            117,
+            120,
+            123,
+            126,
+            129,
+            132,
+            137,
+            138,
+            141,
+            144,
+            147,
+            151,
+            154,
+            156,
+            159,
+            162,
+            165,
+            169,
+            171,
+            174,
+            177,
+            180,
+            183,
+            186,
+            189,
+            192,
+            195,
+            198,
+            201,
+            204,
+            207,
+            210,
+            213,
+            216,
+            219,
+            222,
+            225,
+            228,
+            231,
+            234,
+            237,
+            240,
+            243,
+            246,
+            249,
+            253,
+            256,
+            258,
+            261,
+            264,
+            267,
+            270,
+            273,
+            276,
+            279,
+            282,
+            285
+          ],
+          "center_image_px": [
+            358.587303791851,
+            363.59873895288007
+          ],
+          "center_local_px": [
+            -0.22009162717701483,
+            -0.8243215442253682
+          ],
+          "fit_id": 1,
+          "kind": "cyclic_hypothesis",
+          "path_cost": 205.04212464691247,
+          "radius_local_px": 12.600618479020754,
+          "source_residual_rms_px": 0.35755580188100633,
+          "support": 60
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "hypothesis_generation"
+      },
+      {
+        "data": {
+          "candidate_indices": [
+            0,
+            3,
+            6,
+            9,
+            12,
+            15,
+            19,
+            21,
+            24,
+            27,
+            30,
+            33,
+            36,
+            39,
+            42,
+            45,
+            48,
+            51,
+            54,
+            57,
+            60,
+            63,
+            66,
+            69,
+            72,
+            75,
+            78,
+            81,
+            84,
+            87,
+            90,
+            93,
+            96,
+            99,
+            102,
+            105,
+            108,
+            111,
+            114,
+            117,
+            120,
+            123,
+            126,
+            129,
+            132,
+            137,
+            138,
+            141,
+            144,
+            147,
+            151,
+            154,
+            156,
+            159,
+            162,
+            165,
+            168,
+            171,
+            174,
+            177,
+            180,
+            183,
+            186,
+            189,
+            192,
+            195,
+            198,
+            201,
+            204,
+            207,
+            210,
+            213,
+            216,
+            219,
+            222,
+            225,
+            228,
+            231,
+            234,
+            237,
+            240,
+            243,
+            246,
+            249,
+            253,
+            256,
+            258,
+            261,
+            264,
+            267,
+            270,
+            273,
+            276,
+            279,
+            282,
+            285
+          ],
+          "center_image_px": [
+            358.64254842604896,
+            363.61326037563106
+          ],
+          "center_local_px": [
+            -0.1727581276594179,
+            -0.8107157123560117
+          ],
+          "fit_id": 2,
+          "kind": "cyclic_hypothesis",
+          "path_cost": 205.05735831474433,
+          "radius_local_px": 12.604283614324677,
+          "source_residual_rms_px": 0.35966368303440927,
+          "support": 62
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "hypothesis_generation"
+      },
+      {
+        "data": {
+          "candidate_indices": [
+            0,
+            3,
+            6,
+            9,
+            12,
+            15,
+            18,
+            21,
+            24,
+            27,
+            30,
+            33,
+            36,
+            39,
+            42,
+            45,
+            48,
+            51,
+            54,
+            57,
+            60,
+            63,
+            66,
+            69,
+            72,
+            75,
+            78,
+            81,
+            84,
+            87,
+            90,
+            93,
+            96,
+            99,
+            102,
+            105,
+            108,
+            111,
+            114,
+            117,
+            120,
+            123,
+            126,
+            129,
+            132,
+            137,
+            138,
+            141,
+            144,
+            147,
+            151,
+            154,
+            156,
+            159,
+            162,
+            165,
+            168,
+            171,
+            174,
+            177,
+            180,
+            183,
+            186,
+            189,
+            192,
+            195,
+            198,
+            201,
+            204,
+            207,
+            210,
+            213,
+            216,
+            219,
+            222,
+            225,
+            228,
+            231,
+            234,
+            237,
+            240,
+            243,
+            246,
+            249,
+            253,
+            256,
+            258,
+            261,
+            264,
+            267,
+            270,
+            273,
+            276,
+            279,
+            282,
+            285
+          ],
+          "center_image_px": [
+            358.6048486830118,
+            363.6081687554787
+          ],
+          "center_local_px": [
+            -0.20504212802504443,
+            -0.8155446110258056
+          ],
+          "fit_id": 3,
+          "kind": "cyclic_hypothesis",
+          "path_cost": 205.0618861106531,
+          "radius_local_px": 12.592255270489776,
+          "source_residual_rms_px": 0.35665537593199176,
+          "support": 61
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "hypothesis_generation"
+      },
+      {
+        "data": {
+          "candidate_indices": [
+            0,
+            3,
+            6,
+            9,
+            12,
+            15,
+            19,
+            21,
+            24,
+            27,
+            30,
+            33,
+            36,
+            39,
+            42,
+            45,
+            48,
+            51,
+            54,
+            57,
+            60,
+            63,
+            66,
+            70,
+            72,
+            75,
+            78,
+            81,
+            84,
+            87,
+            90,
+            93,
+            96,
+            99,
+            102,
+            105,
+            108,
+            111,
+            114,
+            117,
+            120,
+            123,
+            126,
+            129,
+            132,
+            137,
+            138,
+            141,
+            144,
+            147,
+            151,
+            154,
+            156,
+            159,
+            162,
+            165,
+            169,
+            171,
+            174,
+            177,
+            180,
+            183,
+            186,
+            189,
+            192,
+            195,
+            198,
+            201,
+            204,
+            207,
+            210,
+            213,
+            216,
+            219,
+            222,
+            225,
+            228,
+            231,
+            234,
+            237,
+            240,
+            243,
+            246,
+            249,
+            253,
+            256,
+            258,
+            261,
+            264,
+            267,
+            270,
+            273,
+            276,
+            279,
+            282,
+            285
+          ],
+          "center_image_px": [
+            358.62412168151,
+            363.62567436008976
+          ],
+          "center_local_px": [
+            -0.18848427528829062,
+            -0.7992929518650157
+          ],
+          "fit_id": 4,
+          "kind": "cyclic_hypothesis",
+          "path_cost": 205.07544400966074,
+          "radius_local_px": 12.623320541288429,
+          "source_residual_rms_px": 0.3558913144793349,
+          "support": 62
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "hypothesis_generation"
+      },
+      {
+        "data": {
+          "candidate_indices": [
+            0,
+            3,
+            6,
+            9,
+            12,
+            15,
+            18,
+            21,
+            24,
+            27,
+            30,
+            33,
+            36,
+            39,
+            42,
+            45,
+            48,
+            51,
+            54,
+            57,
+            60,
+            63,
+            66,
+            70,
+            72,
+            75,
+            78,
+            81,
+            84,
+            87,
+            90,
+            93,
+            96,
+            99,
+            102,
+            105,
+            108,
+            111,
+            114,
+            117,
+            120,
+            123,
+            126,
+            129,
+            132,
+            137,
+            138,
+            141,
+            144,
+            147,
+            151,
+            154,
+            156,
+            159,
+            162,
+            165,
+            169,
+            171,
+            174,
+            177,
+            180,
+            183,
+            186,
+            189,
+            192,
+            195,
+            198,
+            201,
+            204,
+            207,
+            210,
+            213,
+            216,
+            219,
+            222,
+            225,
+            228,
+            231,
+            234,
+            237,
+            240,
+            243,
+            246,
+            249,
+            253,
+            256,
+            258,
+            261,
+            264,
+            267,
+            270,
+            273,
+            276,
+            279,
+            282,
+            285
+          ],
+          "center_image_px": [
+            358.58788607148074,
+            363.61949533582117
+          ],
+          "center_local_px": [
+            -0.21951854015924988,
+            -0.8051230508907388
+          ],
+          "fit_id": 5,
+          "kind": "cyclic_hypothesis",
+          "path_cost": 205.0799718055695,
+          "radius_local_px": 12.610863191610608,
+          "source_residual_rms_px": 0.35413644313410103,
+          "support": 61
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "hypothesis_generation"
+      },
+      {
+        "data": {
+          "candidate_indices": [
+            0,
+            3,
+            6,
+            9,
+            12,
+            15,
+            19,
+            21,
+            24,
+            27,
+            30,
+            33,
+            36,
+            39,
+            42,
+            45,
+            48,
+            51,
+            54,
+            57,
+            60,
+            63,
+            66,
+            70,
+            72,
+            75,
+            78,
+            81,
+            84,
+            87,
+            90,
+            93,
+            96,
+            99,
+            102,
+            105,
+            108,
+            111,
+            114,
+            117,
+            120,
+            123,
+            126,
+            129,
+            132,
+            137,
+            138,
+            141,
+            144,
+            147,
+            151,
+            154,
+            156,
+            159,
+            162,
+            165,
+            168,
+            171,
+            174,
+            177,
+            180,
+            183,
+            186,
+            189,
+            192,
+            195,
+            198,
+            201,
+            204,
+            207,
+            210,
+            213,
+            216,
+            219,
+            222,
+            225,
+            228,
+            231,
+            234,
+            237,
+            240,
+            243,
+            246,
+            249,
+            253,
+            256,
+            258,
+            261,
+            264,
+            267,
+            270,
+            273,
+            276,
+            279,
+            282,
+            285
+          ],
+          "center_image_px": [
+            358.64372580102804,
+            363.6338244759684
+          ],
+          "center_local_px": [
+            -0.171676401506248,
+            -0.7916926360879658
+          ],
+          "fit_id": 6,
+          "kind": "cyclic_hypothesis",
+          "path_cost": 205.09520547340142,
+          "radius_local_px": 12.614373250274037,
+          "source_residual_rms_px": 0.3499259810085486,
+          "support": 62
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "hypothesis_generation"
+      },
+      {
+        "data": {
+          "candidate_indices": [
+            0,
+            3,
+            6,
+            9,
+            12,
+            15,
+            19,
+            21,
+            24,
+            27,
+            30,
+            33,
+            36,
+            39,
+            42,
+            45,
+            48,
+            51,
+            54,
+            57,
+            60,
+            63,
+            66,
+            69,
+            72,
+            75,
+            78,
+            81,
+            84,
+            87,
+            90,
+            93,
+            96,
+            99,
+            102,
+            105,
+            108,
+            111,
+            114,
+            117,
+            120,
+            123,
+            126,
+            129,
+            132,
+            137,
+            138,
+            141,
+            144,
+            147,
+            151,
+            154,
+            156,
+            159,
+            162,
+            165,
+            168,
+            172,
+            174,
+            177,
+            180,
+            183,
+            186,
+            189,
+            192,
+            195,
+            198,
+            201,
+            204,
+            207,
+            210,
+            213,
+            216,
+            219,
+            222,
+            225,
+            228,
+            231,
+            234,
+            237,
+            240,
+            243,
+            246,
+            249,
+            253,
+            256,
+            258,
+            261,
+            264,
+            267,
+            270,
+            273,
+            276,
+            279,
+            282,
+            285
+          ],
+          "center_image_px": [
+            358.6746613314435,
+            363.63104633039063
+          ],
+          "center_local_px": [
+            -0.14520901631070407,
+            -0.7941634828950611
+          ],
+          "fit_id": 7,
+          "kind": "cyclic_hypothesis",
+          "path_cost": 205.0965885667604,
+          "radius_local_px": 12.588640212978726,
+          "source_residual_rms_px": 0.35284234902418327,
+          "support": 61
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "hypothesis_generation"
+      },
+      {
+        "data": {
+          "center_source_step_px": 0.02567863976642697,
+          "fit_id": 6,
+          "kind": "refinement_step",
+          "maximum_source_outline_step_px": 0.09441361630482897,
+          "membership_stable": false,
+          "previous_support": 62,
+          "round": 0,
+          "selected_support": 64
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "fit_refinement"
+      },
+      {
+        "data": {
+          "center_source_step_px": 0.017452978973332128,
+          "fit_id": 6,
+          "kind": "refinement_step",
+          "maximum_source_outline_step_px": 0.056813082664982514,
+          "membership_stable": false,
+          "previous_support": 64,
+          "round": 1,
+          "selected_support": 59
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "fit_refinement"
+      },
+      {
+        "data": {
+          "center_source_step_px": 0.10247157307777591,
+          "fit_id": 6,
+          "kind": "refinement_step",
+          "maximum_source_outline_step_px": 0.18690443977771284,
+          "membership_stable": false,
+          "previous_support": 59,
+          "round": 2,
+          "selected_support": 55
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "fit_refinement"
+      },
+      {
+        "data": {
+          "center_image_px": null,
+          "fit_id": 6,
+          "kind": "candidate_evaluation",
+          "outline_image_px": [],
+          "quality": {
+            "angular_coverage": null,
+            "background_sample_fraction": 0.90625,
+            "background_supported_fraction": 0.90625,
+            "boundary_candidates": 288,
+            "candidate_outer_background_fraction": null,
+            "candidate_representatives_evaluated": 1,
+            "candidate_search_truncated": false,
+            "center_shift_px": null,
+            "center_spread_px": null,
+            "fit_id": 6,
+            "foreground_fraction": null,
+            "inliers": null,
+            "iterations": 1,
+            "largest_gap_fraction": null,
+            "qualified_candidate_count": 0,
+            "residual_rms_px": null,
+            "source_residual_rms_px": null,
+            "stage": "fit_refinement",
+            "supported_ray_fraction": 1.0
+          },
+          "rejection": "ambiguous_boundary",
+          "residual_rms_px": null,
+          "source_residual_rms_px": null,
+          "supported_rays": 62
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "fit_refinement"
+      },
+      {
+        "data": {
+          "center_image_px": null,
+          "kind": "outcome",
+          "outline": null,
+          "quality": {
+            "angular_coverage": null,
+            "background_sample_fraction": 0.90625,
+            "background_supported_fraction": 0.90625,
+            "boundary_candidates": 288,
+            "candidate_outer_background_fraction": null,
+            "candidate_representatives_evaluated": 1,
+            "candidate_search_truncated": false,
+            "center_shift_px": null,
+            "center_spread_px": null,
+            "fit_id": 6,
+            "foreground_fraction": null,
+            "inliers": null,
+            "iterations": 1,
+            "largest_gap_fraction": null,
+            "qualified_candidate_count": 0,
+            "residual_rms_px": null,
+            "source_residual_rms_px": null,
+            "stage": "fit_refinement",
+            "supported_ray_fraction": 1.0
+          },
+          "reason": "ambiguous_boundary",
+          "status": "rejected"
+        },
+        "detection_index": 10,
+        "iteration": 1,
+        "stage": "fit_refinement"
+      }
+    ],
+    "maximum_bytes": 8388608,
+    "maximum_events": 8192,
+    "retained_bytes": 1192320,
+    "schema_version": 5
+  },
+  "trace_complete": true
+}

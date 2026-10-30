@@ -1,0 +1,195 @@
+{
+  "schema_version": 1,
+  "run_id": "3547819b-bc73-4439-856b-714ef9e209ce",
+  "workload": "recorded_video_unpaced_capacity_predecoded",
+  "environment": {
+    "repository_revision": "8129f333a337db1c8c6e7f32869f9dabf914b317",
+    "working_tree_dirty": true,
+    "dirty_tree_status_sha256": "5861edf4bc7329d1faf47d4fb73412ec88caba8cf135a6cbdfddb99a1a68afca",
+    "operating_system": "macos",
+    "architecture": "aarch64",
+    "logical_cpu_count": 14,
+    "processor_brand": "Apple M4 Max",
+    "processor_frequency_mhz": 4512,
+    "host_name": "mbp-m4max-14.local",
+    "kernel_version": "25.6.0",
+    "total_memory_bytes": 38654705664,
+    "collector_version": "0.1.0"
+  },
+  "mode": "capacity",
+  "source": {
+    "path": "/tmp/billiards-home-5fps-20261029.mkv",
+    "sha256": "1b3999b4233e552b4fcd2141aabcfafaceeed5a599dc3a30e45396189e943d4c",
+    "video_stream_ordinal": 0,
+    "ffprobe_global_stream_index": 0,
+    "width_px": 3840,
+    "height_px": 2160,
+    "source_frame_count": 20,
+    "first_source_pts_seconds": 0.0,
+    "source_duration_seconds": 4.0,
+    "presentation_time_source": "ffprobe_best_effort_timestamp_time_normalized_to_first_frame",
+    "ffprobe_version": "ffprobe version 8.1.1 Copyright (c) 2007-2026 the FFmpeg developers",
+    "ffmpeg_version": "ffmpeg version 8.1.1 Copyright (c) 2000-2026 the FFmpeg developers",
+    "ffprobe_elapsed_ms": 2124.5779580000003,
+    "decoded_raw_rgb_bytes": 497664000,
+    "offline_decode_ms": 465.90125
+  },
+  "model": {
+    "onnx_path": "/tmp/billiards-rust-replay-model-20261029/billiards-yolov8n.onnx",
+    "onnx_sha256": "63acdbd2bf8952150d4178a3a095ff1914545d858553ce42ef2d7cda231a032b",
+    "source_checkpoint_path": "dist/models/billiards-yolov8n.pt",
+    "source_checkpoint_sha256": "f04470378b10f02d7467dad046ad26fb48eaeb1002e7866cfc37f501b478dc0e",
+    "manifest_path": "/tmp/billiards-rust-replay-model-20261029/billiards-yolov8n.onnx.manifest.json",
+    "manifest_sha256": "8470127850eac6527d01e88653dde3da3471ed9ae9620c501a8561142d4c3a0c",
+    "class_names": [
+      "cue",
+      "ball"
+    ]
+  },
+  "runtime": {
+    "binding": "ort",
+    "binding_version": "2.0.0-rc.15",
+    "requested_execution_provider": "CPUExecutionProvider",
+    "observed_execution_providers": [
+      "CPUExecutionProvider"
+    ],
+    "provider_event_count": 214,
+    "provider_node_counts": {
+      "CPUExecutionProvider": 214
+    },
+    "provider_probe_session_init_ms": 17.350875000000002,
+    "provider_probe_inference_ms": 100.80675,
+    "measurement_session_init_ms": 11.366333,
+    "warmup_ms": 86.117083
+  },
+  "settings": {
+    "image_size": 1280,
+    "confidence": 0.3,
+    "iou": 0.45,
+    "max_detections": 16,
+    "intra_op_threads": 1,
+    "warmup_runs": 1,
+    "source_image_space": "raw",
+    "maximum_video_bytes": 8589934592,
+    "maximum_probe_json_bytes": 536870912,
+    "maximum_frame_count": 20,
+    "maximum_pixel_count": 67108864,
+    "maximum_decoded_video_bytes": 8589934592,
+    "subprocess_timeout_ms": 600000,
+    "maximum_detail_records": 0
+  },
+  "measurement": {
+    "scheduled_source_frames": 20,
+    "decoded_source_frames": 20,
+    "processed_source_frames": 5,
+    "latest_frame_replacements": 0,
+    "processed_source_deadline_misses": null,
+    "source_media_duration_seconds": 4.0,
+    "measured_wall_ms": 704.036667,
+    "mean_preprocess_ms": 10.4104418,
+    "mean_inference_ms": 82.46710859999999,
+    "mean_decode_and_nms_ms": 0.1207584,
+    "total_batch_export_ms": 0.593375,
+    "total_scene_tracking_ms": 0.204124,
+    "source_observations_per_second": null,
+    "processed_observations_per_second": 7.101902833137524,
+    "processed_completions_in_source_window": 5,
+    "processed_completions_after_source_window": 0,
+    "source_to_inference_start_ms": {
+      "sample_count": 0,
+      "p50_ms": null,
+      "p95_ms": null,
+      "p99_ms": null
+    },
+    "source_to_inference_complete_ms": {
+      "sample_count": 0,
+      "p50_ms": null,
+      "p95_ms": null,
+      "p99_ms": null
+    }
+  },
+  "phase_schedule": {
+    "clock": "normalized_source_presentation_timestamps",
+    "source_frames_considered": 20,
+    "motion_checks": 20,
+    "cue_observations": 5,
+    "detector_calls": 5,
+    "intentional_detector_skips": 15,
+    "overload_skips": 0,
+    "obsolete_results": 0,
+    "trusted_layout_duration_ms": 0.0,
+    "recovery_delays_ms": [],
+    "achieved_motion_checks_hz": 5.0,
+    "achieved_cue_observations_hz": 1.25,
+    "achieved_detector_calls_hz": 1.25,
+    "effective_schedule": {
+      "aiming": {
+        "ball_hz": 1.0,
+        "cue_hz": 5.0,
+        "motion_hz": 15.0
+      },
+      "cue_evidence_expiry_ms": 250.0,
+      "layout_consensus_count": 3,
+      "layout_evidence_expiry_ms": 1500.0,
+      "layout_position_tolerance_px": 4.0,
+      "motion_evidence_expiry_ms": 200.0,
+      "pre_shot": {
+        "ball_hz": 1.0,
+        "cue_hz": 5.0,
+        "motion_hz": 15.0
+      },
+      "quiet_dwell_ms": 800.0,
+      "recovering": {
+        "ball_hz": 5.0,
+        "cue_hz": 5.0,
+        "motion_hz": 15.0
+      },
+      "shot": {
+        "ball_hz": 0.0,
+        "cue_hz": 0.0,
+        "motion_hz": 15.0
+      }
+    }
+  },
+  "artifacts": {
+    "detection_batch_path": "/tmp/billiards-full-replay-r6/batches.jsonl",
+    "detection_batch_count": 5,
+    "scene_snapshot_path": "/tmp/billiards-full-replay-r6/scenes.jsonl",
+    "scene_snapshot_count": 5,
+    "detailed_trace_path": null,
+    "detailed_trace_written": 0,
+    "detailed_trace_dropped_by_limit": 0,
+    "phase_cue_geometry_trace_path": null,
+    "phase_cue_geometry_trace_written": 0,
+    "phase_cue_geometry_trace_dropped_by_limit": 0,
+    "artifact_writes_included_in_measurement": true,
+    "offline_decode_excluded_from_measurement": true
+  },
+  "effective_tracking_configuration": {
+    "association_gate_px": 54.0,
+    "association_prediction_horizon_ms": 250.0,
+    "ball_class_id": 1,
+    "camera_profile_id": "saved-mokose-native4k",
+    "configuration_revision": 1,
+    "cue_class_id": null,
+    "lost_after_ms": 1000.0,
+    "maximum_active_tracks": 32,
+    "maximum_track_age_ms": 3000.0,
+    "recent_observation_capacity": 128,
+    "rectification_revision": 0
+  },
+  "batch_engine_instance_id": "offline-r6",
+  "source_session_id": "offline-saved-video",
+  "temporal_accuracy": {
+    "metrics": null,
+    "reason": "no reviewed temporal annotation file was supplied",
+    "status": "unavailable",
+    "timing_basis": "recorded-video presentation time; not camera exposure time"
+  },
+  "unsupported_measurements": [
+    "camera_exposure_to_decode_latency",
+    "browser_render_and_physical_display_latency",
+    "process_cpu_utilization_and_memory_trend",
+    "accelerator_per_node_assignment_for_native_openvino"
+  ]
+}

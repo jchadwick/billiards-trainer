@@ -1,6 +1,21 @@
 # Localization decision after the larger-board evaluation — 2026-10-28
 
-## Decision
+## Implementation outcome — 2026-10-30
+
+The user later directed that useful improvements be merged without waiting for perfect qualification. The deterministic native-pixel localization implementation and its integration have now been merged into local `main`; the earlier two-image proposal and “do not change runtime APIs” scope below are historical planning context, not active instructions. The merge is not a deployment. Current evidence and limitations are summarized in `native-resolution-ball-localization-status.md`. No new image, jig, or ball measurement is required for the software work completed here.
+
+
+## Superseding user direction — 2026-10-29
+
+Continue localization implementation from saved data. Do not request or take
+new images. The two-view suggestion below is historical and no longer the
+active next action. Implement and verify the deterministic runtime replacement,
+then revisit actual reference eligibility and integration. Architecture is
+revisable and lack of independently certified millimeter truth does not block
+correctness, robustness or usable-system implementation work. Preserve honest
+measurement limitations in the final report.
+
+## Historical decision
 
 The saved evidence does not select a qualified replacement ball-localization
 algorithm or a production calibration. The selected next step is a small frozen-model test on an independently

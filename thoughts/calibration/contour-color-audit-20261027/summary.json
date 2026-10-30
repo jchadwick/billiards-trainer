@@ -1,0 +1,1718 @@
+{
+  "audit_schema_version": 3,
+  "corpus": {
+    "path": "thoughts/calibration/native-localization-corpus-v1.json",
+    "sha256": "4389155bf13fac6dd49d45a6488a53f37f4864b586646c0ced543f151c41a1de"
+  },
+  "date": "2026-10-27",
+  "diagnostics_only": true,
+  "harness": {
+    "path": "thoughts/calibration/offline-refiner-contour-color-audit-20261027.rs",
+    "sha256": "6dc37568770ce9d86ea81f42c39bd3a7795b66357ac4489d0ece692c78d0658e"
+  },
+  "inputs": [
+    {
+      "dimensions_px": [
+        1280,
+        720
+      ],
+      "image_id": "measured-grid-720",
+      "optics_model_id": "frozen_zero_radial_720",
+      "optics_status": "exploratory_only_not_activated",
+      "path": "thoughts/calibration/table-grid-20261026-114241.jpg",
+      "proposal_count": 9,
+      "proposals_are_detector_output": false,
+      "sha256": "06ef40f52e0f93db17601585c4ed1d014895aaadcaf6b04c6abbd6e986d57e7b"
+    },
+    {
+      "dimensions_px": [
+        1280,
+        720
+      ],
+      "image_id": "alternate-grid-720",
+      "optics_model_id": "frozen_zero_radial_720",
+      "optics_status": "exploratory_only_not_activated",
+      "path": "thoughts/calibration/table-grid-2026-10-26.jpg",
+      "proposal_count": 15,
+      "proposals_are_detector_output": false,
+      "sha256": "8371e508f79c5556cfd2fe6632b9095ba87d8f7052741b2f6b01563b448c385b"
+    },
+    {
+      "dimensions_px": [
+        3840,
+        2160
+      ],
+      "image_id": "framing-after-4k",
+      "optics_model_id": "scaled_frozen_zero_radial_4k_diagnostic",
+      "optics_status": "derived_diagnostic_only_not_qualified_for_runtime",
+      "path": "thoughts/calibration/stream-4k-verification/after.jpg",
+      "proposal_count": 3,
+      "proposals_are_detector_output": false,
+      "sha256": "5d88a4d6037e7718723916b3af6c930f8020ddcb03e008122e9c8fadc5530206"
+    }
+  ],
+  "interpretation_limits": [
+    "Qualified candidate fits are a competing-fit set, not true-center labels.",
+    "The nine physical positions were not used to select any fit and have unknown uncertainty.",
+    "The held-out scenes were previously seen, have manually chosen crop regions, and have no independent X/Y truth.",
+    "A similar pixel profile does not establish which outline is the physical ball silhouette.",
+    "The audit cannot establish millimeter accuracy or production availability."
+  ],
+  "production_behavior_changed": false,
+  "purpose": "Characterize raw RGB transitions and per-ray gradient ranks across qualified competing revision-2 ball-boundary fits.",
+  "refiner_revision": 2,
+  "refiner_source": {
+    "path": "perception/src/ball_localization.rs",
+    "sha256": "d4253e31c87fd5a638c37cfbf9a0095afd31872e9d976f1bda38ba6e7ae37ed4"
+  },
+  "reserved_proposals": {
+    "path": "thoughts/calibration/reserved-scene-coarse-proposals-20261027.json",
+    "sha256": "ccaaf679721fe3fb4a255e923b70b8eb2943626fb24b4f7ca17cc61cc4a24fa0"
+  },
+  "results": [
+    {
+      "candidate_evaluation_count": 8,
+      "case_id": "measured-grid-720--top-orange-solid-second-left-ball",
+      "case_path": "cases/measured-grid-720--top-orange-solid-second-left-ball.json",
+      "elapsed_with_trace_ms_development_host": 18.586,
+      "image_id": "measured-grid-720",
+      "physical_reference_present": true,
+      "proposal_id": "top-orange-solid-second-left-ball",
+      "qualified_fit_count": 2,
+      "qualified_fit_rank_profiles": [
+        {
+          "fit_id": 34,
+          "iteration": 1,
+          "mean_inside_background_distance": 0.4541278908864474,
+          "mean_outside_background_distance": 0.1339674964859296,
+          "mean_transition_strength": 0.13317645635617112,
+          "rank_counts": {
+            "0": 52,
+            "1": 28,
+            "2": 14
+          },
+          "support": 94
+        },
+        {
+          "fit_id": 25,
+          "iteration": 1,
+          "mean_inside_background_distance": 0.43251109043070185,
+          "mean_outside_background_distance": 0.14129892234704655,
+          "mean_transition_strength": 0.13004644905685725,
+          "rank_counts": {
+            "0": 40,
+            "1": 38,
+            "2": 16
+          },
+          "support": 94
+        }
+      ],
+      "reason": "ambiguous_boundary",
+      "status": "rejected",
+      "trace_dropped_events": 0,
+      "trace_event_count": 584,
+      "trace_sha256": "29970a83fe934a20e104c86f2f4f86039a09b313fb23614d5e38d7ac7d950f6e"
+    },
+    {
+      "candidate_evaluation_count": 16,
+      "case_id": "measured-grid-720--top-red-striped-second-right-ball",
+      "case_path": "cases/measured-grid-720--top-red-striped-second-right-ball.json",
+      "elapsed_with_trace_ms_development_host": 27.357208,
+      "image_id": "measured-grid-720",
+      "physical_reference_present": true,
+      "proposal_id": "top-red-striped-second-right-ball",
+      "qualified_fit_count": 8,
+      "qualified_fit_rank_profiles": [
+        {
+          "fit_id": 48,
+          "iteration": 1,
+          "mean_inside_background_distance": 0.4328582961139707,
+          "mean_outside_background_distance": 0.13710454287406174,
+          "mean_transition_strength": 0.15470973905447508,
+          "rank_counts": {
+            "0": 68,
+            "1": 28
+          },
+          "support": 96
+        },
+        {
+          "fit_id": 29,
+          "iteration": 1,
+          "mean_inside_background_distance": 0.36159275639870503,
+          "mean_outside_background_distance": 0.10623569485862255,
+          "mean_transition_strength": 0.11168027460589991,
+          "rank_counts": {
+            "0": 28,
+            "1": 28,
+            "2": 39
+          },
+          "support": 95
+        },
+        {
+          "fit_id": 36,
+          "iteration": 1,
+          "mean_inside_background_distance": 0.46863553114704587,
+          "mean_outside_background_distance": 0.17212955376001404,
+          "mean_transition_strength": 0.1395535912308395,
+          "rank_counts": {
+            "0": 62,
+            "1": 28,
+            "2": 6
+          },
+          "support": 96
+        },
+        {
+          "fit_id": 65,
+          "iteration": 1,
+          "mean_inside_background_distance": 0.4425652036771227,
+          "mean_outside_background_distance": 0.1452254709902289,
+          "mean_transition_strength": 0.13842497134845877,
+          "rank_counts": {
+            "0": 59,
+            "1": 26,
+            "2": 9
+          },
+          "support": 94
+        },
+        {
+          "fit_id": 63,
+          "iteration": 1,
+          "mean_inside_background_distance": 0.418045913963641,
+          "mean_outside_background_distance": 0.13879880088084065,
+          "mean_transition_strength": 0.13155707636814956,
+          "rank_counts": {
+            "0": 49,
+            "1": 30,
+            "2": 14
+          },
+          "support": 93
+        },
+        {
+          "fit_id": 74,
+          "iteration": 1,
+          "mean_inside_background_distance": 0.3777435638108749,
+          "mean_outside_background_distance": 0.11219095028758724,
+          "mean_transition_strength": 0.12835917971712846,
+          "rank_counts": {
+            "0": 44,
+            "1": 14,
+            "2": 35
+          },
+          "support": 93
+        },
+        {
+          "fit_id": 31,
+          "iteration": 1,
+          "mean_inside_background_distance": 0.3113878245349979,
+          "mean_outside_background_distance": 0.08197438927919486,
+          "mean_transition_strength": 0.08953084035383674,
+          "rank_counts": {
+            "0": 8,
+            "1": 27,
+            "2": 57
+          },
+          "support": 92
+        },
+        {
+          "fit_id": 24,
+          "iteration": 1,
+          "mean_inside_background_distance": 0.4152693819922009,
+          "mean_outside_background_distance": 0.15108004673010197,
+          "mean_transition_strength": 0.10551374075303713,
+          "rank_counts": {
+            "0": 19,
+            "1": 41,
+            "2": 32
+          },
+          "support": 92
+        }
+      ],
+      "reason": "ambiguous_boundary",
+      "status": "rejected",
+      "trace_dropped_events": 0,
+      "trace_event_count": 1161,
+      "trace_sha256": "58d9c76255a7be77f2bbf39c09a7bd799612854cfcf298466f02f4203f3fbd7d"
+    },
+    {
+      "candidate_evaluation_count": 10,
+      "case_id": "measured-grid-720--far-left-yellow-middle-row-ball",
+      "case_path": "cases/measured-grid-720--far-left-yellow-middle-row-ball.json",
+      "elapsed_with_trace_ms_development_host": 21.099292,
+      "image_id": "measured-grid-720",
+      "physical_reference_present": true,
+      "proposal_id": "far-left-yellow-middle-row-ball",
+      "qualified_fit_count": 6,
+      "qualified_fit_rank_profiles": [
+        {
+          "fit_id": 39,
+          "iteration": 1,
+          "mean_inside_background_distance": 0.4205852231359975,
+          "mean_outside_background_distance": 0.14849728557871172,
+          "mean_transition_strength": 0.16220629678963902,
+          "rank_counts": {
+            "0": 50,
+            "1": 26,
+            "2": 16
+          },
+          "support": 92
+        },
+        {
+          "fit_id": 77,
+          "iteration": 1,
+          "mean_inside_background_distance": 0.45417662591155095,
+          "mean_outside_background_distance": 0.1614860915610097,
+          "mean_transition_strength": 0.20714382342564505,
+          "rank_counts": {
+            "0": 90,
+            "1": 1
+          },
+          "support": 91
+        },
+        {
+          "fit_id": 46,
+          "iteration": 1,
+          "mean_inside_background_distance": 0.3943419712350136,
+          "mean_outside_background_distance": 0.14244190386102756,
+          "mean_transition_strength": 0.14890242877975582,
+          "rank_counts": {
+            "0": 46,
+            "1": 19,
+            "2": 26
+          },
+          "support": 91
+        },
+        {
+          "fit_id": 54,
+          "iteration": 1,
+          "mean_inside_background_distance": 0.44436824894150284,
+          "mean_outside_background_distance": 0.16615228424121906,
+          "mean_transition_strength": 0.14911135628905867,
+          "rank_counts": {
+            "0": 43,
+            "1": 28,
+            "2": 17
+          },
+          "support": 88
+        },
+        {
+          "fit_id": 14,
+          "iteration": 1,
+          "mean_inside_background_distance": 0.34938208866949844,
+          "mean_outside_background_distance": 0.11925266258663107,
+          "mean_transition_strength": 0.10473017246740758,
+          "rank_counts": {
+            "0": 4,
+            "1": 42,
+            "2": 44
+          },
+          "support": 90
+        },
+        {
+          "fit_id": 62,
+          "iteration": 1,
+          "mean_inside_background_distance": 0.4672036942889467,
+          "mean_outside_background_distance": 0.18223641917227165,
+          "mean_transition_strength": 0.17740197477961916,
+          "rank_counts": {
+            "0": 60,
+            "1": 26,
+            "2": 4
+          },
+          "support": 90
+        }
+      ],
+      "reason": "ambiguous_boundary",
+      "status": "rejected",
+      "trace_dropped_events": 0,
+      "trace_event_count": 932,
+      "trace_sha256": "b4ffe3dad3ba3beb361ad439c2d5c01662520dd7baf3a7b84d5f49d8a05fb9fb"
+    },
+    {
+      "candidate_evaluation_count": 5,
+      "case_id": "measured-grid-720--interior-purple-second-left-middle-row-ball",
+      "case_path": "cases/measured-grid-720--interior-purple-second-left-middle-row-ball.json",
+      "elapsed_with_trace_ms_development_host": 18.062375,
+      "image_id": "measured-grid-720",
+      "physical_reference_present": true,
+      "proposal_id": "interior-purple-second-left-middle-row-ball",
+      "qualified_fit_count": 4,
+      "qualified_fit_rank_profiles": [
+        {
+          "fit_id": 5,
+          "iteration": 1,
+          "mean_inside_background_distance": 0.33694057719480397,
+          "mean_outside_background_distance": 0.10746939297499442,
+          "mean_transition_strength": 0.1321393742810948,
+          "rank_counts": {
+            "0": 57,
+            "1": 23,
+            "2": 15
+          },
+          "support": 95
+        },
+        {
+          "fit_id": 31,
+          "iteration": 1,
+          "mean_inside_background_distance": 0.3154278536776197,
+          "mean_outside_background_distance": 0.11174239425034335,
+          "mean_transition_strength": 0.09212336959813137,
+          "rank_counts": {
+            "0": 18,
+            "1": 38,
+            "2": 36
+          },
+          "support": 92
+        },
+        {
+          "fit_id": 69,
+          "iteration": 1,
+          "mean_inside_background_distance": 0.30872195141006636,
+          "mean_outside_background_distance": 0.0823629462276513,
+          "mean_transition_strength": 0.11049361782960405,
+          "rank_counts": {
+            "0": 44,
+            "1": 34,
+            "2": 14
+          },
+          "support": 92
+        },
+        {
+          "fit_id": 87,
+          "iteration": 1,
+          "mean_inside_background_distance": 0.36107868634665186,
+          "mean_outside_background_distance": 0.14689001608277902,
+          "mean_transition_strength": 0.11709917618068238,
+          "rank_counts": {
+            "0": 38,
+            "1": 30,
+            "2": 22
+          },
+          "support": 90
+        }
+      ],
+      "reason": "ambiguous_boundary",
+      "status": "rejected",
+      "trace_dropped_events": 0,
+      "trace_event_count": 756,
+      "trace_sha256": "d4529e5fd787d2f019605e50cec4770bcc9290b5fbdc7c339794f66c8ed601a9"
+    },
+    {
+      "candidate_evaluation_count": 11,
+      "case_id": "measured-grid-720--middle-row-center-ball",
+      "case_path": "cases/measured-grid-720--middle-row-center-ball.json",
+      "elapsed_with_trace_ms_development_host": 24.506375000000002,
+      "image_id": "measured-grid-720",
+      "physical_reference_present": true,
+      "proposal_id": "middle-row-center-ball",
+      "qualified_fit_count": 4,
+      "qualified_fit_rank_profiles": [
+        {
+          "fit_id": 44,
+          "iteration": 1,
+          "mean_inside_background_distance": 0.3985831772096853,
+          "mean_outside_background_distance": 0.13605562186644904,
+          "mean_transition_strength": 0.13703000679327335,
+          "rank_counts": {
+            "0": 70,
+            "1": 26
+          },
+          "support": 96
+        },
+        {
+          "fit_id": 49,
+          "iteration": 1,
+          "mean_inside_background_distance": 0.36352689205320904,
+          "mean_outside_background_distance": 0.11793596738678856,
+          "mean_transition_strength": 0.11831743039573334,
+          "rank_counts": {
+            "0": 45,
+            "1": 29,
+            "2": 22
+          },
+          "support": 96
+        },
+        {
+          "fit_id": 88,
+          "iteration": 1,
+          "mean_inside_background_distance": 0.4016583997674548,
+          "mean_outside_background_distance": 0.14143861944790495,
+          "mean_transition_strength": 0.13782573777808618,
+          "rank_counts": {
+            "0": 76,
+            "1": 14,
+            "2": 6
+          },
+          "support": 96
+        },
+        {
+          "fit_id": 4,
+          "iteration": 1,
+          "mean_inside_background_distance": 0.42750470537565033,
+          "mean_outside_background_distance": 0.18286608186607278,
+          "mean_transition_strength": 0.11199195574057565,
+          "rank_counts": {
+            "0": 42,
+            "1": 38,
+            "2": 15
+          },
+          "support": 95
+        }
+      ],
+      "reason": "ambiguous_boundary",
+      "status": "rejected",
+      "trace_dropped_events": 0,
+      "trace_event_count": 785,
+      "trace_sha256": "ba34816f0fc3e46dc40c30eef1b00e171f2e90e8ed3077df701379a2b6a4a910"
+    },
+    {
+      "candidate_evaluation_count": 8,
+      "case_id": "measured-grid-720--interior-green-second-right-middle-row-ball",
+      "case_path": "cases/measured-grid-720--interior-green-second-right-middle-row-ball.json",
+      "elapsed_with_trace_ms_development_host": 32.602667000000004,
+      "image_id": "measured-grid-720",
+      "physical_reference_present": true,
+      "proposal_id": "interior-green-second-right-middle-row-ball",
+      "qualified_fit_count": 3,
+      "qualified_fit_rank_profiles": [
+        {
+          "fit_id": 3,
+          "iteration": 1,
+          "mean_inside_background_distance": 0.3480786828059954,
+          "mean_outside_background_distance": 0.121027602408688,
+          "mean_transition_strength": 0.13303904930205476,
+          "rank_counts": {
+            "0": 56,
+            "1": 26,
+            "2": 10
+          },
+          "support": 92
+        },
+        {
+          "fit_id": 59,
+          "iteration": 2,
+          "mean_inside_background_distance": 0.3166493135838276,
+          "mean_outside_background_distance": 0.0996341555703067,
+          "mean_transition_strength": 0.11287227233664751,
+          "rank_counts": {
+            "0": 49,
+            "1": 33,
+            "2": 12
+          },
+          "support": 94
+        },
+        {
+          "fit_id": 24,
+          "iteration": 2,
+          "mean_inside_background_distance": 0.32793881100625977,
+          "mean_outside_background_distance": 0.10013564915913702,
+          "mean_transition_strength": 0.12460247291954646,
+          "rank_counts": {
+            "0": 56,
+            "1": 30,
+            "2": 7
+          },
+          "support": 93
+        }
+      ],
+      "reason": "ambiguous_boundary",
+      "status": "rejected",
+      "trace_dropped_events": 0,
+      "trace_event_count": 1024,
+      "trace_sha256": "203c3bec118411d44897cd71cdb08e4c3174b7858156a40c31c0554c98231f88"
+    },
+    {
+      "candidate_evaluation_count": 3,
+      "case_id": "measured-grid-720--far-right-purple-middle-row-ball",
+      "case_path": "cases/measured-grid-720--far-right-purple-middle-row-ball.json",
+      "elapsed_with_trace_ms_development_host": 15.049167,
+      "image_id": "measured-grid-720",
+      "physical_reference_present": true,
+      "proposal_id": "far-right-purple-middle-row-ball",
+      "qualified_fit_count": 2,
+      "qualified_fit_rank_profiles": [
+        {
+          "fit_id": 67,
+          "iteration": 1,
+          "mean_inside_background_distance": 0.23734333270793337,
+          "mean_outside_background_distance": 0.11201154252184613,
+          "mean_transition_strength": 0.05920785343845866,
+          "rank_counts": {
+            "0": 21,
+            "1": 38,
+            "2": 23
+          },
+          "support": 82
+        },
+        {
+          "fit_id": 66,
+          "iteration": 1,
+          "mean_inside_background_distance": 0.22461678200639082,
+          "mean_outside_background_distance": 0.08693121106798062,
+          "mean_transition_strength": 0.0690630729555728,
+          "rank_counts": {
+            "0": 47,
+            "1": 26,
+            "2": 9
+          },
+          "support": 82
+        }
+      ],
+      "reason": "ambiguous_boundary",
+      "status": "rejected",
+      "trace_dropped_events": 0,
+      "trace_event_count": 532,
+      "trace_sha256": "a4ca2a02bd21ff301ca52f97a05e834dde63a2f6f1b261e1ec1978cbd4b4b937"
+    },
+    {
+      "candidate_evaluation_count": 8,
+      "case_id": "measured-grid-720--bottom-black-second-left-ball",
+      "case_path": "cases/measured-grid-720--bottom-black-second-left-ball.json",
+      "elapsed_with_trace_ms_development_host": 18.048292,
+      "image_id": "measured-grid-720",
+      "physical_reference_present": true,
+      "proposal_id": "bottom-black-second-left-ball",
+      "qualified_fit_count": 3,
+      "qualified_fit_rank_profiles": [
+        {
+          "fit_id": 11,
+          "iteration": 1,
+          "mean_inside_background_distance": 0.3581110098873908,
+          "mean_outside_background_distance": 0.12877649072809644,
+          "mean_transition_strength": 0.09420291855891536,
+          "rank_counts": {
+            "0": 27,
+            "1": 36,
+            "2": 24
+          },
+          "support": 87
+        },
+        {
+          "fit_id": 29,
+          "iteration": 1,
+          "mean_inside_background_distance": 0.33953804760718714,
+          "mean_outside_background_distance": 0.11321014617380754,
+          "mean_transition_strength": 0.0932670335118827,
+          "rank_counts": {
+            "0": 25,
+            "1": 31,
+            "2": 30
+          },
+          "support": 86
+        },
+        {
+          "fit_id": 67,
+          "iteration": 1,
+          "mean_inside_background_distance": 0.37521301505357946,
+          "mean_outside_background_distance": 0.14622577684855537,
+          "mean_transition_strength": 0.10784130195979644,
+          "rank_counts": {
+            "0": 55,
+            "1": 22,
+            "2": 6
+          },
+          "support": 83
+        }
+      ],
+      "reason": "ambiguous_boundary",
+      "status": "rejected",
+      "trace_dropped_events": 0,
+      "trace_event_count": 623,
+      "trace_sha256": "b7f178d15ed359cd79531ac812875e91bc8eda994c11cc25b416b8fa004bf0f7"
+    },
+    {
+      "candidate_evaluation_count": 11,
+      "case_id": "measured-grid-720--bottom-yellow-second-right-ball",
+      "case_path": "cases/measured-grid-720--bottom-yellow-second-right-ball.json",
+      "elapsed_with_trace_ms_development_host": 22.143666999999997,
+      "image_id": "measured-grid-720",
+      "physical_reference_present": true,
+      "proposal_id": "bottom-yellow-second-right-ball",
+      "qualified_fit_count": 4,
+      "qualified_fit_rank_profiles": [
+        {
+          "fit_id": 89,
+          "iteration": 1,
+          "mean_inside_background_distance": 0.41297485504826165,
+          "mean_outside_background_distance": 0.14862132685660626,
+          "mean_transition_strength": 0.14198882000721816,
+          "rank_counts": {
+            "0": 34,
+            "1": 40,
+            "2": 21
+          },
+          "support": 95
+        },
+        {
+          "fit_id": 70,
+          "iteration": 1,
+          "mean_inside_background_distance": 0.42164206512260527,
+          "mean_outside_background_distance": 0.14874726462482302,
+          "mean_transition_strength": 0.14426461094637816,
+          "rank_counts": {
+            "0": 31,
+            "1": 47,
+            "2": 16
+          },
+          "support": 94
+        },
+        {
+          "fit_id": 20,
+          "iteration": 1,
+          "mean_inside_background_distance": 0.38247412576430667,
+          "mean_outside_background_distance": 0.13569880899587136,
+          "mean_transition_strength": 0.1273542346952928,
+          "rank_counts": {
+            "0": 29,
+            "1": 20,
+            "2": 40
+          },
+          "support": 89
+        },
+        {
+          "fit_id": 59,
+          "iteration": 1,
+          "mean_inside_background_distance": 0.3651129980499768,
+          "mean_outside_background_distance": 0.12291103220652211,
+          "mean_transition_strength": 0.11258668672774588,
+          "rank_counts": {
+            "0": 4,
+            "1": 54,
+            "2": 34
+          },
+          "support": 92
+        }
+      ],
+      "reason": "ambiguous_boundary",
+      "status": "rejected",
+      "trace_dropped_events": 0,
+      "trace_event_count": 765,
+      "trace_sha256": "14b44c919027a252e99f67fc32c919c23d03537dfbf3d2514311a329ee037aa1"
+    },
+    {
+      "candidate_evaluation_count": 12,
+      "case_id": "alternate-grid-720--alt-top-left-pocket",
+      "case_path": "cases/alternate-grid-720--alt-top-left-pocket.json",
+      "elapsed_with_trace_ms_development_host": 15.741624999999999,
+      "image_id": "alternate-grid-720",
+      "physical_reference_present": false,
+      "proposal_id": "alt-top-left-pocket",
+      "qualified_fit_count": 0,
+      "qualified_fit_rank_profiles": [],
+      "reason": "inadequate_coverage",
+      "status": "rejected",
+      "trace_dropped_events": 0,
+      "trace_event_count": 499,
+      "trace_sha256": "40615c6d964dfe3da336b68af5bedbcff1e73c9d7566eaa87f2949576ba721a4"
+    },
+    {
+      "candidate_evaluation_count": 9,
+      "case_id": "alternate-grid-720--alt-top-orange",
+      "case_path": "cases/alternate-grid-720--alt-top-orange.json",
+      "elapsed_with_trace_ms_development_host": 19.839708,
+      "image_id": "alternate-grid-720",
+      "physical_reference_present": false,
+      "proposal_id": "alt-top-orange",
+      "qualified_fit_count": 3,
+      "qualified_fit_rank_profiles": [
+        {
+          "fit_id": 75,
+          "iteration": 1,
+          "mean_inside_background_distance": 0.4395243985669557,
+          "mean_outside_background_distance": 0.11189355152527368,
+          "mean_transition_strength": 0.13542822204876495,
+          "rank_counts": {
+            "0": 38,
+            "1": 45,
+            "2": 13
+          },
+          "support": 96
+        },
+        {
+          "fit_id": 72,
+          "iteration": 1,
+          "mean_inside_background_distance": 0.4492838059814915,
+          "mean_outside_background_distance": 0.13060997161755436,
+          "mean_transition_strength": 0.14101269556005216,
+          "rank_counts": {
+            "0": 48,
+            "1": 39,
+            "2": 9
+          },
+          "support": 96
+        },
+        {
+          "fit_id": 83,
+          "iteration": 1,
+          "mean_inside_background_distance": 0.39545881075530076,
+          "mean_outside_background_distance": 0.11381226987678032,
+          "mean_transition_strength": 0.12062790007865602,
+          "rank_counts": {
+            "0": 34,
+            "1": 26,
+            "2": 36
+          },
+          "support": 96
+        }
+      ],
+      "reason": "ambiguous_boundary",
+      "status": "rejected",
+      "trace_dropped_events": 0,
+      "trace_event_count": 679,
+      "trace_sha256": "267677c732f783c9bd5fe6e0f0a76bfe52a7fdee28482b2c680d0d9561ac4041"
+    },
+    {
+      "candidate_evaluation_count": 16,
+      "case_id": "alternate-grid-720--alt-top-yellow-stripe",
+      "case_path": "cases/alternate-grid-720--alt-top-yellow-stripe.json",
+      "elapsed_with_trace_ms_development_host": 24.883333,
+      "image_id": "alternate-grid-720",
+      "physical_reference_present": false,
+      "proposal_id": "alt-top-yellow-stripe",
+      "qualified_fit_count": 7,
+      "qualified_fit_rank_profiles": [
+        {
+          "fit_id": 0,
+          "iteration": 1,
+          "mean_inside_background_distance": 0.3957393183750762,
+          "mean_outside_background_distance": 0.10208748256878541,
+          "mean_transition_strength": 0.12757293798924038,
+          "rank_counts": {
+            "0": 33,
+            "1": 25,
+            "2": 13
+          },
+          "support": 71
+        },
+        {
+          "fit_id": 62,
+          "iteration": 1,
+          "mean_inside_background_distance": 0.342737417313653,
+          "mean_outside_background_distance": 0.08936977728479055,
+          "mean_transition_strength": 0.10200370362319962,
+          "rank_counts": {
+            "0": 21,
+            "1": 12,
+            "2": 38
+          },
+          "support": 71
+        },
+        {
+          "fit_id": 43,
+          "iteration": 1,
+          "mean_inside_background_distance": 0.4337945217030985,
+          "mean_outside_background_distance": 0.13353006238635984,
+          "mean_transition_strength": 0.13161207801752844,
+          "rank_counts": {
+            "0": 38,
+            "1": 24,
+            "2": 9
+          },
+          "support": 71
+        },
+        {
+          "fit_id": 4,
+          "iteration": 1,
+          "mean_inside_background_distance": 0.28962958271856365,
+          "mean_outside_background_distance": 0.06704506959152669,
+          "mean_transition_strength": 0.07964504413268539,
+          "rank_counts": {
+            "1": 17,
+            "2": 54
+          },
+          "support": 71
+        },
+        {
+          "fit_id": 12,
+          "iteration": 1,
+          "mean_inside_background_distance": 0.4544893849027823,
+          "mean_outside_background_distance": 0.14104663638397885,
+          "mean_transition_strength": 0.13868557973429674,
+          "rank_counts": {
+            "0": 42,
+            "1": 29
+          },
+          "support": 71
+        },
+        {
+          "fit_id": 19,
+          "iteration": 1,
+          "mean_inside_background_distance": 0.44480733507192033,
+          "mean_outside_background_distance": 0.1279954302072086,
+          "mean_transition_strength": 0.1416967882720419,
+          "rank_counts": {
+            "0": 46,
+            "1": 25
+          },
+          "support": 71
+        },
+        {
+          "fit_id": 53,
+          "iteration": 1,
+          "mean_inside_background_distance": 0.4401880832110418,
+          "mean_outside_background_distance": 0.15176466904018945,
+          "mean_transition_strength": 0.11508744173808957,
+          "rank_counts": {
+            "0": 20,
+            "1": 33,
+            "2": 17
+          },
+          "support": 70
+        }
+      ],
+      "reason": "ambiguous_boundary",
+      "status": "rejected",
+      "trace_dropped_events": 0,
+      "trace_event_count": 808,
+      "trace_sha256": "c5cf97c4a56aad43af9581f2c65641c521ce05acfac97f2b37adcd7c072ef727"
+    },
+    {
+      "candidate_evaluation_count": 13,
+      "case_id": "alternate-grid-720--alt-top-red-stripe",
+      "case_path": "cases/alternate-grid-720--alt-top-red-stripe.json",
+      "elapsed_with_trace_ms_development_host": 23.495083,
+      "image_id": "alternate-grid-720",
+      "physical_reference_present": false,
+      "proposal_id": "alt-top-red-stripe",
+      "qualified_fit_count": 3,
+      "qualified_fit_rank_profiles": [
+        {
+          "fit_id": 23,
+          "iteration": 1,
+          "mean_inside_background_distance": 0.42090233238551206,
+          "mean_outside_background_distance": 0.12450857018572799,
+          "mean_transition_strength": 0.14564619473050947,
+          "rank_counts": {
+            "0": 62,
+            "1": 26,
+            "2": 8
+          },
+          "support": 96
+        },
+        {
+          "fit_id": 10,
+          "iteration": 1,
+          "mean_inside_background_distance": 0.4137751629620649,
+          "mean_outside_background_distance": 0.1375871960752922,
+          "mean_transition_strength": 0.11818027901121105,
+          "rank_counts": {
+            "0": 34,
+            "1": 38,
+            "2": 22
+          },
+          "support": 94
+        },
+        {
+          "fit_id": 54,
+          "iteration": 1,
+          "mean_inside_background_distance": 0.4240888388202939,
+          "mean_outside_background_distance": 0.1448624345783295,
+          "mean_transition_strength": 0.12256582816260657,
+          "rank_counts": {
+            "0": 34,
+            "1": 43,
+            "2": 19
+          },
+          "support": 96
+        }
+      ],
+      "reason": "ambiguous_boundary",
+      "status": "rejected",
+      "trace_dropped_events": 0,
+      "trace_event_count": 692,
+      "trace_sha256": "7f790100ba3a9db3fd0df864391a2b9a633612305ab976dc1e0ccd4dfd77d79a"
+    },
+    {
+      "candidate_evaluation_count": 4,
+      "case_id": "alternate-grid-720--alt-top-right-cue",
+      "case_path": "cases/alternate-grid-720--alt-top-right-cue.json",
+      "elapsed_with_trace_ms_development_host": 16.432875,
+      "image_id": "alternate-grid-720",
+      "physical_reference_present": false,
+      "proposal_id": "alt-top-right-cue",
+      "qualified_fit_count": 2,
+      "qualified_fit_rank_profiles": [
+        {
+          "fit_id": 11,
+          "iteration": 1,
+          "mean_inside_background_distance": 0.41251867347387683,
+          "mean_outside_background_distance": 0.14386106123181427,
+          "mean_transition_strength": 0.1307285890050739,
+          "rank_counts": {
+            "0": 49,
+            "1": 17,
+            "2": 21
+          },
+          "support": 87
+        },
+        {
+          "fit_id": 26,
+          "iteration": 1,
+          "mean_inside_background_distance": 0.4787676594602868,
+          "mean_outside_background_distance": 0.17403323492094366,
+          "mean_transition_strength": 0.12312339919659478,
+          "rank_counts": {
+            "0": 34,
+            "1": 42,
+            "2": 12
+          },
+          "support": 88
+        }
+      ],
+      "reason": "ambiguous_boundary",
+      "status": "rejected",
+      "trace_dropped_events": 0,
+      "trace_event_count": 491,
+      "trace_sha256": "033d3e88bd48b0ce2a2fb38e32cd7fa8ab647d3ec866a107d85fbf694e4d91a6"
+    },
+    {
+      "candidate_evaluation_count": 5,
+      "case_id": "alternate-grid-720--alt-middle-left-yellow",
+      "case_path": "cases/alternate-grid-720--alt-middle-left-yellow.json",
+      "elapsed_with_trace_ms_development_host": 18.862791,
+      "image_id": "alternate-grid-720",
+      "physical_reference_present": false,
+      "proposal_id": "alt-middle-left-yellow",
+      "qualified_fit_count": 2,
+      "qualified_fit_rank_profiles": [
+        {
+          "fit_id": 20,
+          "iteration": 1,
+          "mean_inside_background_distance": 0.39931759614730405,
+          "mean_outside_background_distance": 0.14615738111596976,
+          "mean_transition_strength": 0.1528133682458781,
+          "rank_counts": {
+            "0": 49,
+            "1": 19,
+            "2": 25
+          },
+          "support": 93
+        },
+        {
+          "fit_id": 21,
+          "iteration": 1,
+          "mean_inside_background_distance": 0.4594077805825394,
+          "mean_outside_background_distance": 0.1652866117686941,
+          "mean_transition_strength": 0.2090109683982932,
+          "rank_counts": {
+            "0": 90,
+            "1": 1
+          },
+          "support": 91
+        }
+      ],
+      "reason": "ambiguous_boundary",
+      "status": "rejected",
+      "trace_dropped_events": 0,
+      "trace_event_count": 568,
+      "trace_sha256": "04271add6ffae09dd3c7b0e3b011c248fa425be327dbb1b58ec7ef6ccac50378"
+    },
+    {
+      "candidate_evaluation_count": 9,
+      "case_id": "alternate-grid-720--alt-middle-left-purple-stripe",
+      "case_path": "cases/alternate-grid-720--alt-middle-left-purple-stripe.json",
+      "elapsed_with_trace_ms_development_host": 20.086916,
+      "image_id": "alternate-grid-720",
+      "physical_reference_present": false,
+      "proposal_id": "alt-middle-left-purple-stripe",
+      "qualified_fit_count": 4,
+      "qualified_fit_rank_profiles": [
+        {
+          "fit_id": 57,
+          "iteration": 1,
+          "mean_inside_background_distance": 0.28170431755005065,
+          "mean_outside_background_distance": 0.06978433291520694,
+          "mean_transition_strength": 0.10136631647341963,
+          "rank_counts": {
+            "0": 38,
+            "1": 32,
+            "2": 24
+          },
+          "support": 94
+        },
+        {
+          "fit_id": 34,
+          "iteration": 1,
+          "mean_inside_background_distance": 0.33350914742241716,
+          "mean_outside_background_distance": 0.1105244324021193,
+          "mean_transition_strength": 0.13414278552869652,
+          "rank_counts": {
+            "0": 57,
+            "1": 18,
+            "2": 16
+          },
+          "support": 91
+        },
+        {
+          "fit_id": 71,
+          "iteration": 1,
+          "mean_inside_background_distance": 0.35888707329902003,
+          "mean_outside_background_distance": 0.13906134910820644,
+          "mean_transition_strength": 0.11560475112461675,
+          "rank_counts": {
+            "0": 37,
+            "1": 37,
+            "2": 18
+          },
+          "support": 92
+        },
+        {
+          "fit_id": 68,
+          "iteration": 1,
+          "mean_inside_background_distance": 0.31757221944042,
+          "mean_outside_background_distance": 0.10584498657605813,
+          "mean_transition_strength": 0.09537287082869382,
+          "rank_counts": {
+            "0": 26,
+            "1": 38,
+            "2": 27
+          },
+          "support": 91
+        }
+      ],
+      "reason": "ambiguous_boundary",
+      "status": "rejected",
+      "trace_dropped_events": 0,
+      "trace_event_count": 759,
+      "trace_sha256": "da28f00fcc68aff8bd53e8cf5b3ba6479003f204b9dae04d93206c1d984713b4"
+    },
+    {
+      "candidate_evaluation_count": 13,
+      "case_id": "alternate-grid-720--alt-middle-red-stripe",
+      "case_path": "cases/alternate-grid-720--alt-middle-red-stripe.json",
+      "elapsed_with_trace_ms_development_host": 23.642834,
+      "image_id": "alternate-grid-720",
+      "physical_reference_present": false,
+      "proposal_id": "alt-middle-red-stripe",
+      "qualified_fit_count": 3,
+      "qualified_fit_rank_profiles": [
+        {
+          "fit_id": 43,
+          "iteration": 1,
+          "mean_inside_background_distance": 0.34916881493519775,
+          "mean_outside_background_distance": 0.10639393769379972,
+          "mean_transition_strength": 0.12615182119921878,
+          "rank_counts": {
+            "0": 45,
+            "1": 37,
+            "2": 14
+          },
+          "support": 96
+        },
+        {
+          "fit_id": 27,
+          "iteration": 1,
+          "mean_inside_background_distance": 0.39986140961887623,
+          "mean_outside_background_distance": 0.12868412092369455,
+          "mean_transition_strength": 0.13601806305132835,
+          "rank_counts": {
+            "0": 58,
+            "1": 31,
+            "2": 6
+          },
+          "support": 95
+        },
+        {
+          "fit_id": 24,
+          "iteration": 1,
+          "mean_inside_background_distance": 0.29891829782100265,
+          "mean_outside_background_distance": 0.08540127031305371,
+          "mean_transition_strength": 0.10920317405521902,
+          "rank_counts": {
+            "0": 34,
+            "1": 13,
+            "2": 45
+          },
+          "support": 92
+        }
+      ],
+      "reason": "ambiguous_boundary",
+      "status": "rejected",
+      "trace_dropped_events": 0,
+      "trace_event_count": 673,
+      "trace_sha256": "3e8a8d4ee2a2929de56de01741f726e39f82e9fc804244a333a765eda5930da5"
+    },
+    {
+      "candidate_evaluation_count": 11,
+      "case_id": "alternate-grid-720--alt-middle-green-stripe",
+      "case_path": "cases/alternate-grid-720--alt-middle-green-stripe.json",
+      "elapsed_with_trace_ms_development_host": 48.02675,
+      "image_id": "alternate-grid-720",
+      "physical_reference_present": false,
+      "proposal_id": "alt-middle-green-stripe",
+      "qualified_fit_count": 5,
+      "qualified_fit_rank_profiles": [
+        {
+          "fit_id": 58,
+          "iteration": 1,
+          "mean_inside_background_distance": 0.2816125773750746,
+          "mean_outside_background_distance": 0.07962472366616069,
+          "mean_transition_strength": 0.09912013448780327,
+          "rank_counts": {
+            "0": 41,
+            "1": 33,
+            "2": 13
+          },
+          "support": 87
+        },
+        {
+          "fit_id": 2,
+          "iteration": 1,
+          "mean_inside_background_distance": 0.2670831139450741,
+          "mean_outside_background_distance": 0.07005886515191045,
+          "mean_transition_strength": 0.08676547582719105,
+          "rank_counts": {
+            "0": 39,
+            "1": 35,
+            "2": 12
+          },
+          "support": 86
+        },
+        {
+          "fit_id": 58,
+          "iteration": 2,
+          "mean_inside_background_distance": 0.3089046957170623,
+          "mean_outside_background_distance": 0.0929251361193466,
+          "mean_transition_strength": 0.11987360380985441,
+          "rank_counts": {
+            "0": 59,
+            "1": 21,
+            "2": 11
+          },
+          "support": 91
+        },
+        {
+          "fit_id": 44,
+          "iteration": 3,
+          "mean_inside_background_distance": 0.3172957834827899,
+          "mean_outside_background_distance": 0.10077880905417518,
+          "mean_transition_strength": 0.1183776679405969,
+          "rank_counts": {
+            "0": 50,
+            "1": 24,
+            "2": 15
+          },
+          "support": 89
+        },
+        {
+          "fit_id": 76,
+          "iteration": 3,
+          "mean_inside_background_distance": 0.3302114277530767,
+          "mean_outside_background_distance": 0.1238018156098435,
+          "mean_transition_strength": 0.09899473696482487,
+          "rank_counts": {
+            "0": 34,
+            "1": 31,
+            "2": 21
+          },
+          "support": 86
+        }
+      ],
+      "reason": "ambiguous_boundary",
+      "status": "rejected",
+      "trace_dropped_events": 0,
+      "trace_event_count": 1506,
+      "trace_sha256": "568ed8afb902c004b32e200fc142ba3f313052e7662e64e1701a073aff05bfcd"
+    },
+    {
+      "candidate_evaluation_count": 3,
+      "case_id": "alternate-grid-720--alt-middle-right-purple",
+      "case_path": "cases/alternate-grid-720--alt-middle-right-purple.json",
+      "elapsed_with_trace_ms_development_host": 15.829458,
+      "image_id": "alternate-grid-720",
+      "physical_reference_present": false,
+      "proposal_id": "alt-middle-right-purple",
+      "qualified_fit_count": 2,
+      "qualified_fit_rank_profiles": [
+        {
+          "fit_id": 10,
+          "iteration": 1,
+          "mean_inside_background_distance": 0.2530504757833098,
+          "mean_outside_background_distance": 0.09492256693080037,
+          "mean_transition_strength": 0.08231629098922509,
+          "rank_counts": {
+            "0": 56,
+            "1": 20,
+            "2": 11
+          },
+          "support": 87
+        },
+        {
+          "fit_id": 40,
+          "iteration": 1,
+          "mean_inside_background_distance": 0.2529608789162752,
+          "mean_outside_background_distance": 0.09529108757455884,
+          "mean_transition_strength": 0.0791735142196175,
+          "rank_counts": {
+            "0": 40,
+            "1": 30,
+            "2": 13
+          },
+          "support": 83
+        }
+      ],
+      "reason": "ambiguous_boundary",
+      "status": "rejected",
+      "trace_dropped_events": 0,
+      "trace_event_count": 540,
+      "trace_sha256": "a76ea2b9c0811cebf9dd0db108ecdc68985b27d40206233871f07ed5398a6836"
+    },
+    {
+      "candidate_evaluation_count": 10,
+      "case_id": "alternate-grid-720--alt-bottom-left-red",
+      "case_path": "cases/alternate-grid-720--alt-bottom-left-red.json",
+      "elapsed_with_trace_ms_development_host": 16.698667,
+      "image_id": "alternate-grid-720",
+      "physical_reference_present": false,
+      "proposal_id": "alt-bottom-left-red",
+      "qualified_fit_count": 4,
+      "qualified_fit_rank_profiles": [
+        {
+          "fit_id": 16,
+          "iteration": 1,
+          "mean_inside_background_distance": 0.3043421286034341,
+          "mean_outside_background_distance": 0.057042156711139755,
+          "mean_transition_strength": 0.09488893886896527,
+          "rank_counts": {
+            "0": 16,
+            "1": 16,
+            "2": 32
+          },
+          "support": 64
+        },
+        {
+          "fit_id": 41,
+          "iteration": 1,
+          "mean_inside_background_distance": 0.3043421286034341,
+          "mean_outside_background_distance": 0.057042156711139755,
+          "mean_transition_strength": 0.09488893886896527,
+          "rank_counts": {
+            "0": 16,
+            "1": 16,
+            "2": 32
+          },
+          "support": 64
+        },
+        {
+          "fit_id": 50,
+          "iteration": 1,
+          "mean_inside_background_distance": 0.35404333871666654,
+          "mean_outside_background_distance": 0.08730825244976892,
+          "mean_transition_strength": 0.10049942442927436,
+          "rank_counts": {
+            "0": 15,
+            "1": 29,
+            "2": 19
+          },
+          "support": 63
+        },
+        {
+          "fit_id": 23,
+          "iteration": 1,
+          "mean_inside_background_distance": 0.3926013636167844,
+          "mean_outside_background_distance": 0.11838018947465813,
+          "mean_transition_strength": 0.1140836249919486,
+          "rank_counts": {
+            "0": 26,
+            "1": 28,
+            "2": 4
+          },
+          "support": 58
+        }
+      ],
+      "reason": "ambiguous_boundary",
+      "status": "rejected",
+      "trace_dropped_events": 0,
+      "trace_event_count": 642,
+      "trace_sha256": "48f33f6141a7e982d29bb4aa0e08ea2f3dbf01bb0ffa5a93690f39723545480a"
+    },
+    {
+      "candidate_evaluation_count": 5,
+      "case_id": "alternate-grid-720--alt-bottom-black",
+      "case_path": "cases/alternate-grid-720--alt-bottom-black.json",
+      "elapsed_with_trace_ms_development_host": 17.814125,
+      "image_id": "alternate-grid-720",
+      "physical_reference_present": false,
+      "proposal_id": "alt-bottom-black",
+      "qualified_fit_count": 2,
+      "qualified_fit_rank_profiles": [
+        {
+          "fit_id": 63,
+          "iteration": 1,
+          "mean_inside_background_distance": 0.39509774374389395,
+          "mean_outside_background_distance": 0.1428886417137627,
+          "mean_transition_strength": 0.11439027652910724,
+          "rank_counts": {
+            "0": 51,
+            "1": 28,
+            "2": 11
+          },
+          "support": 90
+        },
+        {
+          "fit_id": 28,
+          "iteration": 1,
+          "mean_inside_background_distance": 0.3576744201136841,
+          "mean_outside_background_distance": 0.11130589790446554,
+          "mean_transition_strength": 0.10693608065867115,
+          "rank_counts": {
+            "0": 39,
+            "1": 35,
+            "2": 15
+          },
+          "support": 89
+        }
+      ],
+      "reason": "ambiguous_boundary",
+      "status": "rejected",
+      "trace_dropped_events": 0,
+      "trace_event_count": 538,
+      "trace_sha256": "24c9deda1b70fcfd67bf3f024a22121ecb6321ff28e8eccafdc1e4e2e7ebd6cc"
+    },
+    {
+      "candidate_evaluation_count": 0,
+      "case_id": "alternate-grid-720--alt-bottom-center-red-stripe",
+      "case_path": "cases/alternate-grid-720--alt-bottom-center-red-stripe.json",
+      "elapsed_with_trace_ms_development_host": 0.135458,
+      "image_id": "alternate-grid-720",
+      "physical_reference_present": false,
+      "proposal_id": "alt-bottom-center-red-stripe",
+      "qualified_fit_count": 0,
+      "qualified_fit_rank_profiles": [],
+      "reason": "insufficient_boundary",
+      "status": "rejected",
+      "trace_dropped_events": 0,
+      "trace_event_count": 2,
+      "trace_sha256": "c1baca0ca3ee3bfe0333243173599a5a717d1cabe6472759b33ea463f90ec1da"
+    },
+    {
+      "candidate_evaluation_count": 8,
+      "case_id": "alternate-grid-720--alt-bottom-yellow",
+      "case_path": "cases/alternate-grid-720--alt-bottom-yellow.json",
+      "elapsed_with_trace_ms_development_host": 18.418541,
+      "image_id": "alternate-grid-720",
+      "physical_reference_present": false,
+      "proposal_id": "alt-bottom-yellow",
+      "qualified_fit_count": 3,
+      "qualified_fit_rank_profiles": [
+        {
+          "fit_id": 4,
+          "iteration": 1,
+          "mean_inside_background_distance": 0.44224532365824604,
+          "mean_outside_background_distance": 0.1672547878659874,
+          "mean_transition_strength": 0.14970896197642095,
+          "rank_counts": {
+            "0": 46,
+            "1": 30,
+            "2": 14
+          },
+          "support": 90
+        },
+        {
+          "fit_id": 52,
+          "iteration": 1,
+          "mean_inside_background_distance": 0.402599275134191,
+          "mean_outside_background_distance": 0.14133840935311384,
+          "mean_transition_strength": 0.12998294391344972,
+          "rank_counts": {
+            "0": 23,
+            "1": 41,
+            "2": 24
+          },
+          "support": 88
+        },
+        {
+          "fit_id": 17,
+          "iteration": 1,
+          "mean_inside_background_distance": 0.4049965940928126,
+          "mean_outside_background_distance": 0.15019485860625767,
+          "mean_transition_strength": 0.13883458221869432,
+          "rank_counts": {
+            "0": 32,
+            "1": 24,
+            "2": 31
+          },
+          "support": 87
+        }
+      ],
+      "reason": "ambiguous_boundary",
+      "status": "rejected",
+      "trace_dropped_events": 0,
+      "trace_event_count": 648,
+      "trace_sha256": "fb5b0c4254b679a494a457acb0ba860c249eb8cdfb1698aeed6a27b63eefd7a1"
+    },
+    {
+      "candidate_evaluation_count": 8,
+      "case_id": "alternate-grid-720--alt-bottom-right-blue-stripe",
+      "case_path": "cases/alternate-grid-720--alt-bottom-right-blue-stripe.json",
+      "elapsed_with_trace_ms_development_host": 29.065125000000002,
+      "image_id": "alternate-grid-720",
+      "physical_reference_present": false,
+      "proposal_id": "alt-bottom-right-blue-stripe",
+      "qualified_fit_count": 3,
+      "qualified_fit_rank_profiles": [
+        {
+          "fit_id": 12,
+          "iteration": 1,
+          "mean_inside_background_distance": 0.24813248383229455,
+          "mean_outside_background_distance": 0.10296956582855459,
+          "mean_transition_strength": 0.09031793642757452,
+          "rank_counts": {
+            "0": 30,
+            "1": 20,
+            "2": 10
+          },
+          "support": 60
+        },
+        {
+          "fit_id": 42,
+          "iteration": 2,
+          "mean_inside_background_distance": 0.2785179855975297,
+          "mean_outside_background_distance": 0.15859045756384935,
+          "mean_transition_strength": 0.0841288796221691,
+          "rank_counts": {
+            "0": 23,
+            "1": 31,
+            "2": 17
+          },
+          "support": 71
+        },
+        {
+          "fit_id": 12,
+          "iteration": 2,
+          "mean_inside_background_distance": 0.25901923226564233,
+          "mean_outside_background_distance": 0.11761530364695996,
+          "mean_transition_strength": 0.09303054595377432,
+          "rank_counts": {
+            "0": 44,
+            "1": 22,
+            "2": 3
+          },
+          "support": 69
+        }
+      ],
+      "reason": "ambiguous_boundary",
+      "status": "rejected",
+      "trace_dropped_events": 0,
+      "trace_event_count": 736,
+      "trace_sha256": "e9e00f2389a8bac6feb8cf9e8b52b6e3cb9ff857868b1af1c9b96afb79a125b3"
+    },
+    {
+      "candidate_evaluation_count": 8,
+      "case_id": "framing-after-4k--4k-top-left-orange",
+      "case_path": "cases/framing-after-4k--4k-top-left-orange.json",
+      "elapsed_with_trace_ms_development_host": 19.456791000000003,
+      "image_id": "framing-after-4k",
+      "physical_reference_present": false,
+      "proposal_id": "4k-top-left-orange",
+      "qualified_fit_count": 2,
+      "qualified_fit_rank_profiles": [
+        {
+          "fit_id": 12,
+          "iteration": 1,
+          "mean_inside_background_distance": 0.5044818054715582,
+          "mean_outside_background_distance": 0.138738489797661,
+          "mean_transition_strength": 0.17815967075796021,
+          "rank_counts": {
+            "0": 47,
+            "1": 38,
+            "2": 11
+          },
+          "support": 96
+        },
+        {
+          "fit_id": 10,
+          "iteration": 1,
+          "mean_inside_background_distance": 0.46506549702036454,
+          "mean_outside_background_distance": 0.11023934823875632,
+          "mean_transition_strength": 0.17630956155090818,
+          "rank_counts": {
+            "0": 50,
+            "1": 33,
+            "2": 13
+          },
+          "support": 96
+        }
+      ],
+      "reason": "ambiguous_boundary",
+      "status": "rejected",
+      "trace_dropped_events": 0,
+      "trace_event_count": 578,
+      "trace_sha256": "5729161fea3da28335d72978c0f3de4d2861083c3691bdfea45248cbb006fe05"
+    },
+    {
+      "candidate_evaluation_count": 12,
+      "case_id": "framing-after-4k--4k-top-center-striped",
+      "case_path": "cases/framing-after-4k--4k-top-center-striped.json",
+      "elapsed_with_trace_ms_development_host": 23.644790999999998,
+      "image_id": "framing-after-4k",
+      "physical_reference_present": false,
+      "proposal_id": "4k-top-center-striped",
+      "qualified_fit_count": 6,
+      "qualified_fit_rank_profiles": [
+        {
+          "fit_id": 74,
+          "iteration": 1,
+          "mean_inside_background_distance": 0.4045016818486104,
+          "mean_outside_background_distance": 0.08607976375226313,
+          "mean_transition_strength": 0.21131675958195342,
+          "rank_counts": {
+            "0": 34,
+            "1": 26,
+            "2": 14
+          },
+          "support": 74
+        },
+        {
+          "fit_id": 80,
+          "iteration": 1,
+          "mean_inside_background_distance": 0.41708233191780864,
+          "mean_outside_background_distance": 0.0912458476679726,
+          "mean_transition_strength": 0.20703485217644563,
+          "rank_counts": {
+            "0": 30,
+            "1": 34,
+            "2": 9
+          },
+          "support": 73
+        },
+        {
+          "fit_id": 11,
+          "iteration": 1,
+          "mean_inside_background_distance": 0.34163763967384597,
+          "mean_outside_background_distance": 0.06512586700696751,
+          "mean_transition_strength": 0.09708421233817946,
+          "rank_counts": {
+            "1": 51,
+            "2": 22
+          },
+          "support": 73
+        },
+        {
+          "fit_id": 0,
+          "iteration": 1,
+          "mean_inside_background_distance": 0.4949873553253927,
+          "mean_outside_background_distance": 0.14649890581515645,
+          "mean_transition_strength": 0.2221336160041901,
+          "rank_counts": {
+            "0": 44,
+            "1": 12,
+            "2": 15
+          },
+          "support": 71
+        },
+        {
+          "fit_id": 29,
+          "iteration": 1,
+          "mean_inside_background_distance": 0.3489298309201954,
+          "mean_outside_background_distance": 0.07043643358793411,
+          "mean_transition_strength": 0.11858193467935668,
+          "rank_counts": {
+            "0": 9,
+            "1": 43,
+            "2": 20
+          },
+          "support": 72
+        },
+        {
+          "fit_id": 25,
+          "iteration": 1,
+          "mean_inside_background_distance": 0.44245263599643214,
+          "mean_outside_background_distance": 0.1255335760347998,
+          "mean_transition_strength": 0.11748560225257483,
+          "rank_counts": {
+            "0": 12,
+            "1": 41,
+            "2": 19
+          },
+          "support": 72
+        }
+      ],
+      "reason": "ambiguous_boundary",
+      "status": "rejected",
+      "trace_dropped_events": 0,
+      "trace_event_count": 758,
+      "trace_sha256": "9911a99cec6f601b9fe5ecedf218fac2f9980a6b50725de0289c7d13176a6189"
+    },
+    {
+      "candidate_evaluation_count": 12,
+      "case_id": "framing-after-4k--4k-top-right-red-stripe",
+      "case_path": "cases/framing-after-4k--4k-top-right-red-stripe.json",
+      "elapsed_with_trace_ms_development_host": 25.392374999999998,
+      "image_id": "framing-after-4k",
+      "physical_reference_present": false,
+      "proposal_id": "4k-top-right-red-stripe",
+      "qualified_fit_count": 4,
+      "qualified_fit_rank_profiles": [
+        {
+          "fit_id": 92,
+          "iteration": 1,
+          "mean_inside_background_distance": 0.4836799523089877,
+          "mean_outside_background_distance": 0.13220485994031828,
+          "mean_transition_strength": 0.19046537022933518,
+          "rank_counts": {
+            "0": 66,
+            "1": 26,
+            "2": 4
+          },
+          "support": 96
+        },
+        {
+          "fit_id": 11,
+          "iteration": 1,
+          "mean_inside_background_distance": 0.42406468126594477,
+          "mean_outside_background_distance": 0.11823413684732224,
+          "mean_transition_strength": 0.12060629167171084,
+          "rank_counts": {
+            "0": 26,
+            "1": 26,
+            "2": 44
+          },
+          "support": 96
+        },
+        {
+          "fit_id": 12,
+          "iteration": 1,
+          "mean_inside_background_distance": 0.3508460303051028,
+          "mean_outside_background_distance": 0.07049586541164503,
+          "mean_transition_strength": 0.11066057185235567,
+          "rank_counts": {
+            "0": 10,
+            "1": 35,
+            "2": 49
+          },
+          "support": 94
+        },
+        {
+          "fit_id": 75,
+          "iteration": 1,
+          "mean_inside_background_distance": 0.402919530879801,
+          "mean_outside_background_distance": 0.08649194370298399,
+          "mean_transition_strength": 0.16341321024263977,
+          "rank_counts": {
+            "0": 48,
+            "1": 16,
+            "2": 30
+          },
+          "support": 94
+        }
+      ],
+      "reason": "ambiguous_boundary",
+      "status": "rejected",
+      "trace_dropped_events": 0,
+      "trace_event_count": 786,
+      "trace_sha256": "c68447223ed9ce77d19be251c547d892c0d6cc95c393b249ec2cd950b0c0e039"
+    }
+  ],
+  "run_count": 27,
+  "schema_version": 1,
+  "settings": {
+    "batch_and_proposal_diagnostic_budgets_ms": 10000,
+    "candidate_cap": 16,
+    "colorspace": "RGB normalized to [0,1], matching the refiner source buffer",
+    "max_aiming_iterations": 3,
+    "profile_sample_offsets": "transition radius plus/minus the scaled production background_probe_px",
+    "quality_gates": "BallLocalizationConfig::default()",
+    "ransac_iterations": 128,
+    "seed": 716
+  }
+}

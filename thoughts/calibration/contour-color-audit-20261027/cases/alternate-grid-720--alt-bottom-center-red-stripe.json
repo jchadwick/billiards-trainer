@@ -1,0 +1,138 @@
+{
+  "audit_schema_version": 3,
+  "candidate_evaluations": [],
+  "case_id": "alternate-grid-720--alt-bottom-center-red-stripe",
+  "development_host_trace_enabled_elapsed_ms": 0.135458,
+  "diagnostic_budgets_ms": {
+    "batch": 10000,
+    "proposal": 10000
+  },
+  "image_id": "alternate-grid-720",
+  "intrinsics": {
+    "cx": 644.1755624688407,
+    "cy": 349.67152391690104,
+    "fx": 696.1731580029823,
+    "fy": 695.3611772093032,
+    "source_height_px": 720,
+    "source_width_px": 1280
+  },
+  "limitations": [
+    "No new image, camera capture, user measurement, or positioning jig was used.",
+    "All proposals are saved manual regions, not detector outputs.",
+    "The optics models are diagnostic and not qualified for runtime.",
+    "Color profiles reconstruct the current estimator's local-view transform and bilinear RGB sampling from saved JPEGs; they do not label a true physical silhouette.",
+    "User-reported physical-reference uncertainty is unknown and is not used to select a fit.",
+    "Trace-enabled development-host elapsed time is diagnostic only."
+  ],
+  "optics_model_id": "frozen_zero_radial_720",
+  "optics_status": "exploratory_only_not_activated",
+  "physical_reference_present": false,
+  "production_settings": {
+    "candidate_cap": 16,
+    "max_aiming_iterations": 3,
+    "quality_gates": "BallLocalizationConfig::default()",
+    "ransac_iterations": 128,
+    "seed": 716
+  },
+  "proposal_bbox_xyxy_source_px": [
+    619.0,
+    609.0,
+    663.0,
+    653.0
+  ],
+  "proposal_id": "alt-bottom-center-red-stripe",
+  "proposal_origin": "saved_manual_coarse_region",
+  "proposals_are_detector_output": false,
+  "qualified_fit_color_evidence": [],
+  "refinement": {
+    "center_image_px": null,
+    "detection_index": 12,
+    "outline": null,
+    "quality": {
+      "angular_coverage": null,
+      "background_sample_fraction": 0.7291666666666666,
+      "background_supported_fraction": 0.515625,
+      "boundary_candidates": null,
+      "candidate_outer_background_fraction": null,
+      "candidate_representatives_evaluated": 0,
+      "candidate_search_truncated": false,
+      "center_shift_px": null,
+      "center_spread_px": null,
+      "fit_id": null,
+      "foreground_fraction": null,
+      "inliers": null,
+      "iterations": 1,
+      "largest_gap_fraction": null,
+      "qualified_candidate_count": 0,
+      "residual_rms_px": null,
+      "source_residual_rms_px": null,
+      "stage": "background_sampling",
+      "supported_ray_fraction": null
+    },
+    "reason": "insufficient_boundary",
+    "status": "rejected"
+  },
+  "refiner_revision": 2,
+  "schema_version": 1,
+  "source_dimensions_px": [
+    1280,
+    720
+  ],
+  "source_image": "thoughts/calibration/table-grid-2026-10-26.jpg",
+  "source_image_sha256": "8371e508f79c5556cfd2fe6632b9095ba87d8f7052741b2f6b01563b448c385b",
+  "trace": {
+    "dropped_events": 0,
+    "events": [
+      {
+        "data": {
+          "axis_image_px": [
+            641.0,
+            631.0
+          ],
+          "kind": "iteration_started"
+        },
+        "detection_index": 12,
+        "iteration": 1,
+        "stage": "iteration_start"
+      },
+      {
+        "data": {
+          "center_image_px": null,
+          "kind": "outcome",
+          "outline": null,
+          "quality": {
+            "angular_coverage": null,
+            "background_sample_fraction": 0.7291666666666666,
+            "background_supported_fraction": 0.515625,
+            "boundary_candidates": null,
+            "candidate_outer_background_fraction": null,
+            "candidate_representatives_evaluated": 0,
+            "candidate_search_truncated": false,
+            "center_shift_px": null,
+            "center_spread_px": null,
+            "fit_id": null,
+            "foreground_fraction": null,
+            "inliers": null,
+            "iterations": 1,
+            "largest_gap_fraction": null,
+            "qualified_candidate_count": 0,
+            "residual_rms_px": null,
+            "source_residual_rms_px": null,
+            "stage": "background_sampling",
+            "supported_ray_fraction": null
+          },
+          "reason": "insufficient_boundary",
+          "status": "rejected"
+        },
+        "detection_index": 12,
+        "iteration": 1,
+        "stage": "background_sampling"
+      }
+    ],
+    "maximum_bytes": 8388608,
+    "maximum_events": 8192,
+    "retained_bytes": 1245440,
+    "schema_version": 3
+  },
+  "visibility": "near_bottom_center_pocket"
+}

@@ -19,6 +19,7 @@ use tokio::sync::watch;
 use tokio::time::{sleep, timeout};
 use uuid::Uuid;
 
+use crate::ball_localization_profile::BallLocalizationSettings;
 use crate::capture_settings_wire::build_capture_settings_v3;
 use crate::live_application::serialize_phase_schedule_config;
 use crate::live_audit::LiveAuditConfig;
@@ -163,6 +164,19 @@ impl LiveProcessConfig {
             serde_json::to_string(&table_visibility_config).map_err(|error| {
                 format!("could not serialize table visibility configuration: {error}")
             })?;
+        let mut ball_localization = match live.get("ball_localization") {
+            Some(value) => serde_json::from_value::<BallLocalizationSettings>(value.clone())
+                .map_err(|error| {
+                    format!("invalid perception.rust_live.ball_localization: {error}")
+                })?,
+            None => BallLocalizationSettings::default(),
+        };
+        ball_localization.validate().map_err(|error| {
+            format!("invalid perception.rust_live.ball_localization: {error:#}")
+        })?;
+        ball_localization.resolve_paths(&project_root);
+        let ball_localization_json = serde_json::to_string(&ball_localization)
+            .map_err(|error| format!("could not serialize ball localization settings: {error}"))?;
         let requested = capture_settings
             .get("requested")
             .and_then(Value::as_object)
@@ -251,6 +265,11 @@ impl LiveProcessConfig {
             &mut arguments,
             "table-visibility-config-json",
             table_visibility_json,
+        );
+        push_argument(
+            &mut arguments,
+            "ball-localization-json",
+            ball_localization_json,
         );
         push_argument(&mut arguments, "tracking-camera-profile-id", camera_profile);
         push_argument(

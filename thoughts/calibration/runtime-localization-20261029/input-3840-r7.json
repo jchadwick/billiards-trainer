@@ -1,0 +1,118 @@
+{
+  "schema_version": 1,
+  "calibration_revision": 2026102907,
+  "camera_profile_id": "saved-mokose-native4k",
+  "optics_profile_id": "saved-zero-radial-native4k",
+  "optics_revision": 1,
+  "refiner_revision": 7,
+  "table_revision": 1,
+  "rectification_revision": 0,
+  "image_space": "raw",
+  "source_width_px": 3840,
+  "source_height_px": 2160,
+  "table_width_mm": 2336.8,
+  "table_height_mm": 1155.7,
+  "ball_diameter_mm": 57.15,
+  "provenance": "Existing nine user reference positions; no new measurement or image. Coordinate quality is empirical reference consistency, not independent certified millimeter accuracy. Explicit3x geometry derivative, supportedapproximately by saved rail registration; not new independently observed native4K reference positions.",
+  "correspondences": [
+    {
+      "image_point_px": {
+        "x_px": 1928.4360489457433,
+        "y_px": 1083.7041688932559
+      },
+      "center_table_mm": {
+        "x_mm": 3.175,
+        "y_mm": -3.175
+      },
+      "provenance": "middle-row-center-ball; actual detector box; refiner7 accepted; summary thoughts/calibration/actual-detector-refiner-local-background-r7-20261029/summary.json; trace SHA256 0a055ec6289ff5ca95aa53ffb7667f25cc9046336b9edf19a0f9f2fe174d9d3d; original physical measurement uncertainty unknown"
+    },
+    {
+      "image_point_px": {
+        "x_px": 3591.4994197474293,
+        "y_px": 1086.1912294376077
+      },
+      "center_table_mm": {
+        "x_mm": 1139.825,
+        "y_mm": -3.175
+      },
+      "provenance": "far-right-purple-middle-row-ball; actual detector box; refiner7 accepted; summary thoughts/calibration/actual-detector-refiner-local-background-r7-20261029/summary.json; trace SHA256 ee141d0dbdfda384a125740087e9ebd53e27356fdbb15a52adbc2b446981dd7d; original physical measurement uncertainty unknown"
+    },
+    {
+      "image_point_px": {
+        "x_px": 287.40119649435144,
+        "y_px": 1086.0619429929104
+      },
+      "center_table_mm": {
+        "x_mm": -1139.825,
+        "y_mm": -3.175
+      },
+      "provenance": "far-left-yellow-middle-row-ball; actual detector box; refiner7 accepted; summary thoughts/calibration/actual-detector-refiner-local-background-r7-20261029/summary.json; trace SHA256 4dca2a49e69812443828baf95e98e96a550739b4fa40fa2b1afd09ac414f5e7b; original physical measurement uncertainty unknown"
+    },
+    {
+      "image_point_px": {
+        "x_px": 1074.4542872105199,
+        "y_px": 1090.9824654506388
+      },
+      "center_table_mm": {
+        "x_mm": -596.9,
+        "y_mm": -3.175
+      },
+      "provenance": "interior-purple-second-left-middle-row-ball; actual detector box; refiner7 accepted; summary thoughts/calibration/actual-detector-refiner-local-background-r7-20261029/summary.json; trace SHA256 ce954ba58a8487739fb2e0436257ae9fc44d5014d771db6e61cbb559e67eb6c8; original physical measurement uncertainty unknown"
+    },
+    {
+      "image_point_px": {
+        "x_px": 2773.512254914108,
+        "y_px": 1085.1920980064829
+      },
+      "center_table_mm": {
+        "x_mm": 577.85,
+        "y_mm": -3.175
+      },
+      "provenance": "interior-green-second-right-middle-row-ball; actual detector box; refiner7 accepted; summary thoughts/calibration/actual-detector-refiner-local-background-r7-20261029/summary.json; trace SHA256 7134c0368266c0299cadfd6f153bc37b4bc2cf5d77aa9bce66a3ccaac0ee2133; original physical measurement uncertainty unknown"
+    },
+    {
+      "image_point_px": {
+        "x_px": 1057.1820387741334,
+        "y_px": 290.57318013821725
+      },
+      "center_table_mm": {
+        "x_mm": -600.075,
+        "y_mm": -549.275
+      },
+      "provenance": "top-orange-solid-second-left-ball; actual detector box; refiner7 accepted; summary thoughts/calibration/actual-detector-refiner-local-background-r7-20261029/summary.json; trace SHA256 2c7379052656012159c2340853668968e4195745f7f8820ba5f10250172882aa; original physical measurement uncertainty unknown"
+    },
+    {
+      "image_point_px": {
+        "x_px": 2782.514373255244,
+        "y_px": 281.0478589865209
+      },
+      "center_table_mm": {
+        "x_mm": 577.85,
+        "y_mm": -549.275
+      },
+      "provenance": "top-red-striped-second-right-ball; actual detector box; refiner7 accepted; summary thoughts/calibration/actual-detector-refiner-local-background-r7-20261029/summary.json; trace SHA256 9ab4443256382918303ddf1468ff98f18e5c9a25c18325a197991e030e639027; original physical measurement uncertainty unknown"
+    },
+    {
+      "image_point_px": {
+        "x_px": 1086.1727615613531,
+        "y_px": 1880.1775883059388
+      },
+      "center_table_mm": {
+        "x_mm": -600.075,
+        "y_mm": 549.275
+      },
+      "provenance": "bottom-black-second-left-ball; actual detector box; refiner7 accepted; summary thoughts/calibration/actual-detector-refiner-local-background-r7-20261029/summary.json; trace SHA256 0b7b02f8c236e37be0f419ece8f20d0ac116dd3364bd13bdf217bb7e68635a0b; original physical measurement uncertainty unknown"
+    },
+    {
+      "image_point_px": {
+        "x_px": 2775.3185974176263,
+        "y_px": 1890.2275087899889
+      },
+      "center_table_mm": {
+        "x_mm": 577.85,
+        "y_mm": 549.275
+      },
+      "provenance": "bottom-yellow-second-right-ball; actual detector box; refiner7 accepted; summary thoughts/calibration/actual-detector-refiner-local-background-r7-20261029/summary.json; trace SHA256 fd7acf297153f25276c1694a4a70ebb60ce89e63b59961535fdb717c041ccd8e; original physical measurement uncertainty unknown"
+    }
+  ]
+}

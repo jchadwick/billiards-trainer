@@ -109,6 +109,19 @@
         "confidence": { "type": ["number", "null"], "minimum": 0, "maximum": 1 }
       }
     },
+    "outline": {
+      "type": "object", "additionalProperties": false, "required": ["points", "scale"],
+      "properties": {
+        "points": {
+          "type": "array", "minItems": 3, "maxItems": 512,
+          "items": {
+            "type": "object", "additionalProperties": false, "required": ["x", "y"],
+            "properties": { "x": { "type": "number" }, "y": { "type": "number" } }
+          }
+        },
+        "scale": { "const": [1, 1] }
+      }
+    },
     "tablePosition": {
       "type": "object",
       "additionalProperties": false,
@@ -128,6 +141,7 @@
         "id": { "type": "string", "minLength": 1, "maxLength": 128 },
         "position": { "$ref": "#/$defs/position" },
         "radius_extent": { "$ref": "#/$defs/radiusExtent" },
+        "outline": { "$ref": "#/$defs/outline" },
         "radius": { "type": "number", "exclusiveMinimum": 0 },
         "radius_scale": { "type": "array", "prefixItems": [{ "type": "number" }, { "type": "number" }], "minItems": 2, "maxItems": 2 },
         "radius_unit": { "const": "canonical_pixels" },
@@ -148,7 +162,14 @@
         "image_width_px": { "type": "integer", "minimum": 1 },
         "image_height_px": { "type": "integer", "minimum": 1 },
         "table_position": { "$ref": "#/$defs/tablePosition" }
-      }
+      },
+      "allOf": [{
+        "if": { "required": ["outline"] },
+        "then": { "properties": {
+          "is_observed": { "const": true }, "tracking_status": { "const": "observed" },
+          "position_kind": { "const": "measured" }
+        } }
+      }]
     }
   }
 }

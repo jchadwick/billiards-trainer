@@ -1,0 +1,446 @@
+{
+  "schema_version": 1,
+  "calibration_revision": 2026102908,
+  "camera_profile_id": "saved-mokose-720",
+  "optics_profile_id": "saved-zero-radial-720",
+  "optics_revision": 1,
+  "refiner_revision": 8,
+  "table_revision": 1,
+  "rectification_revision": 0,
+  "image_space": "raw",
+  "source_width_px": 1280,
+  "source_height_px": 720,
+  "coordinate_frame": "center_origin_x_corner0_to1_y_corner0_to3",
+  "table_width_mm": 2336.8,
+  "table_height_mm": 1155.7,
+  "ball_diameter_mm": 57.15,
+  "image_to_table_mm": [
+    [
+      2.070530075148632,
+      -0.013859459399710937,
+      -1330.4288848080137
+    ],
+    [
+      0.0009337454446352118,
+      2.0605246889449123,
+      -750.5927982054347
+    ],
+    [
+      9.28663467652572e-6,
+      -0.00003550953447229636,
+      1.0068845776699953
+    ]
+  ],
+  "provenance": "Existing nine user reference positions; no new measurement or image. Coordinate quality is empirical reference consistency, not independent certified millimeter accuracy.",
+  "solver_policy": {
+    "minimum_correspondences": 6,
+    "maximum_correspondences": 1024,
+    "relative_rank_tolerance": 1e-10,
+    "maximum_condition_number": 100000000.0,
+    "numerical_tolerance": 1e-10,
+    "maximum_fit_rms_mm": null
+  },
+  "correspondences": [
+    {
+      "image_point_px": {
+        "x_px": 642.83793392981,
+        "y_px": 361.21769902836354
+      },
+      "center_table_mm": {
+        "x_mm": 3.175,
+        "y_mm": -3.175
+      },
+      "provenance": "middle-row-center-ball; actual detector box; refiner8 accepted; summary thoughts/calibration/actual-detector-refiner-local-background-r8-20261029/summary.json; trace SHA256 02cfd53908f1b539601af8891c30ba1eff44c9b7c646b72635812b2dc01f2bb5; original physical measurement uncertainty unknown"
+    },
+    {
+      "image_point_px": {
+        "x_px": 1197.1929506022102,
+        "y_px": 362.013666822093
+      },
+      "center_table_mm": {
+        "x_mm": 1139.825,
+        "y_mm": -3.175
+      },
+      "provenance": "far-right-purple-middle-row-ball; actual detector box; refiner8 accepted; summary thoughts/calibration/actual-detector-refiner-local-background-r8-20261029/summary.json; trace SHA256 477cba2ca1509ad9e1233d0fc80c10c2f29b60d76242fef399f0fbb3bc7ec287; original physical measurement uncertainty unknown"
+    },
+    {
+      "image_point_px": {
+        "x_px": 95.79943929519447,
+        "y_px": 362.01766403118853
+      },
+      "center_table_mm": {
+        "x_mm": -1139.825,
+        "y_mm": -3.175
+      },
+      "provenance": "far-left-yellow-middle-row-ball; actual detector box; refiner8 accepted; summary thoughts/calibration/actual-detector-refiner-local-background-r8-20261029/summary.json; trace SHA256 5d2ccbb0a9da9ed9ffbc424fb1ea8acba28cb012ac2833fd182fbf3bdbcc4e86; original physical measurement uncertainty unknown"
+    },
+    {
+      "image_point_px": {
+        "x_px": 358.3770371670298,
+        "y_px": 363.74643310751395
+      },
+      "center_table_mm": {
+        "x_mm": -596.9,
+        "y_mm": -3.175
+      },
+      "provenance": "interior-purple-second-left-middle-row-ball; actual detector box; refiner8 accepted; summary thoughts/calibration/actual-detector-refiner-local-background-r8-20261029/summary.json; trace SHA256 afee2f01da59a26cd646bfc0335ef3e3d7524446e7ebe0edea0b069fd4414a54; original physical measurement uncertainty unknown"
+    },
+    {
+      "image_point_px": {
+        "x_px": 924.5153006756298,
+        "y_px": 361.73450325377144
+      },
+      "center_table_mm": {
+        "x_mm": 577.85,
+        "y_mm": -3.175
+      },
+      "provenance": "interior-green-second-right-middle-row-ball; actual detector box; refiner8 accepted; summary thoughts/calibration/actual-detector-refiner-local-background-r8-20261029/summary.json; trace SHA256 0299ec1a0c8545d8bdb14a61a175e6157d5f871d25d3ab540d79bb17f18208eb; original physical measurement uncertainty unknown"
+    },
+    {
+      "image_point_px": {
+        "x_px": 352.3828469056284,
+        "y_px": 96.85238499573751
+      },
+      "center_table_mm": {
+        "x_mm": -600.075,
+        "y_mm": -549.275
+      },
+      "provenance": "top-orange-solid-second-left-ball; actual detector box; refiner8 accepted; summary thoughts/calibration/actual-detector-refiner-local-background-r8-20261029/summary.json; trace SHA256 c7dba862d558ad11b4ba7efdd62b93aa149b97b909d820e59dda5b8b92ea09d4; original physical measurement uncertainty unknown"
+    },
+    {
+      "image_point_px": {
+        "x_px": 927.5439847165418,
+        "y_px": 93.68868881473105
+      },
+      "center_table_mm": {
+        "x_mm": 577.85,
+        "y_mm": -549.275
+      },
+      "provenance": "top-red-striped-second-right-ball; actual detector box; refiner8 accepted; summary thoughts/calibration/actual-detector-refiner-local-background-r8-20261029/summary.json; trace SHA256 e50b7b25e262a1fb49cd2234bc2ef881037773c1019992e75b125c9aeee0049d; original physical measurement uncertainty unknown"
+    },
+    {
+      "image_point_px": {
+        "x_px": 362.036677535844,
+        "y_px": 626.7086505867886
+      },
+      "center_table_mm": {
+        "x_mm": -600.075,
+        "y_mm": 549.275
+      },
+      "provenance": "bottom-black-second-left-ball; actual detector box; refiner8 accepted; summary thoughts/calibration/actual-detector-refiner-local-background-r8-20261029/summary.json; trace SHA256 99f7a432c0708e37c6a1a5975c96ad80ca1f4de1b9d732b88be4f09aef4d7199; original physical measurement uncertainty unknown"
+    },
+    {
+      "image_point_px": {
+        "x_px": 925.1273656013141,
+        "y_px": 630.07303712884
+      },
+      "center_table_mm": {
+        "x_mm": 577.85,
+        "y_mm": 549.275
+      },
+      "provenance": "bottom-yellow-second-right-ball; actual detector box; refiner8 accepted; summary thoughts/calibration/actual-detector-refiner-local-background-r8-20261029/summary.json; trace SHA256 1b7ca91850e9a48781ba41a770046039578088fa2d45f30a1e30aa2e676159ce; original physical measurement uncertainty unknown"
+    }
+  ],
+  "fit_report": {
+    "normalized_design_condition_number": 11.51548020324891,
+    "rms_mm": 4.027306800292481,
+    "maximum_residual_mm": 8.001744894035685,
+    "residuals": [
+      {
+        "correspondence_index": 0,
+        "projected_table_mm": {
+          "x_mm": -4.419768738268174,
+          "y_mm": -5.694406509765865
+        },
+        "error_x_mm": -7.594768738268174,
+        "error_y_mm": -2.519406509765865,
+        "distance_mm": 8.001744894035685
+      },
+      {
+        "correspondence_index": 1,
+        "projected_table_mm": {
+          "x_mm": 1137.5223758259215,
+          "y_mm": -3.518713818431712
+        },
+        "error_x_mm": -2.3026241740785736,
+        "error_y_mm": -0.34371381843171234,
+        "distance_mm": 2.3281360089204286
+      },
+      {
+        "correspondence_index": 2,
+        "projected_table_mm": {
+          "x_mm": -1142.8975207273804,
+          "y_mm": -4.580283060836884
+        },
+        "error_x_mm": -3.072520727380379,
+        "error_y_mm": -1.4052830608368838,
+        "distance_mm": 3.378639386092741
+      },
+      {
+        "correspondence_index": 3,
+        "projected_table_mm": {
+          "x_mm": -595.0486560552689,
+          "y_mm": -0.7516917491021319
+        },
+        "error_x_mm": 1.8513439447310702,
+        "error_y_mm": 2.423308250897868,
+        "distance_mm": 3.0495732948335714
+      },
+      {
+        "correspondence_index": 4,
+        "projected_table_mm": {
+          "x_mm": 577.278938786399,
+          "y_mm": -4.355228157183231
+        },
+        "error_x_mm": -0.5710612136010695,
+        "error_y_mm": -1.1802281571832314,
+        "distance_mm": 1.311125246758544
+      },
+      {
+        "correspondence_index": 5,
+        "projected_table_mm": {
+          "x_mm": -598.1337539741293,
+          "y_mm": -547.0222211854986
+        },
+        "error_x_mm": 1.9412460258707824,
+        "error_y_mm": 2.2527788145014256,
+        "distance_mm": 2.973793624316515
+      },
+      {
+        "correspondence_index": 6,
+        "projected_table_mm": {
+          "x_mm": 581.7001941966982,
+          "y_mm": -549.9847139687419
+        },
+        "error_x_mm": 3.850194196698226,
+        "error_y_mm": -0.7097139687418803,
+        "distance_mm": 3.9150592932567503
+      },
+      {
+        "correspondence_index": 7,
+        "projected_table_mm": {
+          "x_mm": -596.671402221027,
+          "y_mm": 547.6700209084812
+        },
+        "error_x_mm": 3.403597778972994,
+        "error_y_mm": -1.6049790915187714,
+        "distance_mm": 3.763035440338334
+      },
+      {
+        "correspondence_index": 8,
+        "projected_table_mm": {
+          "x_mm": 580.3457296350966,
+          "y_mm": 552.3621137372779
+        },
+        "error_x_mm": 2.495729635096609,
+        "error_y_mm": 3.087113737277946,
+        "distance_mm": 3.9697528434890827
+      }
+    ],
+    "leave_one_out_rms_mm": 8.782066890340507,
+    "leave_one_out_maximum_residual_mm": 11.024205309247874,
+    "leave_one_out": [
+      {
+        "held_out_index": 0,
+        "training_correspondences": 8,
+        "normalized_design_condition_number": 11.591219634963462,
+        "projected_table_mm": [
+          -6.823963826296173,
+          -6.103817961421366
+        ],
+        "error_mm": [
+          -9.998963826296173,
+          -2.928817961421366
+        ],
+        "distance_mm": 10.419081161538372,
+        "source_point_extrapolated": false
+      },
+      {
+        "held_out_index": 1,
+        "training_correspondences": 8,
+        "normalized_design_condition_number": 10.726193570426968,
+        "projected_table_mm": [
+          1132.4507857031278,
+          -3.7764262579157206
+        ],
+        "error_mm": [
+          -7.374214296872196,
+          -0.6014262579157208
+        ],
+        "distance_mm": 7.398699212693054,
+        "source_point_extrapolated": true
+      },
+      {
+        "held_out_index": 2,
+        "training_correspondences": 8,
+        "normalized_design_condition_number": 10.737258089924003,
+        "projected_table_mm": [
+          -1149.24107298665,
+          -5.572940651739478
+        ],
+        "error_mm": [
+          -9.416072986649851,
+          -2.3979406517394786
+        ],
+        "distance_mm": 9.716612056636912,
+        "source_point_extrapolated": true
+      },
+      {
+        "held_out_index": 3,
+        "training_correspondences": 8,
+        "normalized_design_condition_number": 11.445049578827259,
+        "projected_table_mm": [
+          -594.5855172434073,
+          -0.08866440401029888
+        ],
+        "error_mm": [
+          2.3144827565927244,
+          3.0863355959897008
+        ],
+        "distance_mm": 3.8577581367470613,
+        "source_point_extrapolated": false
+      },
+      {
+        "held_out_index": 4,
+        "training_correspondences": 8,
+        "normalized_design_condition_number": 11.468451843223175,
+        "projected_table_mm": [
+          577.1356463885633,
+          -4.674183317657717
+        ],
+        "error_mm": [
+          -0.7143536114367635,
+          -1.4991833176577174
+        ],
+        "distance_mm": 1.6606780850351301,
+        "source_point_extrapolated": false
+      },
+      {
+        "held_out_index": 5,
+        "training_correspondences": 8,
+        "normalized_design_condition_number": 12.794240737536672,
+        "projected_table_mm": [
+          -594.1241318433982,
+          -543.7244027544909
+        ],
+        "error_mm": [
+          5.950868156601814,
+          5.550597245509039
+        ],
+        "distance_mm": 8.137687730498756,
+        "source_point_extrapolated": true
+      },
+      {
+        "held_out_index": 6,
+        "training_correspondences": 8,
+        "normalized_design_condition_number": 12.850469494195226,
+        "projected_table_mm": [
+          588.4871418200429,
+          -552.1705684417302
+        ],
+        "error_mm": [
+          10.63714182004287,
+          -2.8955684417302336
+        ],
+        "distance_mm": 11.024205309247874,
+        "source_point_extrapolated": true
+      },
+      {
+        "held_out_index": 7,
+        "training_correspondences": 8,
+        "normalized_design_condition_number": 12.792154457796002,
+        "projected_table_mm": [
+          -590.5479120948648,
+          544.6701534996564
+        ],
+        "error_mm": [
+          9.527087905135204,
+          -4.6048465003435695
+        ],
+        "distance_mm": 10.581588502861935,
+        "source_point_extrapolated": true
+      },
+      {
+        "held_out_index": 8,
+        "training_correspondences": 8,
+        "normalized_design_condition_number": 12.83781024285773,
+        "projected_table_mm": [
+          585.6496193024494,
+          556.9047082052704
+        ],
+        "error_mm": [
+          7.7996193024494005,
+          7.62970820527039
+        ],
+        "distance_mm": 10.910843622777827,
+        "source_point_extrapolated": true
+      }
+    ],
+    "source_hull_area_fraction": 0.4831925713727608,
+    "table_hull_area_fraction": 0.7032257823698039,
+    "source_reference_hull_px": [
+      [
+        95.79943929519447,
+        362.01766403118853
+      ],
+      [
+        352.3828469056284,
+        96.85238499573751
+      ],
+      [
+        927.5439847165418,
+        93.68868881473105
+      ],
+      [
+        1197.1929506022102,
+        362.013666822093
+      ],
+      [
+        925.1273656013141,
+        630.07303712884
+      ],
+      [
+        362.036677535844,
+        626.7086505867886
+      ]
+    ],
+    "table_reference_hull_mm": [
+      [
+        -1139.825,
+        -3.175
+      ],
+      [
+        -600.075,
+        -549.275
+      ],
+      [
+        577.85,
+        -549.275
+      ],
+      [
+        1139.825,
+        -3.175
+      ],
+      [
+        577.85,
+        549.275
+      ],
+      [
+        -600.075,
+        549.275
+      ]
+    ],
+    "source_image_corners_extrapolated": [
+      true,
+      true,
+      true,
+      true
+    ],
+    "physical_table_corners_extrapolated": [
+      true,
+      true,
+      true,
+      true
+    ]
+  }
+}

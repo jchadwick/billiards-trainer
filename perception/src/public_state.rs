@@ -102,6 +102,12 @@ pub struct PublicRadiusExtent {
 }
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+pub struct PublicBallOutline {
+    pub points: Vec<crate::Point2d>,
+    pub scale: [f64; 2],
+}
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct PublicTablePosition {
     pub x: f64,
     pub y: f64,
@@ -123,6 +129,8 @@ pub struct PublicBall {
     pub position: PublicPosition,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub radius_extent: Option<PublicRadiusExtent>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub outline: Option<PublicBallOutline>,
     #[serde(serialize_with = "serialize_radius")]
     pub radius: f64,
     pub radius_scale: [f64; 2],
@@ -246,6 +254,30 @@ impl SceneSnapshotStateAdapter {
                             / f64::from(source.height_px)),
                     scale: [1.0, 1.0],
                 });
+            let outline = observed
+                .then(|| {
+                    ball.measurement
+                        .as_ref()?
+                        .image_outline_px
+                        .as_ref()
+                        .map(|points| PublicBallOutline {
+                            points: points
+                                .iter()
+                                .map(|p| crate::Point2d {
+                                    x: p.x * f64::from(self.config.canonical_width_px)
+                                        / f64::from(source.width_px),
+                                    y: p.y * f64::from(self.config.canonical_height_px)
+                                        / f64::from(source.height_px),
+                                })
+                                .collect(),
+                            scale: [1., 1.],
+                        })
+                })
+                .flatten();
+            let refined_radius = outline
+                .as_ref()
+                .and(radius_extent.as_ref())
+                .map(|extent| (extent.x * extent.y).sqrt());
             balls.push(PublicBall {
                 id: ball.track_id.clone(),
                 position: PublicPosition {
@@ -257,10 +289,15 @@ impl SceneSnapshotStateAdapter {
                     scale: [1.0, 1.0],
                 },
                 radius_extent,
-                radius: self.config.assumed_ball_radius_px,
+                outline,
+                radius: refined_radius.unwrap_or(self.config.assumed_ball_radius_px),
                 radius_scale: [1.0, 1.0],
                 radius_unit: "canonical_pixels".to_owned(),
-                radius_source: RADIUS_SOURCE.to_owned(),
+                radius_source: if refined_radius.is_some() {
+                    "native_refined_outline".to_owned()
+                } else {
+                    RADIUS_SOURCE.to_owned()
+                },
                 confidence: if observed {
                     confidence.unwrap_or(0.0)
                 } else {
@@ -332,7 +369,7 @@ impl SceneSnapshotStateAdapter {
             "engine_instance_id":snapshot.engine_instance_id, "snapshot_revision":snapshot.snapshot_revision, "transport_sequence":snapshot.transport_sequence,
             "configuration_revision":snapshot.revisions.configuration, "rectification_revision":snapshot.revisions.rectification, "calibration_revision":snapshot.revisions.calibration, "calibration_state":snapshot.revisions.calibration_state,
             "source_image_space":"raw", "source_width_px":source.width_px, "source_height_px":source.height_px,
-            "ball_positions_status":position_status, "ball_detection_status":"observed", "ball_radius_source":RADIUS_SOURCE,
+            "ball_positions_status":position_status, "ball_detection_status":"observed", "ball_radius_source":if balls.iter().any(|ball|ball.outline.is_some()) {"per_ball_native_measurements"} else {RADIUS_SOURCE},
             "omitted_track_ids_without_image_position":omitted, "cue_detection_status":snapshot.cue.status,
             "observation_identity":{ "engine_instance_id":snapshot.engine_instance_id, "session_id":source.session_id, "frame_id":source.frame_id, "snapshot_revision":snapshot.snapshot_revision }
         });

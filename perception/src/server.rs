@@ -1379,6 +1379,52 @@ fn validate_live_public_ball(
     {
         return Err("observed public ball differs from the source frame".into());
     }
+    if let Some(outline) = &ball.outline {
+        if !ball.is_observed || ball.position_kind != "measured" || outline.scale != [1.0, 1.0] {
+            return Err(
+                "precise public outline requires a current observed image measurement".into(),
+            );
+        }
+        let source_ball = snapshot
+            .balls
+            .iter()
+            .find(|source| source.track_id == ball.id)
+            .ok_or("public outline has no matching source ball")?;
+        let measurement = source_ball
+            .measurement
+            .as_ref()
+            .ok_or("public outline has no image measurement")?;
+        let original = measurement
+            .image_outline_px
+            .as_ref()
+            .ok_or("public outline is not present in its source measurement")?;
+        let config = PublicStateConfig::default();
+        if source_ball.status != crate::BallStatus::Observed
+            || source_ball.last_observation.frame_id != snapshot.source.frame_id
+            || source_ball.last_observation.session_id != snapshot.source.session_id
+            || source_ball.last_observation.timestamp != snapshot.source.timestamp
+            || outline.points.len() != original.len()
+            || !crate::valid_image_outline(original, measurement.image_center_px)
+        {
+            return Err("public outline differs from the exact current source measurement".into());
+        }
+        let close = |a: f64, b: f64| {
+            a.is_finite()
+                && b.is_finite()
+                && (a - b).abs() <= f64::EPSILON * (1. + a.abs().max(b.abs())) * 16.
+        };
+        for (point, source_point) in outline.points.iter().zip(original) {
+            let x = source_point.x * f64::from(config.canonical_width_px)
+                / f64::from(snapshot.source.width_px);
+            let y = source_point.y * f64::from(config.canonical_height_px)
+                / f64::from(snapshot.source.height_px);
+            if !close(point.x, x) || !close(point.y, y) {
+                return Err(
+                    "public outline coordinates differ from their source-frame geometry".into(),
+                );
+            }
+        }
+    }
     if let Some(position) = &ball.table_position {
         if !finite_point(position.x, position.y)
             || position.unit != "millimeters"
@@ -4981,5 +5027,46 @@ mod tests {
             panic!("expected HTTP not-ready response, got {error}")
         };
         assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    }
+}
+
+#[cfg(test)]
+mod native_outline_delivery_tests {
+    use super::*;
+    #[test]
+    fn public_outline_requires_exact_observed_source_geometry() {
+        let mut snapshot = crate::decode_scene_snapshot_v1(include_bytes!(
+            "../contracts/v1/scene-rust-tracked-success.json"
+        ))
+        .unwrap();
+        let measurement = snapshot.balls[0].measurement.as_mut().unwrap();
+        measurement.image_center_px = crate::Point2d { x: 2., y: 2. };
+        measurement.image_radius_px = Some(crate::Point2d { x: 6., y: 3. });
+        measurement.image_outline_px = Some(vec![
+            crate::Point2d { x: -4., y: 2. },
+            crate::Point2d { x: 2., y: -1. },
+            crate::Point2d { x: 8., y: 2. },
+            crate::Point2d { x: 2., y: 5. },
+        ]);
+        let payload =
+            crate::public_state::SceneSnapshotStateAdapter::new(PublicStateConfig::default())
+                .unwrap()
+                .adapt(&snapshot, None, None)
+                .unwrap()
+                .unwrap();
+        let ball = &payload.balls[0];
+        validate_live_public_ball(ball, &snapshot).unwrap();
+        let mut forged = ball.clone();
+        forged.outline.as_mut().unwrap().points[0].x += 1.;
+        assert!(validate_live_public_ball(&forged, &snapshot).is_err());
+        let mut stale = ball.clone();
+        stale.is_observed = false;
+        assert!(validate_live_public_ball(&stale, &snapshot).is_err());
+        let mut wrong_frame = ball.clone();
+        wrong_frame.source_observation.frame_id = "different-frame".into();
+        assert!(validate_live_public_ball(&wrong_frame, &snapshot).is_err());
+        let mut wrong_scale = ball.clone();
+        wrong_scale.outline.as_mut().unwrap().scale = [2., 2.];
+        assert!(validate_live_public_ball(&wrong_scale, &snapshot).is_err());
     }
 }

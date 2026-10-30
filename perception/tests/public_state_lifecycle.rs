@@ -357,3 +357,48 @@ fn default_lifecycle_policy_is_versioned_and_loaded() {
     );
     assert_eq!(StateLifecycleConfig::default().maximum_balls, 64);
 }
+
+#[test]
+fn native_contour_is_available_only_while_the_source_observation_is_fresh() {
+    use billiards_perception::Point2d;
+    let mut store = lifecycle();
+    activate(&mut store);
+    let mut first = scene();
+    let m = first.balls[0].measurement.as_mut().unwrap();
+    let c = m.image_center_px;
+    m.image_outline_px = Some(vec![
+        Point2d {
+            x: c.x - 2.,
+            y: c.y,
+        },
+        Point2d {
+            x: c.x,
+            y: c.y - 1.,
+        },
+        Point2d {
+            x: c.x + 2.,
+            y: c.y,
+        },
+        Point2d {
+            x: c.x,
+            y: c.y + 1.,
+        },
+    ]);
+    store.ingest(&first, 10, 10, None, None).unwrap();
+    assert!(store.current(50).unwrap().unwrap().payload.balls[0]
+        .outline
+        .is_some());
+    let stale = store.current(110).unwrap().unwrap();
+    assert!(stale
+        .payload
+        .balls
+        .iter()
+        .all(|b| !b.is_observed && b.outline.is_none()));
+    assert!(store
+        .current(510)
+        .unwrap()
+        .unwrap()
+        .payload
+        .balls
+        .is_empty());
+}

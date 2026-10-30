@@ -1,0 +1,118 @@
+{
+  "schema_version": 1,
+  "calibration_revision": 2026102909,
+  "camera_profile_id": "saved-mokose-native4k",
+  "optics_profile_id": "saved-zero-radial-native4k",
+  "optics_revision": 1,
+  "refiner_revision": 9,
+  "table_revision": 1,
+  "rectification_revision": 0,
+  "image_space": "raw",
+  "source_width_px": 3840,
+  "source_height_px": 2160,
+  "table_width_mm": 2336.8,
+  "table_height_mm": 1155.7,
+  "ball_diameter_mm": 57.15,
+  "provenance": "Existing nine user reference positions; no new measurement or image. Coordinate quality is empirical reference consistency, not independent certified millimeter accuracy. Explicit3x geometry derivative, supportedapproximately by saved rail registration; not new independently observed native4K reference positions.",
+  "correspondences": [
+    {
+      "image_point_px": {
+        "x_px": 1928.4134181432175,
+        "y_px": 1083.7306179905574
+      },
+      "center_table_mm": {
+        "x_mm": 3.175,
+        "y_mm": -3.175
+      },
+      "provenance": "middle-row-center-ball; actual detector box; refiner9 accepted; summary thoughts/calibration/actual-gpu-refiner-r9-20261029/summary.json; trace SHA256 a35b7e6c74fc21f06efa61fd951053f4dba5b5f89475eff0df8ce9c76f5b8242; original physical measurement uncertainty unknown"
+    },
+    {
+      "image_point_px": {
+        "x_px": 3591.509792321427,
+        "y_px": 1085.9619092827288
+      },
+      "center_table_mm": {
+        "x_mm": 1139.825,
+        "y_mm": -3.175
+      },
+      "provenance": "far-right-purple-middle-row-ball; actual detector box; refiner9 accepted; summary thoughts/calibration/actual-gpu-refiner-r9-20261029/summary.json; trace SHA256 7dc693939c14118516b28f7b7bd3781d1059a1068de02f360076dffc5388acf4; original physical measurement uncertainty unknown"
+    },
+    {
+      "image_point_px": {
+        "x_px": 287.4832638121627,
+        "y_px": 1086.108054088801
+      },
+      "center_table_mm": {
+        "x_mm": -1139.825,
+        "y_mm": -3.175
+      },
+      "provenance": "far-left-yellow-middle-row-ball; actual detector box; refiner9 accepted; summary thoughts/calibration/actual-gpu-refiner-r9-20261029/summary.json; trace SHA256 b1be015515b07595a79c4b7a3149987e216e499ed8f6b880a24c3cd621c8328f; original physical measurement uncertainty unknown"
+    },
+    {
+      "image_point_px": {
+        "x_px": 1075.574461188211,
+        "y_px": 1091.3028681539336
+      },
+      "center_table_mm": {
+        "x_mm": -596.9,
+        "y_mm": -3.175
+      },
+      "provenance": "interior-purple-second-left-middle-row-ball; actual detector box; refiner9 accepted; summary thoughts/calibration/actual-gpu-refiner-r9-20261029/summary.json; trace SHA256 4077473f8df22d8a14c148d8b4362b9553bd968d113bda3448d2fce109a7d177; original physical measurement uncertainty unknown"
+    },
+    {
+      "image_point_px": {
+        "x_px": 2773.5012507578754,
+        "y_px": 1085.218703373833
+      },
+      "center_table_mm": {
+        "x_mm": 577.85,
+        "y_mm": -3.175
+      },
+      "provenance": "interior-green-second-right-middle-row-ball; actual detector box; refiner9 accepted; summary thoughts/calibration/actual-gpu-refiner-r9-20261029/summary.json; trace SHA256 c8ef5f7d7d105ab440473caccc22298ab1324b86e61d0526b4ebce5828bf1d10; original physical measurement uncertainty unknown"
+    },
+    {
+      "image_point_px": {
+        "x_px": 1057.129219377267,
+        "y_px": 290.5585658654718
+      },
+      "center_table_mm": {
+        "x_mm": -600.075,
+        "y_mm": -549.275
+      },
+      "provenance": "top-orange-solid-second-left-ball; actual detector box; refiner9 accepted; summary thoughts/calibration/actual-gpu-refiner-r9-20261029/summary.json; trace SHA256 51818acfd27b41bfd7f894b0b5d8a5e88f22b14758523ba23f50a3f102ec5540; original physical measurement uncertainty unknown"
+    },
+    {
+      "image_point_px": {
+        "x_px": 2782.718802977466,
+        "y_px": 280.99384498970176
+      },
+      "center_table_mm": {
+        "x_mm": 577.85,
+        "y_mm": -549.275
+      },
+      "provenance": "top-red-striped-second-right-ball; actual detector box; refiner9 accepted; summary thoughts/calibration/actual-gpu-refiner-r9-20261029/summary.json; trace SHA256 a9461a6c8162d4082b0eac9218084e4b5d80cfef6b7bc4c03cf55ca2b387a53f; original physical measurement uncertainty unknown"
+    },
+    {
+      "image_point_px": {
+        "x_px": 1085.9769500596944,
+        "y_px": 1880.1763595793425
+      },
+      "center_table_mm": {
+        "x_mm": -600.075,
+        "y_mm": 549.275
+      },
+      "provenance": "bottom-black-second-left-ball; actual detector box; refiner9 accepted; summary thoughts/calibration/actual-gpu-refiner-r9-20261029/summary.json; trace SHA256 3b8a53d22daa82db292f4b4ad278428b704622bfafc98610fd6b9b487a78a239; original physical measurement uncertainty unknown"
+    },
+    {
+      "image_point_px": {
+        "x_px": 2775.3581653873634,
+        "y_px": 1890.250578269052
+      },
+      "center_table_mm": {
+        "x_mm": 577.85,
+        "y_mm": 549.275
+      },
+      "provenance": "bottom-yellow-second-right-ball; actual detector box; refiner9 accepted; summary thoughts/calibration/actual-gpu-refiner-r9-20261029/summary.json; trace SHA256 713f7f44179f11590b700d471b633c57106ddba770280632af36e438bec5c427; original physical measurement uncertainty unknown"
+    }
+  ]
+}

@@ -49,8 +49,8 @@ pub fn decode_yolo_v8_output(
 
 /// Decode YOLO output after scaling its center/size coordinates into model
 /// pixels. The class-score channels remain unchanged. ONNX exports use model
-/// pixels already; some model contracts may declare normalized coordinates
-/// and supply the model-size scale here.
+/// pixels already; models that emit normalized box coordinates can provide
+/// the corresponding model-size scale through their verified contract.
 // Preserve the explicit public API so callers can pass the model's independent
 // decode thresholds without constructing a one-off options object.
 #[allow(clippy::too_many_arguments)]

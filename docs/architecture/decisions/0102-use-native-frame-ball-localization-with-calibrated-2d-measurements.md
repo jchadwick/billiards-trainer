@@ -301,3 +301,15 @@ ADR-0104 replaces the Coral assignment with explicit Intel GPU inference after
 actual target measurements showed 69.68 ms GPU versus 1551.04 ms Coral inference
 p95 on saved pixels. Native Rust execution on GPU.0 has also been verified.
 Other native-frame and measurement contracts remain valid.
+
+## Follow-up — 2026-10-29: deterministic geometry implementation accepted
+
+ADR-0103 records the implemented deterministic contour search, complete source
+ROI sampling, exact-frame contour propagation, and revised calibration solver.
+Its six-point minimum with full and leave-one-out validation replaces the
+twelve-point minimum described in the earlier estimator-stability follow-up.
+That older threshold and its zero-acceptance findings remain historical
+evidence, not current implementation requirements. The revision improves
+measured availability on saved images; it does not establish independent
+physical X/Y accuracy or activate a production calibration. ADR-0103 also
+preserves the R10 replay results and their static, upscaled-image limitations.

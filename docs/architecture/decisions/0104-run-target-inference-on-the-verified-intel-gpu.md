@@ -90,3 +90,18 @@ selected target configuration and preserve a separate recoverable release.
   GPU proposal refinement, then simultaneous JPEG decoding and inference with
   bounded memory and frame-age reporting. Short Python timings alone do not
   qualify deployment or millimeter accuracy.
+
+## Follow-up — 2026-10-29: saved 5 FPS replay is stable on a repeated static image
+
+The target Rust qualification package used VA-API JPEG decode and explicit
+OpenVINO Intel GPU inference with the existing `[1,1280,1280,3]` model input.
+In a 60-second replay, a saved 1280 × 720 image enlarged to 3840 × 2160 was
+repeatedly supplied at 5 FPS. The source delivered 304 frames (5.002 FPS), all
+304 received motion checks, and 600 public-state samples had fresh positions
+for all 15 balls, with no detector, cue, overload, or obsolete-result failures.
+
+This supports continuous availability on that static fixture and configuration.
+It is not a live-camera, native-4K, moving-ball, changing-light, or independent
+physical-accuracy test. It does not select production FPS, qualify shot coaching,
+or authorize deployment. Exact inputs, outputs, and limitations are recorded in
+`thoughts/calibration/refiner-r10-validation-20261029/r10-scheduler-and-corner-availability.md`.

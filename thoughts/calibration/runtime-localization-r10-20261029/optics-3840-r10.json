@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "optics_profile_id": "mokose-uc40m-zero-radial-native4k-20261029",
+  "camera_profile_id": "camera-profile-v3:e57dc2f6a97684f78a68a7407cd0b04c20e9ef732a8abc8b091804928e5bc3cb",
+  "optics_revision": 1,
+  "refiner_revision": 10,
+  "image_space": "raw",
+  "intrinsics": {
+    "source_width_px": 3840,
+    "source_height_px": 2160,
+    "fx": 2088.519474008947,
+    "fy": 2086.0835316279095,
+    "cx": 1932.526687406522,
+    "cy": 1049.014571750703
+  },
+  "provenance": "Frozen earlier zero-radial model; native4K scaling explicitly supported approximately by saved rail registration (max .373px720); exploratory optical parameters, not proof of zero distortion. Explicit import to selected4K5FPS profile derived by production capture-settings builder; source framing linked by saved static-rail registration; not new native4K physical references. R10 refiner compatibility; intrinsics unchanged. No independent native4K calibration."
+}

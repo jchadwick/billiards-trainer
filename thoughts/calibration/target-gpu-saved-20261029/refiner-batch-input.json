@@ -1,0 +1,161 @@
+{
+  "scenes": [
+    {
+      "id": "actual-target-gpu-measured-720",
+      "source_path": "thoughts/calibration/table-grid-20261026-114241.jpg",
+      "source_sha256": "06ef40f52e0f93db17601585c4ed1d014895aaadcaf6b04c6abbd6e986d57e7b",
+      "detections": [
+        {
+          "index": 0,
+          "class_name": "ball",
+          "bbox_xyxy_source_px": [
+            75.46875,
+            346.0,
+            117.28125,
+            380.0
+          ]
+        },
+        {
+          "index": 1,
+          "class_name": "ball",
+          "bbox_xyxy_source_px": [
+            83.34375,
+            90.125,
+            122.65625,
+            123.875
+          ]
+        },
+        {
+          "index": 2,
+          "class_name": "ball",
+          "bbox_xyxy_source_px": [
+            85.84375,
+            600.25,
+            127.65625,
+            635.75
+          ]
+        },
+        {
+          "index": 3,
+          "class_name": "ball",
+          "bbox_xyxy_source_px": [
+            333.625,
+            79.125,
+            371.375,
+            115.875
+          ]
+        },
+        {
+          "index": 4,
+          "class_name": "ball",
+          "bbox_xyxy_source_px": [
+            342.125,
+            347.5,
+            375.875,
+            381.5
+          ]
+        },
+        {
+          "index": 5,
+          "class_name": "ball",
+          "bbox_xyxy_source_px": [
+            344.875,
+            609.5,
+            380.125,
+            643.5
+          ]
+        },
+        {
+          "index": 6,
+          "class_name": "ball",
+          "bbox_xyxy_source_px": [
+            624.0,
+            80.0,
+            660.0,
+            116.0
+          ]
+        },
+        {
+          "index": 7,
+          "class_name": "ball",
+          "bbox_xyxy_source_px": [
+            625.25,
+            612.5,
+            658.75,
+            646.5
+          ]
+        },
+        {
+          "index": 8,
+          "class_name": "ball",
+          "bbox_xyxy_source_px": [
+            628.25,
+            345.5,
+            659.75,
+            378.5
+          ]
+        },
+        {
+          "index": 9,
+          "class_name": "ball",
+          "bbox_xyxy_source_px": [
+            909.0,
+            346.0,
+            941.0,
+            380.0
+          ]
+        },
+        {
+          "index": 10,
+          "class_name": "ball",
+          "bbox_xyxy_source_px": [
+            906.5,
+            612.75,
+            945.5,
+            649.25
+          ]
+        },
+        {
+          "index": 11,
+          "class_name": "ball",
+          "bbox_xyxy_source_px": [
+            910.0,
+            76.0,
+            947.0,
+            113.0
+          ]
+        },
+        {
+          "index": 12,
+          "class_name": "ball",
+          "bbox_xyxy_source_px": [
+            1171.0,
+            610.0,
+            1209.0,
+            647.0
+          ]
+        },
+        {
+          "index": 13,
+          "class_name": "ball",
+          "bbox_xyxy_source_px": [
+            1174.0,
+            78.25,
+            1218.0,
+            115.75
+          ]
+        },
+        {
+          "index": 14,
+          "class_name": "ball",
+          "bbox_xyxy_source_px": [
+            1177.5,
+            346.25,
+            1218.5,
+            379.75
+          ]
+        }
+      ]
+    }
+  ]
+}

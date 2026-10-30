@@ -350,6 +350,10 @@
             "y": { "type": "number", "exclusiveMinimum": 0 }
           }
         },
+        "image_outline_px": {
+          "type": "array", "minItems": 3, "maxItems": 512,
+          "items": { "$ref": "#/$defs/point2d" }
+        },
         "image_space": { "enum": ["raw", "rectified"] },
         "image_width_px": { "type": "integer", "minimum": 1 },
         "image_height_px": { "type": "integer", "minimum": 1 },

@@ -60,7 +60,10 @@ fn production_live_application_rejects_cpu_before_capture_or_model_startup() {
             r#"{"recovering":{"motion_hz":15,"ball_hz":5,"cue_hz":5},"pre_shot":{"motion_hz":15,"ball_hz":1,"cue_hz":5},"aiming":{"motion_hz":15,"ball_hz":1,"cue_hz":5},"shot":{"motion_hz":15,"ball_hz":0,"cue_hz":0},"quiet_dwell_ms":800,"layout_consensus_count":3,"layout_position_tolerance_px":4.0,"motion_evidence_expiry_ms":200,"cue_evidence_expiry_ms":250,"layout_evidence_expiry_ms":1500}"#,
         )
         .unwrap(),
-        table_visibility: billiards_perception::table_visibility::TableVisibilityConfig::default(),
+        table_visibility:
+            billiards_perception::table_visibility::TableVisibilityConfig::default(),
+        ball_localization:
+            billiards_perception::ball_localization_profile::BallLocalizationSettings::default(),
         scene_transport: SceneTransportConfig {
             address: SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
             maximum_message_bytes: 64 * 1024,
@@ -87,5 +90,5 @@ fn production_live_application_rejects_cpu_before_capture_or_model_startup() {
 
     assert!(error
         .to_string()
-        .contains("requires the OpenVINO GPU provider"));
+        .contains("requires the OpenVINO GPU inference provider"));
 }

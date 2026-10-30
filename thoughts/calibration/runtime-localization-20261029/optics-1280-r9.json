@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "optics_profile_id": "saved-zero-radial-720",
+  "camera_profile_id": "saved-mokose-720",
+  "optics_revision": 1,
+  "refiner_revision": 9,
+  "image_space": "raw",
+  "intrinsics": {
+    "source_width_px": 1280,
+    "source_height_px": 720,
+    "fx": 696.1731580029823,
+    "fy": 695.3611772093032,
+    "cx": 644.1755624688407,
+    "cy": 349.67152391690104
+  },
+  "provenance": "Frozen earlier zero-radial model; native4K scaling explicitly supported approximately by saved rail registration (max .373px720); exploratory optical parameters, not proof of zero distortion."
+}

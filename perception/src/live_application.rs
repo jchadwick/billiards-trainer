@@ -12,10 +12,12 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use crate::ball_localization_profile::{BallLocalizationSettings, LoadedBallLocalizationProfile};
 use crate::calibration_store::{CalibrationCaptureContextV1, CalibrationStore};
 use crate::capture::{CaptureReceiveOutcome, CaptureRuntimeWait, CaptureSourceFactory};
 use crate::capture_pipeline::{
     AppliedCaptureCalibration, CapturePipelineConfig, CapturePipelineOutcome,
+    LocalizedFrameDetector,
 };
 use crate::capture_runtime::{LiveCaptureLifecycle, LiveCaptureRuntime};
 use crate::capture_settings_wire::parse_capture_settings_json;
@@ -34,6 +36,7 @@ use serde_json::Value;
 /// The fixed schema is far smaller than this limit; the bound protects process
 /// creation if the wire contract grows unexpectedly.
 const MAX_PHASE_SCHEDULE_JSON_BYTES: usize = 4 * 1024;
+const MAX_BALL_LOCALIZATION_JSON_BYTES: usize = 64 * 1024;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -144,6 +147,27 @@ pub fn parse_phase_schedule_json(json: &str) -> Result<SchedulerConfig> {
     wire.into_scheduler_config()
 }
 
+/// Parse the supervisor's bounded typed optics/localization settings. Missing
+/// input uses the one canonical settings object with precision unavailable
+/// until a verified profile is configured.
+pub fn parse_ball_localization_settings_json(
+    json: Option<&str>,
+) -> Result<BallLocalizationSettings> {
+    let settings = match json {
+        Some(json) => {
+            ensure!(
+                json.len() <= MAX_BALL_LOCALIZATION_JSON_BYTES,
+                "ball localization JSON exceeds the {MAX_BALL_LOCALIZATION_JSON_BYTES}-byte limit"
+            );
+            serde_json::from_str(json)
+                .context("ball localization JSON does not match the typed runtime contract")?
+        }
+        None => BallLocalizationSettings::default(),
+    };
+    settings.validate()?;
+    Ok(settings)
+}
+
 /// Validate and compact the effective configuration schedule for the single
 /// child-process argument. The configuration authority remains the source of
 /// defaults; missing or malformed fields are rejected here rather than guessed.
@@ -195,6 +219,7 @@ pub struct LiveApplicationSettings {
     /// Validated appearance policy bound to the operator-confirmed calibration
     /// reference. A missing reference always keeps guidance disabled.
     pub table_visibility: TableVisibilityConfig,
+    pub ball_localization: BallLocalizationSettings,
     pub scene_transport: SceneTransportConfig,
     pub startup_timeout: Duration,
     pub poll_interval: Duration,
@@ -287,7 +312,7 @@ pub fn run_live_application_with_audit<F: CaptureSourceFactory>(
 ) -> Result<()> {
     ensure!(
         settings.provider == ProviderSelection::Openvino,
-        "live perception requires the OpenVINO GPU provider"
+        "live application requires the OpenVINO GPU inference provider"
     );
     ensure!(
         exact_capture_settings_json.len() <= settings.capture_settings_maximum_bytes,
@@ -353,6 +378,37 @@ pub fn run_live_application_with_audit<F: CaptureSourceFactory>(
         expected.rectification_revision() == settings.tracking_rectification_revision,
         "tracking rectification revision differs from the exact capture request"
     );
+    settings.ball_localization.validate()?;
+    let output_geometry = expected.output_frame_geometry().unwrap_or_else(|| {
+        crate::capture::CaptureOutputFrameGeometry::new(
+            expected.expected_negotiated_profile().width_px(),
+            expected.expected_negotiated_profile().height_px(),
+        )
+        .expect("validated expected camera profile has positive dimensions")
+    });
+    let localization_profile = match LoadedBallLocalizationProfile::load_for_frame(
+        settings.ball_localization.clone(),
+        expected.camera_profile_id(),
+        expected.image_space(),
+        output_geometry.width_px(),
+        output_geometry.height_px(),
+        expected.rectification_revision(),
+    ) {
+        Ok(profile) => {
+            if let Some(error) = profile.calibration_error.as_deref() {
+                eprintln!(
+                    "ball-center calibration unavailable; native image centers remain available but precise table positions are suppressed: {error}"
+                );
+            }
+            Some(Arc::new(profile))
+        }
+        Err(error) => {
+            eprintln!(
+                    "ball localization profile unavailable; precise table positions are suppressed: {error:#}"
+                );
+            None
+        }
+    };
 
     let inference_options = FrameInferenceOptions {
         onnx_path: settings.onnx_path.clone(),
@@ -369,6 +425,16 @@ pub fn run_live_application_with_audit<F: CaptureSourceFactory>(
 
     warm_up_detector(&mut detector, expected, settings.warmup_runs)
         .context("live detector warm-up failed")?;
+
+    let detector = LocalizedFrameDetector::new(
+        detector,
+        localization_profile.clone(),
+        settings.tracking_ball_class_id,
+        batch_image_space(expected.image_space()),
+        expected.configuration_revision(),
+        expected.camera_profile_id(),
+    )
+    .context("failed to configure same-frame ball localization")?;
 
     let calibration = expected
         .calibration()
@@ -431,9 +497,11 @@ pub fn run_live_application_with_audit<F: CaptureSourceFactory>(
     let pipeline = CapturePipelineConfig {
         engine_instance_id: settings.engine_instance_id,
         capture_configuration_revision: resolved.configuration_revision,
+        capture_calibration_revision: expected.calibration_revision(),
         image_space: batch_image_space(expected.image_space()),
         maximum_frame_age: expected.maximum_frame_age(),
         phase_schedule: Some(settings.phase_schedule.clone()),
+        localization_profile,
         calibration,
         scene_transport: settings.scene_transport,
     };

@@ -1,0 +1,59 @@
+{
+  "schema_version": 1,
+  "created_date": "2026-10-27",
+  "purpose": "Manually reviewed coarse regions to run contour-only diagnostics on saved reserved scenes. These boxes are not detector output, center labels, physical ground truth, or unseen validation data.",
+  "review_provenance": {
+    "method": "Visual review of the repository's saved raw JPEGs, with coordinates measured in each source image's pixel grid.",
+    "reviewer": "Codex",
+    "limitations": [
+      "Approximate proposal centers are used only to seed a crop; they are not image-center truth.",
+      "Pocket-jaw and cushion labels are qualitative visibility notes from the saved frame.",
+      "Neither scene has matching independent physical X/Y reference positions.",
+      "Both scenes were previously inspected and are reserved checks, not blind holdouts."
+    ]
+  },
+  "proposal_sets": [
+    {
+      "image_id": "alternate-grid-720",
+      "path": "thoughts/calibration/table-grid-2026-10-26.jpg",
+      "sha256": "8371e508f79c5556cfd2fe6632b9095ba87d8f7052741b2f6b01563b448c385b",
+      "dimensions_px": [1280, 720],
+      "optics_model_id": "frozen_zero_radial_720",
+      "optics_status": "exploratory_only_not_activated",
+      "arrangement_id": "alternate-grid-2026-10-26",
+      "proposals_are_detector_output": false,
+      "proposals": [
+        {"id":"alt-top-left-pocket","detection_index":0,"appearance":"dark solid","center_px_approx":[102.0,105.0],"bbox_side_px":44.0,"visibility":"partial_pocket_jaw_occlusion","notes":"Near upper-left pocket jaw; visible outline is incomplete."},
+        {"id":"alt-top-orange","detection_index":1,"appearance":"orange solid","center_px_approx":[360.0,97.0],"bbox_side_px":40.0,"visibility":"fully_visible","notes":"Near top rail; no clear jaw overlap."},
+        {"id":"alt-top-yellow-stripe","detection_index":2,"appearance":"yellow stripe","center_px_approx":[634.0,96.0],"bbox_side_px":40.0,"visibility":"near_top_center_pocket","notes":"Close to the top-center pocket opening; review boundary support against rail and pocket background."},
+        {"id":"alt-top-red-stripe","detection_index":3,"appearance":"red stripe","center_px_approx":[931.0,95.0],"bbox_side_px":40.0,"visibility":"probable_top_rail_contact","notes":"Close to top cushion; no clear pocket-jaw overlap."},
+        {"id":"alt-top-right-cue","detection_index":4,"appearance":"cue ball","center_px_approx":[1197.0,96.0],"bbox_side_px":44.0,"visibility":"partial_pocket_jaw_occlusion","notes":"Near upper-right pocket jaw; visible outline is incomplete."},
+        {"id":"alt-middle-left-yellow","detection_index":5,"appearance":"yellow solid","center_px_approx":[96.0,360.0],"bbox_side_px":40.0,"visibility":"left_rail_contact","notes":"Touches or nearly touches the left cushion."},
+        {"id":"alt-middle-left-purple-stripe","detection_index":6,"appearance":"purple stripe","center_px_approx":[362.0,362.0],"bbox_side_px":40.0,"visibility":"fully_visible","notes":"Interior ball."},
+        {"id":"alt-middle-red-stripe","detection_index":7,"appearance":"red stripe","center_px_approx":[632.0,363.0],"bbox_side_px":40.0,"visibility":"fully_visible","notes":"Interior ball."},
+        {"id":"alt-middle-green-stripe","detection_index":8,"appearance":"green stripe","center_px_approx":[926.0,363.0],"bbox_side_px":40.0,"visibility":"fully_visible","notes":"Interior ball."},
+        {"id":"alt-middle-right-purple","detection_index":9,"appearance":"purple solid","center_px_approx":[1198.0,363.0],"bbox_side_px":40.0,"visibility":"right_rail_contact","notes":"Touches or nearly touches the right cushion."},
+        {"id":"alt-bottom-left-red","detection_index":10,"appearance":"red solid","center_px_approx":[107.0,620.0],"bbox_side_px":44.0,"visibility":"partial_pocket_jaw_occlusion","notes":"Near lower-left pocket jaw; visible outline is incomplete."},
+        {"id":"alt-bottom-black","detection_index":11,"appearance":"black solid","center_px_approx":[370.0,626.0],"bbox_side_px":40.0,"visibility":"bottom_rail_contact","notes":"Near bottom cushion."},
+        {"id":"alt-bottom-center-red-stripe","detection_index":12,"appearance":"red stripe","center_px_approx":[641.0,631.0],"bbox_side_px":44.0,"visibility":"near_bottom_center_pocket","notes":"Near the bottom-center pocket jaw; review contour support around the opening."},
+        {"id":"alt-bottom-yellow","detection_index":13,"appearance":"yellow solid","center_px_approx":[925.0,630.0],"bbox_side_px":40.0,"visibility":"bottom_rail_contact","notes":"Near bottom cushion."},
+        {"id":"alt-bottom-right-blue-stripe","detection_index":14,"appearance":"blue stripe","center_px_approx":[1191.0,628.0],"bbox_side_px":44.0,"visibility":"partial_pocket_jaw_occlusion","notes":"Near lower-right pocket jaw; visible outline is incomplete."}
+      ]
+    },
+    {
+      "image_id": "framing-after-4k",
+      "path": "thoughts/calibration/stream-4k-verification/after.jpg",
+      "sha256": "5d88a4d6037e7718723916b3af6c930f8020ddcb03e008122e9c8fadc5530206",
+      "dimensions_px": [3840, 2160],
+      "optics_model_id": "scaled_frozen_zero_radial_4k_diagnostic",
+      "optics_status": "derived_diagnostic_only_not_qualified_for_runtime",
+      "arrangement_id": "framing-verification-after",
+      "proposals_are_detector_output": false,
+      "proposals": [
+        {"id":"4k-top-left-orange","detection_index":0,"appearance":"orange solid","center_px_approx":[1056.0,288.0],"bbox_side_px":84.0,"visibility":"fully_visible_near_top_rail","notes":"Coarse crop region on the left of the top row."},
+        {"id":"4k-top-center-striped","detection_index":1,"appearance":"orange/yellow stripe","center_px_approx":[1926.0,291.0],"bbox_side_px":84.0,"visibility":"fully_visible_near_top_rail","notes":"Coarse crop region near the top-center pocket."},
+        {"id":"4k-top-right-red-stripe","detection_index":2,"appearance":"red stripe","center_px_approx":[2783.0,288.0],"bbox_side_px":84.0,"visibility":"fully_visible_near_top_rail","notes":"Coarse crop region on the right of the top row."}
+      ]
+    }
+  ]
+}

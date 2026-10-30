@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "script_sha256": "d43e9c4fc76ead127e7c96813a7ca0a2f64a826233be68c20086a2863594e516",
+  "self_test": "passed known intersections, shifted initialization, blur, absent corner, neighbor attraction, topology, reviewed parity coverage, source/config/revision binding, frozen intrinsic-fit guard and training-membership identity",
+  "unreviewed_export_exit_code": 2,
+  "unreviewed_export_reason": "No eligible scoring views while pixel review pending",
+  "reproduced_artifact_count": 38,
+  "reproduction": "byte-identical in separate output directory",
+  "sessions": {
+    "checkerboard-20x14-session": 8,
+    "checkerboard-session": 9
+  },
+  "camera_access": false,
+  "production_changes": false,
+  "source_images_and_manifests": "all original JPEG, decoded image and manifest hashes checked without modifying any source"
+}
