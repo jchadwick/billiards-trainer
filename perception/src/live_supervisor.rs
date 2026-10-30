@@ -194,60 +194,8 @@ impl LiveProcessConfig {
         let capture_source = capture_source(configuration)?;
         let mut arguments = Vec::new();
         let provider = required_string(live, "provider")?;
-        let mut coral_nms_iou = None;
         match provider.as_str() {
-            "coral" => {
-                let coral_runtime = live
-                    .get("coral_runtime")
-                    .and_then(Value::as_object)
-                    .ok_or_else(|| {
-                        "perception.rust_live.coral_runtime must be an object".to_owned()
-                    })?;
-                let nms_iou = required_f64(coral_runtime, "nms_iou_threshold")?;
-                if !(0.0..=1.0).contains(&nms_iou) {
-                    return Err("perception.rust_live.coral_runtime.nms_iou_threshold must be between zero and one".to_owned());
-                }
-                coral_nms_iou = Some(nms_iou);
-                for (config_key, argument) in [
-                    (
-                        "worker_restart_backoff_ms",
-                        "coral-worker-restart-backoff-ms",
-                    ),
-                    (
-                        "maximum_worker_restarts_per_frame",
-                        "coral-maximum-worker-restarts-per-frame",
-                    ),
-                ] {
-                    let value = coral_runtime
-                        .get(config_key)
-                        .filter(|value| value.as_u64().is_some_and(|number| number > 0))
-                        .ok_or_else(|| {
-                            format!("perception.rust_live.coral_runtime.{config_key} must be a positive integer")
-                        })?;
-                    push_value_argument_named(&mut arguments, argument, value)?;
-                }
-                push_config_argument(
-                    &mut arguments,
-                    live,
-                    "coral_model_path",
-                    "coral-model",
-                    &project_root,
-                    true,
-                )?;
-                push_text_argument(
-                    &mut arguments,
-                    live,
-                    "coral_python_executable",
-                    "coral-python",
-                )?;
-                push_text_argument(
-                    &mut arguments,
-                    live,
-                    "coral_delegate_library",
-                    "coral-delegate",
-                )?;
-            }
-            "cpu" | "auto" | "openvino" => push_config_argument(
+            "openvino" => push_config_argument(
                 &mut arguments,
                 live,
                 "onnx_path",
@@ -303,11 +251,7 @@ impl LiveProcessConfig {
         ] {
             push_value_argument(&mut arguments, live, config_key, argument)?;
         }
-        if let Some(iou_threshold) = coral_nms_iou {
-            push_argument(&mut arguments, "iou", iou_threshold.to_string());
-        } else {
-            push_value_argument(&mut arguments, live, "iou", "iou")?;
-        }
+        push_value_argument(&mut arguments, live, "iou", "iou")?;
         if let Some(threads) = live
             .get("intra_op_threads")
             .filter(|value| !value.is_null())
@@ -682,51 +626,11 @@ fn required_string(values: &serde_json::Map<String, Value>, key: &str) -> Result
         .ok_or_else(|| format!("perception.rust_live.{key} must be a non-empty string"))
 }
 
-/// Apply the Coral-specific evidence windows to the shared scheduler contract.
-/// Coral inference completes much less frequently than the CPU provider, so
-/// the generic motion/layout windows can expire before a valid result returns.
+/// Resolve the common phase schedule directly from live configuration.
 fn effective_phase_schedule(live: &serde_json::Map<String, Value>) -> Result<Value, String> {
-    let mut phase_schedule = live
-        .get("phase_schedule")
+    live.get("phase_schedule")
         .cloned()
-        .ok_or_else(|| "perception.rust_live.phase_schedule is missing".to_owned())?;
-    if required_string(live, "provider")? != "coral" {
-        return Ok(phase_schedule);
-    }
-
-    let coral_runtime = live
-        .get("coral_runtime")
-        .and_then(Value::as_object)
-        .ok_or_else(|| "perception.rust_live.coral_runtime must be an object".to_owned())?;
-    for key in ["motion_evidence_expiry_ms", "layout_evidence_expiry_ms"] {
-        let value = coral_runtime
-            .get(key)
-            .filter(|value| value.as_u64().is_some_and(|milliseconds| milliseconds > 0))
-            .cloned()
-            .ok_or_else(|| {
-                format!("perception.rust_live.coral_runtime.{key} must be a positive integer")
-            })?;
-        phase_schedule[key] = value;
-    }
-    let shot_ball_hz = coral_runtime
-        .get("shot_ball_hz")
-        .and_then(Value::as_f64)
-        .filter(|rate| rate.is_finite() && (0.0..=60.0).contains(rate))
-        .ok_or_else(|| {
-            "perception.rust_live.coral_runtime.shot_ball_hz must be finite and between zero and 60"
-                .to_owned()
-        })?;
-    phase_schedule["shot"]["ball_hz"] = Value::from(shot_ball_hz);
-    let tolerance = coral_runtime
-        .get("layout_position_tolerance_px")
-        .and_then(Value::as_f64)
-        .filter(|value| value.is_finite() && *value > 0.0)
-        .ok_or_else(|| {
-            "perception.rust_live.coral_runtime.layout_position_tolerance_px must be positive"
-                .to_owned()
-        })?;
-    phase_schedule["layout_position_tolerance_px"] = Value::from(tolerance);
-    Ok(phase_schedule)
+        .ok_or_else(|| "perception.rust_live.phase_schedule is missing".to_owned())
 }
 
 fn required_u64(values: &serde_json::Map<String, Value>, key: &str) -> Result<u64, String> {
@@ -791,17 +695,6 @@ fn push_config_argument(
     }
     let path = resolve_configured_path(Path::new(raw), project_root)?;
     push_argument(arguments, argument, path.display().to_string());
-    Ok(())
-}
-
-fn push_text_argument(
-    arguments: &mut Vec<String>,
-    live: &serde_json::Map<String, Value>,
-    key: &str,
-    argument: &str,
-) -> Result<(), String> {
-    let value = required_string(live, key)?;
-    push_argument(arguments, argument, value);
     Ok(())
 }
 
@@ -1010,67 +903,26 @@ mod tests {
     }
 
     #[test]
-    fn coral_provider_uses_the_compiled_tflite_artifact_and_runtime_settings() {
-        let project = tempfile::tempdir().unwrap();
-        let mut configuration = remote_stream_config();
-        let live = &mut configuration["perception"]["rust_live"];
-        live["provider"] = Value::String("coral".to_owned());
-        live["coral_model_path"] =
-            Value::String("models/exports/coral/detector_edgetpu.tflite".to_owned());
-        live["coral_python_executable"] = Value::String("python3.11".to_owned());
-        live["coral_delegate_library"] = Value::String("/usr/lib/libedgetpu.so.1".to_owned());
+    fn rejects_non_openvino_providers_before_spawn() {
+        for provider in ["cpu", "auto", "coral"] {
+            let project = tempfile::tempdir().unwrap();
+            let mut configuration = remote_stream_config();
+            configuration["perception"]["rust_live"]["provider"] =
+                Value::String(provider.to_owned());
 
-        let config = LiveProcessConfig::from_effective_configuration(
-            &configuration,
-            project.path(),
-            "127.0.0.1:49321".parse().unwrap(),
-            None,
-            None,
-            None,
-        )
-        .unwrap();
-
-        let coral_model_argument = config
-            .arguments
-            .iter()
-            .position(|argument| argument == "--coral-model")
-            .unwrap();
-        assert_eq!(
-            config.arguments[coral_model_argument + 1],
-            project
-                .path()
-                .canonicalize()
-                .unwrap()
-                .join("models/exports/coral/detector_edgetpu.tflite")
-                .display()
-                .to_string()
-        );
-        assert!(config
-            .arguments
-            .windows(2)
-            .any(|pair| pair == ["--coral-python", "python3.11"]));
-        assert!(config
-            .arguments
-            .windows(2)
-            .any(|pair| { pair == ["--coral-delegate", "/usr/lib/libedgetpu.so.1"] }));
-        assert!(!config.arguments.contains(&"--onnx".to_owned()));
-
-        let schedule_index = config
-            .arguments
-            .iter()
-            .position(|argument| argument == "--phase-schedule-json")
-            .unwrap();
-        let schedule: Value = serde_json::from_str(&config.arguments[schedule_index + 1]).unwrap();
-        assert_eq!(schedule["motion_evidence_expiry_ms"], 3000);
-        assert_eq!(schedule["layout_evidence_expiry_ms"], 10000);
-        assert_eq!(schedule["layout_position_tolerance_px"], 10.0);
-        assert_eq!(schedule["shot"]["ball_hz"], 1.0);
-        let iou_index = config
-            .arguments
-            .iter()
-            .position(|argument| argument == "--iou")
-            .unwrap();
-        assert_eq!(config.arguments[iou_index + 1], "0.2");
+            let error = LiveProcessConfig::from_effective_configuration(
+                &configuration,
+                project.path(),
+                "127.0.0.1:49321".parse().unwrap(),
+                None,
+                None,
+                None,
+            )
+            .unwrap_err();
+            assert!(error.contains(&format!(
+                "unsupported perception.rust_live.provider: {provider}"
+            )));
+        }
     }
 
     #[test]
@@ -1124,41 +976,6 @@ mod tests {
         )
         .unwrap_err();
         assert!(error.contains("perception.rust_live.phase_schedule is missing"));
-    }
-
-    #[test]
-    fn rejects_invalid_coral_shot_ball_rate_before_spawn() {
-        let project = tempfile::tempdir().unwrap();
-        for rate in [-1.0, 61.0] {
-            let mut configuration = remote_stream_config();
-            configuration["perception"]["rust_live"]["provider"] =
-                Value::String("coral".to_owned());
-            configuration["perception"]["rust_live"]["coral_runtime"]["shot_ball_hz"] =
-                serde_json::json!(rate);
-            let error = LiveProcessConfig::from_effective_configuration(
-                &configuration,
-                project.path(),
-                "127.0.0.1:49321".parse().unwrap(),
-                None,
-                None,
-                None,
-            )
-            .unwrap_err();
-            assert!(error.contains("coral_runtime.shot_ball_hz"));
-        }
-        let mut configuration = remote_stream_config();
-        configuration["perception"]["rust_live"]["provider"] = Value::String("coral".to_owned());
-        configuration["perception"]["rust_live"]["coral_runtime"]["shot_ball_hz"] = Value::Null;
-        let error = LiveProcessConfig::from_effective_configuration(
-            &configuration,
-            project.path(),
-            "127.0.0.1:49321".parse().unwrap(),
-            None,
-            None,
-            None,
-        )
-        .unwrap_err();
-        assert!(error.contains("coral_runtime.shot_ball_hz"));
     }
 
     #[test]

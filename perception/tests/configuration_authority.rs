@@ -56,17 +56,19 @@ fn snapshot_schema_and_defaults_are_embedded_and_use_temporary_store_path() {
         defaults["configuration"]["metadata"]["configuration_revision"],
         1
     );
-    assert!(
-        schema["schema"]["properties"]["perception"]["properties"]["rust_live"]["properties"]
-            ["provider"]["enum"]
-            .as_array()
-            .unwrap()
-            .contains(&json!("coral"))
-    );
+    let provider_values = schema["schema"]["properties"]["perception"]["properties"]["rust_live"]
+        ["properties"]["provider"]["enum"]
+        .as_array()
+        .unwrap();
+    assert_eq!(provider_values, &[json!("openvino")]);
+    assert!(!provider_values.contains(&json!("coral")));
     assert_eq!(
-        defaults["configuration"]["perception"]["rust_live"]["coral_python_executable"],
-        "python3"
+        defaults["configuration"]["perception"]["rust_live"]["provider"],
+        "openvino"
     );
+    assert!(defaults["configuration"]["perception"]["rust_live"]
+        .get("coral_runtime")
+        .is_none());
     assert_eq!(
         defaults["configuration"]["perception"]["freshness"]["expire_after_ms"],
         1_000
@@ -377,6 +379,34 @@ fn full_merged_validation_rejects_cross_field_invalid_update_without_writing() {
         !config_path.exists(),
         "failed validation must leave disk unchanged"
     );
+}
+
+#[test]
+fn update_rejects_non_openvino_live_inference_providers() {
+    for provider in ["cpu", "auto", "coral"] {
+        let directory = TempDir::new().expect("temporary directory");
+        let (authority, config_path) = authority(&directory);
+        let response = call(
+            &authority,
+            json!({
+                "protocol_version": 1,
+                "operation": "update",
+                "expected_revision": 1,
+                "data": {"perception": {"rust_live": {"provider": provider}}}
+            }),
+        );
+
+        assert_eq!(response["error"]["code"], "validation_failed");
+        assert!(response["validation_errors"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|error| error["field"] == "perception.rust_live.provider"));
+        assert!(
+            !config_path.exists(),
+            "rejected provider updates must leave the active configuration unchanged"
+        );
+    }
 }
 
 #[test]

@@ -151,11 +151,6 @@ fn live_settings(
     LiveApplicationSettings {
         onnx_path: Some(onnx_path),
         source_checkpoint_path,
-        coral_model_path: None,
-        coral_python_executable: std::path::PathBuf::from("python3"),
-        coral_delegate_library: "libedgetpu.so.1".to_owned(),
-        coral_worker_restart_backoff: Duration::from_millis(1),
-        coral_maximum_worker_restarts_per_frame: 1,
         provider: ProviderSelection::Cpu,
         image_size: 32,
         confidence: 0.4,

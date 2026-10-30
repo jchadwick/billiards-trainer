@@ -792,7 +792,12 @@ impl<D: Rgb8FrameDetector + Send + 'static> LiveCaptureRuntime<D> {
             .as_mut()
             .context("phase-aware runtime is missing its scheduler")?;
         let phase_before = scheduler.phase();
-        let mut decision = scheduler
+        // Scheduling happens exactly once for each source frame. Motion and
+        // asynchronous cue observations may change the phase below; the
+        // scheduler records those transitions and resets deadlines itself.
+        // Refresh evidence after those observations, but do not tick again:
+        // a second tick can consume a just-due slot that this frame cannot run.
+        let decision = scheduler
             .tick(now, WorkAvailability::default())
             .context("phase scheduler rejected runtime clock")?;
         self.accumulate_trusted_time(now);
@@ -883,18 +888,6 @@ impl<D: Rgb8FrameDetector + Send + 'static> LiveCaptureRuntime<D> {
             .as_ref()
             .expect("scheduler was checked above")
             .phase();
-        if phase_after_motion != phase_before {
-            // A transition resets deadlines at `now`; re-evaluate only the
-            // new-phase jobs, and never repeat the same lightweight check.
-            decision = self
-                .phase_scheduler
-                .as_mut()
-                .expect("scheduler was checked above")
-                .tick(now, WorkAvailability::default())
-                .context("phase scheduler rejected phase transition")?;
-            decision.run_motion = false;
-        }
-
         // Accept cue work only after the current frame's motion evidence has
         // invalidated any older worker result. The estimator owns a second
         // lease over the same budgeted pixels, so this adds no RGB copy and
@@ -907,15 +900,6 @@ impl<D: Rgb8FrameDetector + Send + 'static> LiveCaptureRuntime<D> {
             .expect("scheduler was checked above")
             .evidence(work_now)
             .context("phase scheduler evidence is unavailable after cue completion")?;
-        if cue_completion_accepted {
-            decision = self
-                .phase_scheduler
-                .as_mut()
-                .expect("scheduler was checked above")
-                .tick(work_now, WorkAvailability::default())
-                .context("phase scheduler rejected asynchronous cue transition")?;
-            decision.run_motion = false;
-        }
         let cue_check_ran = decision.run_cue
             && refreshed_evidence.phase != Phase::Shot
             && self.cue_worker.is_some();
@@ -1109,20 +1093,12 @@ impl<D: Rgb8FrameDetector + Send + 'static> LiveCaptureRuntime<D> {
                 .evidence(now)
                 .context("phase scheduler evidence is unavailable before timeout")?;
             // A silent or missing source frame cannot establish quiet, but it
-            // must still advance evidence expiry and phase transitions.
-            scheduler
-                .tick(
-                    now,
-                    WorkAvailability {
-                        motion: false,
-                        ball: false,
-                        cue: false,
-                    },
-                )
-                .context("phase scheduler rejected timeout clock")?;
+            // must still advance evidence expiry and phase transitions. Do not
+            // call `tick` here: a timeout has no frame to process, so consuming
+            // due cadence slots would starve work on the next available frame.
             let current = scheduler
-                .evidence(now)
-                .context("phase scheduler evidence is unavailable after timeout")?;
+                .advance_time(now)
+                .context("phase scheduler rejected timeout clock")?;
             previous != current
         } else {
             false

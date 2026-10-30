@@ -286,6 +286,7 @@ fn checked_in_defaults_match_typed_candidate_search_configuration() {
     )
     .unwrap();
     assert_eq!(parameters, BallLocalizationConfig::default());
+    assert_eq!(parameters.maximum_center_spread_px, 1.6);
 }
 #[test]
 fn exhausted_deadline_retains_one_rejection_per_proposal() {
@@ -318,8 +319,8 @@ fn audit_traces_the_same_fitting_results_with_bounded_events() {
     )
     .unwrap();
     assert_eq!(observations, baseline);
-    assert_eq!(BALL_LOCALIZATION_AUDIT_VERSION, 6);
-    assert_eq!(trace.schema_version, 6);
+    assert_eq!(BALL_LOCALIZATION_AUDIT_VERSION, 7);
+    assert_eq!(trace.schema_version, 7);
     assert_eq!(trace.dropped_events, 0);
     assert!(trace.retained_bytes <= trace.maximum_bytes);
     assert_eq!(trace.maximum_bytes, MAX_BALL_LOCALIZATION_AUDIT_BYTES);

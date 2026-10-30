@@ -20,57 +20,25 @@ Validate a file without changing it:
 RUST_CONFIG=config.json make config-check
 ```
 
-CPU, auto, and OpenVINO live inference require `perception.rust_live.onnx_path`
-and `perception.rust_live.source_checkpoint_path` to name a matching ONNX model
-and source checkpoint. The ONNX file's sibling `.manifest.json` must match both
+Production live inference is fixed to the OpenVINO GPU provider. It uses
+`perception.rust_live.onnx_path` and
+`perception.rust_live.source_checkpoint_path` to name a matching ONNX model and
+source checkpoint. The ONNX file's sibling `.manifest.json` must match both
 artifacts. Model and checkpoint paths may be absolute or relative to
-`--project-root`.
+`--project-root`. The live schema, command-line interface, and packaged runtime
+reject CPU and automatic provider selection.
 
-To use a Coral Edge TPU with the Rust live inference runner, set
-`perception.rust_live.provider` to `coral` and configure
-`perception.rust_live.coral_model_path` to the compiled Edge TPU `.tflite`
-model. The model's sibling directory must contain its `manifest.json`. The
-Coral runner also uses `coral_python_executable` (default `python3`) and
-`coral_delegate_library` (default `libedgetpu.so.1`); use these settings when
-the target device installs either dependency at a nonstandard path.
-The Coral manifest must declare
-`model_contract.output.box_coordinate_space`. The current compiled artifact
-uses `normalized_0_1`; the runtime scales its center and size values into model
-pixels before letterbox unpadding and NMS. Use `model_pixels` only when an
-artifact already reports box coordinates in model pixels.
+The separate `billiards-perception-video-replay` audit tool accepts CPU,
+automatic, and OpenVINO provider selection for offline analysis. Those replay
+choices do not change the production live provider.
 
-Keep `perception.rust_live.source_checkpoint_path` pointed at the original
-`.pt` checkpoint on the target as well. Startup verifies its digest against
-the Coral manifest before loading the model, so deploy the checkpoint together
-with the compiled model, manifest, and configuration.
-
-The target Linux device must have a TensorFlow Lite API package
-(`tflite_runtime`, `ai-edge-litert`, or TensorFlow), the Coral `libedgetpu`
-runtime, and operating-system access to the Edge TPU device. The worker prefers
-`tflite_runtime`, then LiteRT, and uses TensorFlow as a fallback. For example,
-install LiteRT into the configured Python environment with
-`python3 -m pip install ai-edge-litert`. If the model,
-delegate, runtime, or device cannot be initialized, startup fails instead of
-switching to the ONNX CPU backend. The compiled artifact may still run
-compiler-unmapped operators on the CPU; check its compiler report for the split.
-Hardware is not available on the development host, so validate model loading
-and inference on the target device before relying on Coral deployment.
-`perception.rust_live.coral_runtime` configures Coral's longer inference
-windows independently of CPU settings. Its defaults allow frames up to 3000 ms
-old, observations up to 9 seconds old, cached localization to expire after
-18000 ms, motion evidence to remain valid for 3000 ms, and layout evidence to
-remain valid for 10000 ms. Coral uses a 10-pixel layout-consensus tolerance and
-an NMS IoU threshold of 0.2 to account for the compiled model's measured
-6.3-pixel coordinate quantization and duplicate detections on a stationary
-ball. `shot_ball_hz` keeps periodic ball observations running during detected
-motion; those observations remain untrusted for guidance until quiet dwell and
-layout consensus succeed. These Coral-specific settings preserve CPU and other
-providers' generic capture and phase-schedule settings.
-After a Coral inference error, the worker releases and recreates its TFLite
-interpreter after `worker_restart_backoff_ms`, then retries the failed frame
-up to `maximum_worker_restarts_per_frame` times. This lets the live process
-recover from a transient USB transfer reset without repeatedly using a failed
-delegate instance.
+Coral Edge TPU inference was retired from the supported application path. The
+saved target-device comparison found that its compiled graph assigned many
+operators back to the CPU, missed one ball in the saved 15-ball scene, and had
+much higher inference latency than OpenVINO GPU inference. These measurements
+are recorded in [ADR-0104](architecture/decisions/0104-run-target-inference-on-the-verified-intel-gpu.md);
+they are a backend selection result, not a claim of physical X/Y accuracy.
+Coral model settings are no longer accepted by the live configuration schema.
 
 `vision.camera` selects a local camera or a supported network stream. Configure
 `api.stream.viewer_url` separately when the browser should display a video

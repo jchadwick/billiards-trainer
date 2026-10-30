@@ -116,7 +116,7 @@ impl Rgb8FrameDetector for FrameInferenceEngine {
     }
 }
 
-/// Production live detector wrapper. It owns the same Coral/ONNX engine and
+/// Production live detector wrapper. It owns the configured inference engine and
 /// runs native-pixel crop fitting immediately after inference on that same
 /// worker thread. The borrowed source buffer is never cloned or resized for
 /// ball measurement.

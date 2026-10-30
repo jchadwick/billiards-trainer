@@ -158,8 +158,8 @@ impl Default for BallLocalizationConfig {
             minimum_coverage: 2.0 / 3.0,
             maximum_gap_fraction: 1.0 / 3.0,
             maximum_residual_px: 1.5,
-            maximum_center_shift_fraction: 0.2,
-            maximum_center_spread_px: 1.5,
+            maximum_center_shift_fraction: 0.3,
+            maximum_center_spread_px: 1.6,
             minimum_foreground_fraction: 0.4,
             irls_tuning: 2.5,
             irls_scale_floor_px: 0.25,
@@ -405,6 +405,12 @@ pub struct BallLocalizationAuditEvent {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum BallLocalizationAuditEventData {
+    AimingStep {
+        axis_image_px: [f64; 2],
+        center_image_px: [f64; 2],
+        source_step_px: f64,
+        settled: bool,
+    },
     SeedStarted {
         seed_index: usize,
         axis_image_px: [f64; 2],
@@ -482,7 +488,7 @@ pub const MAX_BALL_LOCALIZATION_AUDIT_EVENTS: usize = 8192;
 /// Trace storage is also bounded by bytes, independently of estimator/sample
 /// limits. This covers reserved event slots and owned variable-length arrays.
 pub const MAX_BALL_LOCALIZATION_AUDIT_BYTES: usize = 8 * 1024 * 1024;
-pub const BALL_LOCALIZATION_AUDIT_VERSION: u32 = 6;
+pub const BALL_LOCALIZATION_AUDIT_VERSION: u32 = 7;
 
 /// Per-audit limits control diagnostics only; they do not select a production
 /// algorithm or change estimator configuration. Both are capped independently.
@@ -545,7 +551,8 @@ impl BallLocalizationAuditTrace {
             BallLocalizationAuditEventData::CyclicHypothesis {
                 candidate_indices, ..
             } => candidate_indices.capacity() * std::mem::size_of::<usize>(),
-            BallLocalizationAuditEventData::SeedStarted { .. }
+            BallLocalizationAuditEventData::AimingStep { .. }
+            | BallLocalizationAuditEventData::SeedStarted { .. }
             | BallLocalizationAuditEventData::SeedConsensus { .. }
             | BallLocalizationAuditEventData::RefinementStep { .. }
             | BallLocalizationAuditEventData::IterationStarted { .. }
@@ -2249,7 +2256,6 @@ fn refine_seed(
         initial[1] + half,
     ];
     let mut axis = initial;
-    let mut final_fit = None;
     for iteration in 0..cfg.max_iterations {
         start_iteration(quality, iteration + 1, Instant::now(), end)?;
         record_trace(trace, proposal.detection_index, quality, || {
@@ -2606,22 +2612,34 @@ fn refine_seed(
         let center = best.center_image_px.expect("qualified candidate center");
         let outline = best.outline.clone().expect("qualified candidate outline");
         let change = distance(axis, center);
+        let settled = change <= cfg.aiming_convergence_px;
+        record_trace(trace, proposal.detection_index, &best.quality, || {
+            BallLocalizationAuditEventData::AimingStep {
+                axis_image_px: axis,
+                center_image_px: center,
+                source_step_px: change,
+                settled,
+            }
+        });
         axis = center;
         *quality = best.quality.clone();
         quality.candidate_representatives_evaluated = attempts.len();
         quality.qualified_candidate_count = qualified_indices.len();
         quality.candidate_search_truncated = false;
-        final_fit = Some((center, outline));
         // Aiming is a geometric coordinate choice, not an IRLS update. Once
         // every candidate/pixel/stability gate passes and the axis update is
         // below the declared source-center precision budget, resampling again
         // adds no warranted precision and may swap quantized edge candidates.
-        if change <= cfg.aiming_convergence_px {
-            break;
+        if settled {
+            return Ok((center, outline));
         }
     }
     deadline(Instant::now(), end)?;
-    final_fit.ok_or(RejectionReason::NumericalFailure)
+    // A numerically qualified circle is not a settled seed observation when
+    // its source center still moves beyond the declared precision budget.
+    // Such an observation cannot participate in cross-seed consensus.
+    quality.stage = BallFitStage::CenterStability;
+    Err(RejectionReason::UnstableCenter)
 }
 
 #[cfg(test)]
@@ -2851,7 +2869,7 @@ mod diagnostic_tests {
             source_residual_rms_px: 0.2,
         })
         .unwrap();
-        assert_eq!(BALL_LOCALIZATION_AUDIT_VERSION, 6);
+        assert_eq!(BALL_LOCALIZATION_AUDIT_VERSION, 7);
         assert_eq!(value["kind"], "cyclic_hypothesis");
         assert_eq!(value["candidate_indices"], serde_json::json!([11, 29, 47]));
     }

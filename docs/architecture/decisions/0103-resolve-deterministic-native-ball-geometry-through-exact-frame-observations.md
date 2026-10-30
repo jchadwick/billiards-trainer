@@ -8,15 +8,19 @@
 
 ## Context
 
-ADR-0102 selects native pixels, Intel JPEG decoding and Coral proposals. Its
-historical follow-ups record zero accepted measured centers and a twelve-point
-calibration restriction. Saved-image work now identifies concrete search,
-convergence, crop and deadline defects. Those findings change the implementation,
-not the fixed 2D table model or the need to report uncertainty honestly.
+When ADR-0103 was proposed, ADR-0102 assigned proposals to Coral and selected
+native pixels and Intel JPEG decoding. ADR-0104 later replaced only that
+inference assignment with explicit Intel GPU inference. ADR-0102's historical
+follow-ups record earlier revisions with zero accepted measured centers and a
+twelve-point calibration restriction. Saved-image work now identifies concrete
+search, convergence, crop and deadline defects. Those findings change the
+implementation, not the fixed 2D table model or the need to report uncertainty
+honestly.
 
 ## Decision
 
-Keep ADR-0102's hardware and frame ownership architecture. Replace random boundary
+Keep ADR-0102's native decoding and frame ownership architecture; use the
+inference provider selected by the later ADR-0104. Replace random boundary
 search with bounded deterministic cyclic contour paths. Resolve converged solutions
 in common source coordinates; allow inlier membership to settle without declaring
 geometrically convergent fits ambiguous. Include the complete background sampling
@@ -53,7 +57,8 @@ introduced.
 ### Negative
 
 - Some pocket observations still lack sufficient visible boundary support.
-- Local timing is not target Coral/GPU throughput; target qualification remains.
+- Local timing is not simultaneous target decode/GPU inference throughput;
+  target qualification remains.
 - Existing reference consistency does not establish independent 2 mm accuracy.
 - Old calibration assets are intentionally incompatible with changed refiners.
 
@@ -87,3 +92,27 @@ repairs. No new image, positioning jig or tape measurement is required.
 - `thoughts/calibration/runtime-localization-20261029/` contains reproducible
   revision-bound mappings. Full saved replay and development timing evidence
   must be reported with hardware, detector and physical-reference limitations.
+
+## Follow-up — 2026-10-29: schedule once per source frame and retain the corner observation
+
+The live scheduler now consumes work cadence once for each captured source
+frame. Motion and asynchronous cue observations refresh phase/evidence without
+calling a second scheduling tick, and a receive timeout advances evidence
+expiry without consuming work due for the next frame. Regression tests cover
+the timeout and asynchronous cue-completion boundary. This fixes work being
+skipped even when a source frame was available; it does not increase source
+cadence or change the preference for fresh measurements over nominal FPS.
+
+The R10 localization default now permits a maximum seed-center spread of 1.6
+reference pixels. In the exact reconstructed far-corner box
+`[250.875, 270.75, 367.875, 371.25]`, that value accepts seven agreeing seed
+fits, where 1.5 rejected the proposal as `unstable_center`. The proposal's
+confidence was 0.8677 against a 0.3 detector threshold, so detector confidence
+was not changed and was not the cause of the missing coordinate. The paired
+saved-corpus audit at
+`thoughts/calibration/refiner-r10-validation-20261029/paired-center-spread-audit-r10.json`
+found no changed outcomes on its 15 actual GPU proposals, 18 proposal-seed
+variants, or 297 synthetic known-center cases. These checks support this
+availability setting for the observed case only; the 1.524-pixel seed spread
+is near the new threshold and is not a center-error guarantee. The accepted
+center has no independent physical reference.

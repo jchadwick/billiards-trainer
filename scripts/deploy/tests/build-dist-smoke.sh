@@ -43,10 +43,6 @@ CONFIG_SOURCE="$TEST_ROOT/live-config.json"
 ONNX_SOURCE="$TEST_ROOT/model.onnx"
 CHECKPOINT_SOURCE="$TEST_ROOT/model.pt"
 MANIFEST_SOURCE="$ONNX_SOURCE.manifest.json"
-CORAL_MODEL_NAME="billiards-yolov8n_edgetpu.tflite"
-CORAL_SOURCE="$TEST_ROOT/$CORAL_MODEL_NAME"
-CORAL_MANIFEST_SOURCE="$TEST_ROOT/manifest.json"
-CORAL_CONFIG_SOURCE="$TEST_ROOT/coral-config.json"
 BUILD_LOG="$TEST_ROOT/build.log"
 FAIL_MOVE_ONCE="$TEST_ROOT/fail-move-once"
 
@@ -82,21 +78,6 @@ CHECKPOINT_SHA="$(sha256_file "$CHECKPOINT_SOURCE")"
 cat > "$MANIFEST_SOURCE" <<JSON
 {"manifest_schema_version":1,"exported_model":{"sha256":"$ONNX_SHA"},"source_model":{"sha256":"$CHECKPOINT_SHA"}}
 JSON
-printf 'fake compiled coral model bytes\n' > "$CORAL_SOURCE"
-CORAL_SHA="$(sha256_file "$CORAL_SOURCE")"
-cat > "$CORAL_MANIFEST_SOURCE" <<JSON
-{
-  "artifact_type": "Coral Edge TPU compiled TensorFlow Lite model",
-  "source": {"checkpoint": {"sha256": "$CHECKPOINT_SHA"}},
-  "model_contract": {
-    "input": {"shape": [1, 1280, 1280, 3], "layout": "NHWC", "dtype": "float32", "color_order": "RGB", "normalization": "[0,1]"},
-    "output": {"shape": [1, 6, 33600], "dtype": "float32", "class_order": ["cue", "ball"], "box_coordinate_space": "normalized_0_1", "nms_embedded": false}
-  },
-  "compiler_result": {"status": "success", "compiled_model": "$CORAL_MODEL_NAME"},
-  "files": {"$CORAL_MODEL_NAME": {"sha256": "$CORAL_SHA"}}
-}
-JSON
-jq '.perception.rust_live.provider = "coral"' "$CONFIG_SOURCE" > "$CORAL_CONFIG_SOURCE"
 
 cat > "$FAKE_BIN/npm" <<'SCRIPT'
 #!/usr/bin/env bash
@@ -180,7 +161,6 @@ run_build() {
         CARGO_TARGET_DIR="$TARGET_DIR" \
         BILLIARDS_CONFIG_SOURCE="$CONFIG_SOURCE" \
         BILLIARDS_ONNX_MODEL="$ONNX_SOURCE" \
-        BILLIARDS_CORAL_MODEL= \
         BILLIARDS_SOURCE_CHECKPOINT="$CHECKPOINT_SOURCE" \
         BILLIARDS_DIST_DIR="$DIST_DIR" \
         "$@" \
@@ -323,66 +303,20 @@ BILLIARDS_DIST_DIR="$DIST_DIR" bash "$REPO/scripts/deploy/clean-dist.sh" > "$BUI
 [[ ! -e "$DIST_DIR" ]] || fail 'cleanup did not remove the marked distribution'
 [[ -f "${BACKUP_DIRS[0]}/distribution/data/runtime-state.json" ]] || fail 'cleanup removed the retained previous bundle'
 
-# A Coral-selected config packages only the compiled model, its adjacent
-# manifest, and the verified checkpoint. The runner preflight must accept this
-# bundle without requiring the ONNX model trio.
-run_build "$FAKE_BIN" \
-    BILLIARDS_CONFIG_SOURCE="$CORAL_CONFIG_SOURCE" \
-    BILLIARDS_ONNX_MODEL= \
-    BILLIARDS_CORAL_MODEL="$CORAL_SOURCE"
-assert_file "$DIST_DIR/models/$CORAL_MODEL_NAME"
-assert_file "$DIST_DIR/models/manifest.json"
-assert_file "$DIST_DIR/models/billiards-yolov8n.pt"
-[[ ! -e "$DIST_DIR/models/billiards-yolov8n.onnx" ]] || fail 'Coral package unexpectedly includes an ONNX model'
-[[ "$(jq -r '.perception.rust_live.provider' "$DIST_DIR/config.json")" == coral ]] || fail 'Coral package changed the configured inference provider'
-[[ "$(jq -r '.perception.rust_live.coral_model_path' "$DIST_DIR/config.json")" == "models/$CORAL_MODEL_NAME" ]] || fail 'Coral model path must be package-relative'
-[[ "$(jq -r '.perception.rust_live.onnx_path' "$DIST_DIR/config.json")" == '' ]] || fail 'Coral package retained an ONNX model path'
-[[ "$(jq -r '.perception.rust_live.source_checkpoint_path' "$DIST_DIR/config.json")" == models/billiards-yolov8n.pt ]] || fail 'Coral checkpoint path must be package-relative'
-[[ "$(cat "$DIST_DIR/.billiards-inference-provider")" == coral ]] || fail 'Coral provider metadata is missing'
-bash "$DIST_DIR/run.sh" > "$BUILD_LOG" 2>&1 || {
-    cat "$BUILD_LOG" >&2
-    fail 'run.sh preflight rejected the Coral package'
-}
-[[ ! -e "$DIST_DIR/run/billiards-server.pid" ]] || fail 'successful Coral run.sh smoke left a stale PID file'
-
-CORAL_PACKAGE_SHA="$(sha256_file "$DIST_DIR/models/$CORAL_MODEL_NAME")"
-cp "$CORAL_SOURCE" "$TEST_ROOT/coral-model.original"
-printf 'modified compiled model bytes\n' > "$CORAL_SOURCE"
-if run_build "$FAKE_BIN" \
-    BILLIARDS_CONFIG_SOURCE="$CORAL_CONFIG_SOURCE" \
-    BILLIARDS_ONNX_MODEL= \
-    BILLIARDS_CORAL_MODEL="$CORAL_SOURCE"; then
-    fail 'builder accepted a compiled Coral model with a mismatched manifest digest'
-fi
-grep -q 'compiled Coral model digest does not match' "$BUILD_LOG" || fail 'builder did not reject the Coral model digest mismatch'
-[[ "$(sha256_file "$DIST_DIR/models/$CORAL_MODEL_NAME")" == "$CORAL_PACKAGE_SHA" ]] || fail 'failed Coral model verification replaced the existing package'
-assert_no_staging_dirs
-cp "$TEST_ROOT/coral-model.original" "$CORAL_SOURCE"
-
-cp "$CORAL_MANIFEST_SOURCE" "$TEST_ROOT/coral-manifest.original"
-printf '{"artifact_type":"invalid"}\n' > "$CORAL_MANIFEST_SOURCE"
-if run_build "$FAKE_BIN" \
-    BILLIARDS_CONFIG_SOURCE="$CORAL_CONFIG_SOURCE" \
-    BILLIARDS_ONNX_MODEL= \
-    BILLIARDS_CORAL_MODEL="$CORAL_SOURCE"; then
-    fail 'builder accepted an invalid Coral manifest'
-fi
-grep -q 'Coral export manifest is invalid' "$BUILD_LOG" || fail 'builder did not reject the invalid Coral manifest'
-[[ "$(sha256_file "$DIST_DIR/models/$CORAL_MODEL_NAME")" == "$CORAL_PACKAGE_SHA" ]] || fail 'invalid Coral manifest replaced the existing package'
-assert_no_staging_dirs
-cp "$TEST_ROOT/coral-manifest.original" "$CORAL_MANIFEST_SOURCE"
-
-cp "$CHECKPOINT_SOURCE" "$TEST_ROOT/checkpoint.original"
-printf 'mismatched checkpoint bytes\n' > "$CHECKPOINT_SOURCE"
-if run_build "$FAKE_BIN" \
-    BILLIARDS_CONFIG_SOURCE="$CORAL_CONFIG_SOURCE" \
-    BILLIARDS_ONNX_MODEL= \
-    BILLIARDS_CORAL_MODEL="$CORAL_SOURCE"; then
-    fail 'builder accepted a source checkpoint with a mismatched Coral manifest digest'
-fi
-grep -q 'source checkpoint digest does not match the Coral export manifest' "$BUILD_LOG" || fail 'builder did not reject the Coral checkpoint digest mismatch'
-[[ "$(sha256_file "$DIST_DIR/models/$CORAL_MODEL_NAME")" == "$CORAL_PACKAGE_SHA" ]] || fail 'failed Coral checkpoint verification replaced the existing package'
-assert_no_staging_dirs
-cp "$TEST_ROOT/checkpoint.original" "$CHECKPOINT_SOURCE"
+# Production packages must always select OpenVINO for live inference. Reject
+# CPU, automatic selection, and the retired Coral provider before staging.
+for unsupported_provider in cpu auto coral; do
+    rejected_config="$TEST_ROOT/$unsupported_provider-config.json"
+    jq --arg provider "$unsupported_provider" \
+        '.perception.rust_live.provider = $provider' "$CONFIG_SOURCE" > "$rejected_config"
+    if run_build "$FAKE_BIN" \
+        BILLIARDS_CONFIG_SOURCE="$rejected_config" \
+        BILLIARDS_ONNX_MODEL=; then
+        fail "builder accepted unsupported live inference provider $unsupported_provider"
+    fi
+    grep -q "unsupported perception.rust_live.provider '$unsupported_provider'" "$BUILD_LOG" \
+        || fail "builder did not explain that live inference provider $unsupported_provider is unsupported"
+    assert_no_staging_dirs
+done
 
 printf '%s\n' 'build-dist packaging, ownership, failure recovery, and cleanup smoke passed'

@@ -536,3 +536,25 @@ source-frame ownership in this ADR remain in effect.
 ADR-0104 replaces the Coral assignment with explicit Intel GPU inference after
 actual target measurements showed 69.68 ms GPU versus 1551.04 ms Coral inference
 p95 on saved pixels. Other native-frame and measurement contracts remain valid.
+
+## Follow-up — 2026-10-29: saved replay improves availability, not accuracy
+
+The R10 saved-image qualification in
+`thoughts/calibration/refiner-r10-validation-20261029/` shows that changing the
+maximum center-spread setting from 1.5 to 1.6 reference pixels accepts one
+previously rejected far-corner proposal while retaining seven agreeing seed
+fits. Paired runs on 15 actual Intel GPU proposals, 18 proposal-seed variants,
+and 297 synthetic known-center cases produced no status, reason, center, or
+outline changes between those settings. The replay and exact-box evidence are
+preserved with their inputs and limits in that folder. This is an operational
+availability correction for the observed proposal, not a bound on center error
+or physical X/Y error.
+
+The 60-second target replay used the same saved 1280 × 720 image enlarged to
+3840 × 2160 and repeatedly delivered at 5 FPS. It kept all 15 positions fresh
+through 600 public-state samples and completed motion checks for all 304
+captured frames. It does not establish behavior on native-4K camera pixels,
+moving balls, exposure changes, or independent physical references. The current
+nine-point table map still has unknown input uncertainty and is not qualified
+for accurate coaching. No production millimeter-accuracy claim or calibration
+activation follows from this result.

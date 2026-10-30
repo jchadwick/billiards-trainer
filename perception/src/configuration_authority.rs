@@ -1328,28 +1328,23 @@ fn validate_cross_field_rules(document: &Value, schema: &Value, errors: &mut Vec
 }
 
 fn validate_runtime_rules(document: &Value, errors: &mut Vec<ValidationError>) {
-    let live_provider = value_at_path(document, "perception.rust_live.provider")
-        .and_then(Value::as_str)
-        .unwrap_or_default();
-    if live_provider != "coral" {
-        let maximum_age_path = "perception.freshness.maximum_observation_age_seconds";
-        let expiry_path = "perception.freshness.expire_after_ms";
-        if let (Some(maximum_age_seconds), Some(expiry_value)) = (
-            value_at_path(document, maximum_age_path).and_then(Value::as_f64),
-            value_at_path(document, expiry_path),
-        ) {
-            if let Some(expire_after_ms) = expiry_value.as_u64() {
-                if maximum_age_seconds.is_finite()
-                    && maximum_age_seconds > 0.0
-                    && (expire_after_ms as f64) <= maximum_age_seconds * 1_000.0
-                {
-                    errors.push(validation_error(
-                        expiry_path,
-                        "Expiry must be greater than the maximum observation age",
-                        expiry_value,
-                        "positive integer milliseconds greater than maximum observation age in seconds",
-                    ));
-                }
+    let maximum_age_path = "perception.freshness.maximum_observation_age_seconds";
+    let expiry_path = "perception.freshness.expire_after_ms";
+    if let (Some(maximum_age_seconds), Some(expiry_value)) = (
+        value_at_path(document, maximum_age_path).and_then(Value::as_f64),
+        value_at_path(document, expiry_path),
+    ) {
+        if let Some(expire_after_ms) = expiry_value.as_u64() {
+            if maximum_age_seconds.is_finite()
+                && maximum_age_seconds > 0.0
+                && (expire_after_ms as f64) <= maximum_age_seconds * 1_000.0
+            {
+                errors.push(validation_error(
+                    expiry_path,
+                    "Expiry must be greater than the maximum observation age",
+                    expiry_value,
+                    "positive integer milliseconds greater than maximum observation age in seconds",
+                ));
             }
         }
     }
@@ -1362,20 +1357,6 @@ fn validate_runtime_rules(document: &Value, errors: &mut Vec<ValidationError>) {
                 "Image size must be divisible by 32",
                 &Value::from(size),
                 "integer multiple of 32",
-            ));
-        }
-    }
-    let coral_shot_rate_path = "perception.rust_live.coral_runtime.shot_ball_hz";
-    if let Some(value) = value_at_path(document, coral_shot_rate_path) {
-        let valid = value
-            .as_f64()
-            .is_some_and(|rate| rate.is_finite() && (0.0..=60.0).contains(&rate));
-        if !valid {
-            errors.push(validation_error(
-                coral_shot_rate_path,
-                "Coral shot ball rate must be finite and between 0 and 60 Hz",
-                value,
-                "number between 0 and 60",
             ));
         }
     }
