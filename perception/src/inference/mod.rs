@@ -11,10 +11,7 @@ mod preprocess;
 mod runtime;
 
 pub use decode::{decode_yolo_v8_output, decode_yolo_v8_output_with_coordinate_scale, Detection};
-pub use preprocess::{
-    prepare_rgb8, prepare_rgb8_nhwc, prepare_rgb_image, LetterboxGeometry, PreparedInput,
-    PreparedNhwcInput,
-};
+pub use preprocess::{prepare_rgb8, prepare_rgb_image, LetterboxGeometry, PreparedInput};
 pub use runtime::{
     run_video_audit, run_video_audit_with_schedule, AuditOptions, BatchOutputOptions,
     CalibrationAuditOptions, FrameInferenceEngine, FrameInferenceOptions, FrameInferenceOutput,

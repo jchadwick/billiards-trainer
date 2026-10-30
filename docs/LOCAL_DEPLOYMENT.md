@@ -2,17 +2,16 @@
 
 The distribution scripts build and run the Rust application server and live
 detector with the retained static browser client. The bundle does not install
-Python; CPU, auto, and OpenVINO inference run through the Rust ONNX backend,
-while Coral starts the configured target-installed Python/TFLite worker. The
-browser application remains HTML/CSS/JavaScript.
+Python; inference uses the Rust ONNX backends. Coral Edge TPU inference has
+been retired from the supported application path. The browser application
+remains HTML/CSS/JavaScript.
 
 ## Build the bundle
 
 The build host needs Rust/Cargo, Node.js/npm, `pkg-config`, `jq`, a SHA-256
 utility, and GStreamer 1.x development libraries discoverable through
 `pkg-config`. The native build is compatible with the build host by default.
-For CPU, auto, or OpenVINO inference, provide a verified ONNX model pair and a
-live-capable configuration:
+Provide a verified ONNX model pair and a live-capable configuration:
 
 ```bash
 BILLIARDS_ONNX_MODEL=/path/to/billiards-yolov8n.onnx \
@@ -27,29 +26,16 @@ that manifest before building. By default, `config.json` is the configuration
 source. `BILLIARDS_CONFIG_SOURCE` selects another file, and `BILLIARDS_DIST_DIR`
 selects the output directory (default: `dist/`).
 
-For Coral inference, set `perception.rust_live.provider` to `coral` in the
-configuration source and build with the already compiled Edge TPU model:
-
-```bash
-BILLIARDS_CORAL_MODEL=/path/to/billiards-yolov8n_edgetpu.tflite \
-BILLIARDS_SOURCE_CHECKPOINT=/path/to/billiards-yolov8n.pt \
-make deploy
-```
-
-The `.tflite` file must sit beside a `manifest.json` emitted with that Coral
-export. The builder validates that the manifest describes a successfully
-compiled Coral model, then verifies the compiled model and source checkpoint
-SHA-256 digests against it. The build does not change the configured provider;
-it writes package-relative `coral_model_path` and
-`source_checkpoint_path` values into the packaged config. No Coral device or
-Edge TPU compiler is needed on the build host.
+The production live bundle requires `perception.rust_live.provider` to be
+`openvino`. It runs live inference on the Intel GPU; CPU and automatic provider
+choices remain available to the separate offline video-replay audit tool only.
 
 Before building, the configuration must clear
 `vision.camera.video_file_path` and select either a stable GStreamer camera
 selector (`perception.capture.device_selector` beginning with
 `gstreamer-device-v1:`) or an HTTP(S) MJPEG source in
 `vision.camera.device_id`. Integer camera indices are not supported by this
-live capture path yet. The builder copies the selected model and its manifest
+live capture path yet. The builder copies the ONNX model and its manifest
 with the `.pt` checkpoint into `models/`, writes package-relative model and
 executable paths to `config.json`, and includes `build-info.txt` with the
 host/target and source revision.
@@ -66,7 +52,7 @@ The bundle contains:
 - `bin/`: Rust gateway, live detector, GStreamer capture helper, and any
   colocated ONNX Runtime libraries
 - `frontend/`: built static browser client
-- `models/`: verified ONNX or compiled Coral model, source checkpoint, and manifest
+- `models/`: verified ONNX model, source checkpoint, and export manifest
 - `config.json`: package-ready live configuration
 - `.billiards-inference-provider`: provider metadata used by startup preflight
 - `data/`, `logs/`, `run/`, and `backend/calibration_data/`: runtime directories
@@ -93,17 +79,8 @@ Rust binaries.
 
 Copy the complete `dist/` directory to the matching macOS or Linux runtime
 machine. Install the matching GStreamer runtime and source plugins on that
-machine. For Coral, also install a Python package that provides TensorFlow
-Lite (`tflite_runtime`, `ai-edge-litert`, or TensorFlow), the Coral
-`libedgetpu` runtime, and grant the service user access to the USB or PCIe
-accelerator. On Python versions without a compatible `tflite_runtime` wheel,
-install LiteRT in the configured environment with
-`python3 -m pip install ai-edge-litert`. The worker prefers `tflite_runtime`,
-then LiteRT, and uses TensorFlow as a fallback. The defaults are
-`python3` and `libedgetpu.so.1`; configure
-`perception.rust_live.coral_python_executable` or
-`perception.rust_live.coral_delegate_library` if the target uses different
-paths. Then start the server:
+machine. Install the matching OpenVINO Runtime and GPU plugin on the target, configure
+the Intel GPU device access, then start the server:
 
 ```bash
 cd /path/to/dist
@@ -112,9 +89,8 @@ cd /path/to/dist
 
 `run.sh` starts live capture by default and requires the Rust server, live
 detector, capture helper, nonempty configuration, and built `frontend/index.html`.
-For a bundled Coral config it checks the compiled model and its sibling
-manifest with the source checkpoint; other providers require the ONNX model
-trio. To start the gateway without live capture, set
+The bundled provider preflight checks the verified ONNX model, its export
+manifest, and the source checkpoint. To start the gateway without live capture, set
 `BILLIARDS_START_LIVE=false`; a config file and built browser client are still
 required. The default HTTP listener is `0.0.0.0:8000`; the scene-ingress
 listener defaults to loopback at `127.0.0.1:49321`.

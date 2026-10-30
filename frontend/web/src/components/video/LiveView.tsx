@@ -208,7 +208,7 @@ export const LiveView: React.FC<LiveViewProps> = observer(({ className = '', aut
   ) ? {
     // Ball coordinates belong to the scene observation frame. The perception
     // coordinator can publish newer motion/cue decisions between low-rate
-    // Coral runs, so its decision_frame_id may be later than the image that
+    // detector runs, so its decision_frame_id may be later than the image that
     // produced the currently published ball positions.
     frameId: sourceFrameId,
     engineInstanceId,
@@ -637,12 +637,7 @@ export const LiveView: React.FC<LiveViewProps> = observer(({ className = '', aut
       const values = response.data?.values;
       const streamUrl = values?.api?.stream?.viewer_url;
       const perception = values?.perception;
-      const rustLive = perception?.rust_live;
-      const coralRuntime = rustLive?.coral_runtime;
-      const configuredMaximumAge = rustLive?.provider === 'coral'
-        ? coralRuntime?.maximum_observation_age_seconds
-          ?? perception?.freshness?.maximum_observation_age_seconds
-        : perception?.freshness?.maximum_observation_age_seconds;
+      const configuredMaximumAge = perception?.freshness?.maximum_observation_age_seconds;
       const pairing = values?.api?.stream?.frame_pairing;
       setMaximumObservationAgeSeconds(
         positiveFreshnessLimit(configuredMaximumAge),
@@ -791,7 +786,7 @@ export const LiveView: React.FC<LiveViewProps> = observer(({ className = '', aut
       const y = imagePosition.y * scaleY;
       const radiusX = imageRadius.x * scaleX;
       const radiusY = imageRadius.y * scaleY;
-      // Coral boxes can be slightly asymmetric even for round pool balls.
+      // Detector boxes can be slightly asymmetric even for round pool balls.
       // Use the larger measured half-extent on both axes so the overlay stays
       // circular and encloses the detector's full box without moving its center.
       const radius = Math.max(radiusX, radiusY);

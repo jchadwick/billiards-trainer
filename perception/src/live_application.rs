@@ -169,11 +169,6 @@ pub(crate) fn serialize_phase_schedule_config(value: &Value) -> Result<String, S
 pub struct LiveApplicationSettings {
     pub onnx_path: Option<PathBuf>,
     pub source_checkpoint_path: PathBuf,
-    pub coral_model_path: Option<PathBuf>,
-    pub coral_python_executable: PathBuf,
-    pub coral_delegate_library: String,
-    pub coral_worker_restart_backoff: Duration,
-    pub coral_maximum_worker_restarts_per_frame: usize,
     pub provider: ProviderSelection,
     pub image_size: u32,
     pub confidence: f32,
@@ -291,6 +286,10 @@ pub fn run_live_application_with_audit<F: CaptureSourceFactory>(
     audit_config: Option<LiveAuditConfig>,
 ) -> Result<()> {
     ensure!(
+        settings.provider == ProviderSelection::Openvino,
+        "live perception requires the OpenVINO GPU provider"
+    );
+    ensure!(
         exact_capture_settings_json.len() <= settings.capture_settings_maximum_bytes,
         "capture settings request exceeds configured byte limit"
     );
@@ -358,11 +357,6 @@ pub fn run_live_application_with_audit<F: CaptureSourceFactory>(
     let inference_options = FrameInferenceOptions {
         onnx_path: settings.onnx_path.clone(),
         source_checkpoint_path: settings.source_checkpoint_path.clone(),
-        coral_model_path: settings.coral_model_path.clone(),
-        coral_python_executable: settings.coral_python_executable.clone(),
-        coral_delegate_library: settings.coral_delegate_library.clone(),
-        coral_worker_restart_backoff: settings.coral_worker_restart_backoff,
-        coral_maximum_worker_restarts_per_frame: settings.coral_maximum_worker_restarts_per_frame,
         provider: settings.provider,
         image_size: settings.image_size,
         confidence: settings.confidence,
@@ -370,20 +364,8 @@ pub fn run_live_application_with_audit<F: CaptureSourceFactory>(
         max_detections: settings.max_detections,
         intra_op_threads: settings.intra_op_threads,
     };
-    let mut detector = match settings.provider {
-        ProviderSelection::Coral => {
-            FrameInferenceEngine::new_without_onnx_runtime(inference_options)
-        }
-        _ => {
-            let environment = ort::init()
-                .with_name("billiards-perception-live")
-                .with_telemetry(false)
-                .build()
-                .context("failed to initialize ONNX Runtime")?;
-            FrameInferenceEngine::new(environment, inference_options)
-        }
-    }
-    .context("failed to load the configured live detector")?;
+    let mut detector = FrameInferenceEngine::new_without_onnx_runtime(inference_options)
+        .context("failed to load the configured live detector")?;
 
     warm_up_detector(&mut detector, expected, settings.warmup_runs)
         .context("live detector warm-up failed")?;

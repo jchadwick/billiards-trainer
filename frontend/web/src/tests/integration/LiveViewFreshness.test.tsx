@@ -508,20 +508,14 @@ describe('live view freshness', () => {
     expect(document.querySelector('canvas')?.getAttribute('data-freshness')).toBe('stale');
   });
 
-  it('uses the Coral observation window instead of the generic UI freshness window', async () => {
+  it('uses the configured observation window instead of the UI default', async () => {
     vi.useFakeTimers();
     vi.spyOn(apiClient, 'getConfiguration').mockResolvedValue({
       success: true,
       data: {
         values: {
           api: { stream: { viewer_url: 'http://camera.test/stream' } },
-          perception: {
-            freshness: { maximum_observation_age_seconds: 0.4 },
-            rust_live: {
-              provider: 'coral',
-              coral_runtime: { maximum_observation_age_seconds: 9.0 },
-            },
-          },
+          perception: { freshness: { maximum_observation_age_seconds: 9.0 } },
         },
       },
       timestamp: new Date().toISOString(),

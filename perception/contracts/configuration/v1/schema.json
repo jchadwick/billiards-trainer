@@ -194,77 +194,11 @@
             "source_checkpoint_path": {
               "type": "string"
             },
-            "coral_model_path": {
-              "type": "string"
-            },
-            "coral_python_executable": {
-              "type": "string"
-            },
-            "coral_delegate_library": {
-              "type": "string"
-            },
             "provider": {
               "type": "string",
               "enum": [
-                "cpu",
-                "auto",
-                "openvino",
-                "coral"
+                "openvino"
               ]
-            },
-            "coral_runtime": {
-              "type": "object",
-              "properties": {
-                "maximum_inference_frame_age_ms": {
-                  "type": "integer",
-                  "minimum": 1,
-                  "maximum": 9007199254740991
-                },
-                "maximum_observation_age_seconds": {
-                  "type": "number",
-                  "exclusiveMinimum": 0
-                },
-                "shot_ball_hz": {
-                  "type": "number",
-                  "minimum": 0,
-                  "maximum": 60
-                },
-                "expire_after_ms": {
-                  "type": "integer",
-                  "minimum": 1,
-                  "maximum": 9007199254740991
-                },
-                "motion_evidence_expiry_ms": {
-                  "type": "integer",
-                  "minimum": 1,
-                  "maximum": 9007199254740991
-                },
-                "layout_evidence_expiry_ms": {
-                  "type": "integer",
-                  "minimum": 1,
-                  "maximum": 9007199254740991
-                },
-                "layout_position_tolerance_px": {
-                  "type": "number",
-                  "exclusiveMinimum": 0
-                },
-                "nms_iou_threshold": {
-                  "type": "number",
-                  "minimum": 0,
-                  "maximum": 1
-                },
-                "worker_restart_backoff_ms": {
-                  "type": "integer",
-                  "minimum": 1,
-                  "maximum": 9007199254740991
-                },
-                "maximum_worker_restarts_per_frame": {
-                  "type": "integer",
-                  "minimum": 1,
-                  "maximum": 5
-                }
-              },
-              "additionalProperties": false
             },
             "image_size": {
               "type": "integer",

@@ -872,7 +872,7 @@ mod tests {
     }
 
     #[test]
-    fn coral_evidence_windows_preserve_consensus_across_slow_inference() {
+    fn evidence_windows_preserve_consensus_across_slow_inference() {
         let config = SchedulerConfig {
             motion_evidence_expiry: ms(3_000),
             layout_evidence_expiry: ms(3_000),
@@ -883,9 +883,8 @@ mod tests {
         s.observe_motion(ms(800), MotionEvidence::Quiet).unwrap();
         let generation = s.motion_generation();
 
-        // Coral completes this model at roughly 1.5-second intervals. The
-        // scheduler must keep the capture generation valid across inference
-        // and accept the three matching layouts needed to establish trust.
+        // Slow inference must keep the capture generation valid across
+        // processing and accept matching layouts needed to establish trust.
         for time in [800, 2_300, 3_800] {
             s.observe_layout(ms(time), layout(10.0)).unwrap();
             assert_eq!(s.motion_generation(), generation);

@@ -232,11 +232,7 @@ impl ServerArgs {
         let Some(effective) = self.effective_configuration()? else {
             return Ok(ServerConfig::default().stale_after);
         };
-        let path = if uses_coral_provider(&effective) {
-            "/perception/rust_live/coral_runtime/maximum_observation_age_seconds"
-        } else {
-            "/perception/freshness/maximum_observation_age_seconds"
-        };
+        let path = "/perception/freshness/maximum_observation_age_seconds";
         let seconds = effective
             .pointer(path)
             .and_then(serde_json::Value::as_f64)
@@ -253,20 +249,7 @@ impl ServerArgs {
             return Ok(Duration::from_millis(milliseconds));
         }
 
-        let Some(effective) = self.effective_configuration()? else {
-            return Ok(ServerConfig::default().expire_after);
-        };
-        if !uses_coral_provider(&effective) {
-            return Ok(ServerConfig::default().expire_after);
-        }
-
-        let path = "/perception/rust_live/coral_runtime/expire_after_ms";
-        let milliseconds = effective
-            .pointer(path)
-            .and_then(serde_json::Value::as_u64)
-            .filter(|value| *value > 0)
-            .ok_or_else(|| format!("{path} must be a positive integer"))?;
-        Ok(Duration::from_millis(milliseconds))
+        Ok(ServerConfig::default().expire_after)
     }
 
     fn effective_configuration(&self) -> Result<Option<serde_json::Value>, String> {
@@ -277,13 +260,6 @@ impl ServerArgs {
             ConfigurationAuthority::new(configuration_path.clone(), AuthorityLimits::default())?;
         Ok(Some(authority.effective_configuration()?))
     }
-}
-
-fn uses_coral_provider(configuration: &serde_json::Value) -> bool {
-    configuration
-        .pointer("/perception/rust_live/provider")
-        .and_then(serde_json::Value::as_str)
-        == Some("coral")
 }
 
 #[tokio::main]
@@ -559,28 +535,6 @@ mod tests {
             args.config().unwrap().stale_after,
             Duration::from_millis(250)
         );
-    }
-
-    #[test]
-    fn coral_provider_uses_its_inference_freshness_and_expiry_budgets() {
-        let directory = tempfile::tempdir().unwrap();
-        let config_path = directory.path().join("config.json");
-        let mut document: Value = serde_json::from_str(include_str!(
-            "../../contracts/configuration/v1/defaults.json"
-        ))
-        .unwrap();
-        document["perception"]["rust_live"]["provider"] = serde_json::json!("coral");
-        fs::write(&config_path, serde_json::to_vec(&document).unwrap()).unwrap();
-
-        let args = ServerArgs::try_parse_from([
-            "billiards-server",
-            "--config",
-            config_path.to_str().unwrap(),
-        ])
-        .unwrap();
-        let config = args.config().unwrap();
-        assert_eq!(config.stale_after, Duration::from_millis(9_000));
-        assert_eq!(config.expire_after, Duration::from_millis(18_000));
     }
 
     #[test]

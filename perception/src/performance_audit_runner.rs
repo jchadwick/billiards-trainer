@@ -3269,7 +3269,7 @@ mod tests {
             provenance.capture_helper_executable_sha256,
             super::sha256_file(&capture_helper).unwrap()
         );
-        assert_eq!(provenance.provider_selection, "cpu");
+        assert_eq!(provenance.provider_selection, "openvino");
         assert_eq!(provenance.ball_class_id, 1);
         assert_eq!(provenance.cue_class_id, Some(0));
         assert!(!provenance.effective_configuration_sha256.is_empty());

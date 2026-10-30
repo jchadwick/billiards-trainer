@@ -26,19 +26,13 @@ use clap::{ArgAction, Parser, ValueEnum};
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
 enum ProviderArgument {
-    Cpu,
-    Auto,
     Openvino,
-    Coral,
 }
 
 impl From<ProviderArgument> for ProviderSelection {
     fn from(value: ProviderArgument) -> Self {
         match value {
-            ProviderArgument::Cpu => Self::Cpu,
-            ProviderArgument::Auto => Self::Auto,
             ProviderArgument::Openvino => Self::Openvino,
-            ProviderArgument::Coral => Self::Coral,
         }
     }
 }
@@ -76,7 +70,7 @@ impl From<ImageSpaceArgument> for ImageSpace {
     long_about = "Consumes one exact capture-settings JSON request from stdin and runs the live detector, tracker and protocol-v3 scene transport. A platform capture adapter must be compiled into this executable before it can open a camera."
 )]
 struct Arguments {
-    /// Explicit ONNX export for CPU, auto, and OpenVINO GPU providers.
+    /// Explicit ONNX export for the OpenVINO GPU provider.
     #[arg(long)]
     onnx: Option<PathBuf>,
 
@@ -84,27 +78,7 @@ struct Arguments {
     #[arg(long)]
     source_checkpoint: PathBuf,
 
-    /// Compiled Edge TPU TensorFlow Lite artifact for the Coral provider.
-    #[arg(long)]
-    coral_model: Option<PathBuf>,
-
-    /// Target Python executable with standalone or TensorFlow Lite support.
-    #[arg(long)]
-    coral_python: Option<PathBuf>,
-
-    /// Coral Edge TPU delegate shared library name or path.
-    #[arg(long)]
-    coral_delegate: Option<String>,
-
-    /// Delay before recreating the Coral interpreter after an inference error.
-    #[arg(long)]
-    coral_worker_restart_backoff_ms: u64,
-
-    /// Maximum Coral worker restarts allowed for one failed frame.
-    #[arg(long)]
-    coral_maximum_worker_restarts_per_frame: usize,
-
-    /// Select ONNX Runtime CPU, native OpenVINO GPU, ONNX Runtime's max-efficiency policy, or Coral Edge TPU.
+    /// Select the required native OpenVINO GPU provider for production live inference.
     #[arg(long, value_enum)]
     provider: ProviderArgument,
 
@@ -382,13 +356,6 @@ fn main() -> Result<()> {
     let settings = LiveApplicationSettings {
         onnx_path: arguments.onnx,
         source_checkpoint_path: arguments.source_checkpoint,
-        coral_model_path: arguments.coral_model,
-        coral_python_executable: arguments.coral_python.unwrap_or_default(),
-        coral_delegate_library: arguments.coral_delegate.unwrap_or_default(),
-        coral_worker_restart_backoff: Duration::from_millis(
-            arguments.coral_worker_restart_backoff_ms,
-        ),
-        coral_maximum_worker_restarts_per_frame: arguments.coral_maximum_worker_restarts_per_frame,
         provider: arguments.provider.into(),
         image_size: arguments.image_size,
         confidence: arguments.confidence,
@@ -795,7 +762,6 @@ impl CaptureSourceFactory for UnavailableCaptureSourceFactory {
 #[cfg(test)]
 mod tests {
     use clap::Parser;
-    use std::path::PathBuf;
     use std::time::Duration;
 
     use super::{
@@ -863,39 +829,16 @@ mod tests {
     }
 
     #[test]
-    fn live_cli_accepts_coral_with_a_compiled_tflite_model() {
-        let mut arguments = supervisor_arguments();
-        let onnx_position = arguments
-            .iter()
-            .position(|argument| *argument == "--onnx")
-            .unwrap();
-        arguments.drain(onnx_position..=onnx_position + 1);
-        let provider_position = arguments
-            .iter()
-            .position(|argument| *argument == "--provider")
-            .unwrap();
-        arguments[provider_position + 1] = "coral";
-        arguments.extend([
-            "--coral-model",
-            "/models/detector_edgetpu.tflite",
-            "--coral-python",
-            "python3.11",
-            "--coral-delegate",
-            "libedgetpu.so.1",
-        ]);
-
-        let parsed = Arguments::try_parse_from(arguments).unwrap();
-        assert!(matches!(parsed.provider, ProviderArgument::Coral));
-        assert_eq!(
-            parsed.coral_model,
-            Some(PathBuf::from("/models/detector_edgetpu.tflite"))
-        );
-        assert_eq!(parsed.coral_python, Some(PathBuf::from("python3.11")));
-        assert_eq!(parsed.coral_delegate.as_deref(), Some("libedgetpu.so.1"));
-        assert_eq!(
-            billiards_perception::inference::ProviderSelection::from(parsed.provider),
-            billiards_perception::inference::ProviderSelection::Coral
-        );
+    fn live_cli_rejects_non_openvino_providers() {
+        for provider in ["cpu", "auto", "coral"] {
+            let mut arguments = supervisor_arguments();
+            let provider_position = arguments
+                .iter()
+                .position(|argument| *argument == "--provider")
+                .unwrap();
+            arguments[provider_position + 1] = provider;
+            assert!(Arguments::try_parse_from(arguments).is_err(), "{provider}");
+        }
     }
 
     #[test]
@@ -1187,11 +1130,7 @@ mod tests {
             "--source-checkpoint",
             "/models/detector.pt",
             "--provider",
-            "cpu",
-            "--coral-worker-restart-backoff-ms",
-            "250",
-            "--coral-maximum-worker-restarts-per-frame",
-            "2",
+            "openvino",
             "--image-size",
             "640",
             "--confidence",

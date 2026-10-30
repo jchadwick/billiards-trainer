@@ -1475,39 +1475,10 @@ fn configured_frame_preview_stream(
         .and_then(Value::as_u64)
         .filter(|value| (minimum_fps..=maximum_fps).contains(value))
         .ok_or_else(|| "api.stream.framerate.default_fps is invalid".to_owned())?;
-    let provider = configuration
-        .pointer("/perception/rust_live/provider")
-        .and_then(Value::as_str)
-        .ok_or_else(|| "perception.rust_live.provider is missing".to_owned())?;
-    let effective_fps = if provider == "coral" {
-        let retained_frames = configuration
-            .pointer("/api/stream/frame_pairing/buffered_frame_count")
-            .and_then(Value::as_u64)
-            .filter(|value| *value >= 2)
-            .ok_or_else(|| "api.stream.frame_pairing.buffered_frame_count is invalid".to_owned())?;
-        let maximum_inference_frame_age_ms = live
-            .get("coral_runtime")
-            .and_then(Value::as_object)
-            .and_then(|runtime| runtime.get("maximum_inference_frame_age_ms"))
-            .and_then(Value::as_u64)
-            .filter(|value| *value > 0)
-            .ok_or_else(|| {
-                "perception.rust_live.coral_runtime.maximum_inference_frame_age_ms must be positive"
-                    .to_owned()
-            })?;
-        // Keep the browser's bounded ring long enough to retain any frame
-        // still eligible for Coral inference, while respecting the operator's
-        // configured preview rate and stream bounds.
-        let retention_limited_fps = retained_frames.saturating_sub(1).saturating_mul(1_000)
-            / maximum_inference_frame_age_ms;
-        fps.min(retention_limited_fps.max(minimum_fps))
-    } else {
-        fps
-    };
     Ok(Some(FramePreviewStreamSettings {
         address: SocketAddr::new(bind_address, port),
         request_timeout: Duration::from_millis(request_timeout_ms),
-        poll_interval: Duration::from_secs_f64(1.0 / effective_fps as f64),
+        poll_interval: Duration::from_secs_f64(1.0 / fps as f64),
         maximum_header_bytes: positive_size("frame_preview_max_header_bytes")?,
         maximum_jpeg_bytes: positive_size("frame_preview_max_jpeg_bytes")?,
         maximum_clients,

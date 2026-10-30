@@ -56,16 +56,14 @@ fn snapshot_schema_and_defaults_are_embedded_and_use_temporary_store_path() {
         defaults["configuration"]["metadata"]["configuration_revision"],
         1
     );
-    assert!(
+    assert_eq!(
         schema["schema"]["properties"]["perception"]["properties"]["rust_live"]["properties"]
-            ["provider"]["enum"]
-            .as_array()
-            .unwrap()
-            .contains(&json!("coral"))
+            ["provider"]["enum"],
+        json!(["openvino"])
     );
     assert_eq!(
-        defaults["configuration"]["perception"]["rust_live"]["coral_python_executable"],
-        "python3"
+        defaults["configuration"]["perception"]["rust_live"]["provider"],
+        "openvino"
     );
 }
 

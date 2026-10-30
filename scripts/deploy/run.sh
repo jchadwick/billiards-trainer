@@ -52,17 +52,7 @@ if [[ "$START_LIVE" == "true" || "$START_LIVE" == "1" || "$START_LIVE" == "yes" 
             inference_provider="$(cat -- "$SCRIPT_DIR/.billiards-inference-provider")"
         fi
         case "$inference_provider" in
-            coral)
-                require_file "$PROJECT_ROOT/models/billiards-yolov8n.pt" "packaged source checkpoint"
-                shopt -s nullglob
-                coral_models=("$PROJECT_ROOT"/models/*.tflite)
-                shopt -u nullglob
-                ((${#coral_models[@]} == 1)) || fail "expected exactly one packaged Coral .tflite model under $PROJECT_ROOT/models"
-                coral_model="${coral_models[0]}"
-                require_file "$coral_model" "packaged compiled Coral model"
-                require_file "$(dirname -- "$coral_model")/manifest.json" "packaged Coral export manifest"
-                ;;
-            cpu|auto|openvino|onnx)
+            openvino)
                 require_file "$PROJECT_ROOT/models/billiards-yolov8n.onnx" "packaged ONNX model"
                 require_file "$PROJECT_ROOT/models/billiards-yolov8n.pt" "packaged source checkpoint"
                 require_file "$PROJECT_ROOT/models/billiards-yolov8n.onnx.manifest.json" "packaged ONNX export manifest"

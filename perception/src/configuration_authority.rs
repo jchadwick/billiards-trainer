@@ -1339,20 +1339,6 @@ fn validate_runtime_rules(document: &Value, errors: &mut Vec<ValidationError>) {
             ));
         }
     }
-    let coral_shot_rate_path = "perception.rust_live.coral_runtime.shot_ball_hz";
-    if let Some(value) = value_at_path(document, coral_shot_rate_path) {
-        let valid = value
-            .as_f64()
-            .is_some_and(|rate| rate.is_finite() && (0.0..=60.0).contains(&rate));
-        if !valid {
-            errors.push(validation_error(
-                coral_shot_rate_path,
-                "Coral shot ball rate must be finite and between 0 and 60 Hz",
-                value,
-                "number between 0 and 60",
-            ));
-        }
-    }
     let visibility_path = "perception.rust_live.table_visibility";
     if let Some(value) = value_at_path(document, visibility_path) {
         match serde_json::from_value::<crate::table_visibility::TableVisibilityConfig>(

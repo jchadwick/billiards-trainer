@@ -542,18 +542,9 @@ pub fn build_capture_settings_v3(configuration: &Value) -> Result<Value, Capture
         ));
     }
 
-    // Coral inference has substantially higher latency than CPU inference, so
-    // its capture age gate is configured separately. Keep every other
-    // provider on the existing generic capture limit.
-    let maximum_frame_age_path =
-        if config_string(configuration, "perception.rust_live.provider")? == "coral" {
-            "perception.rust_live.coral_runtime.maximum_inference_frame_age_ms"
-        } else {
-            "perception.capture.maximum_frame_age_ms"
-        };
     let maximum_frame_age_ms = config_integer(
         configuration,
-        maximum_frame_age_path,
+        "perception.capture.maximum_frame_age_ms",
         1,
         MAX_SAFE_JSON_INTEGER,
     )?;
@@ -1342,24 +1333,10 @@ mod tests {
     }
 
     #[test]
-    fn coral_provider_uses_coral_specific_maximum_frame_age() {
+    fn live_provider_uses_generic_maximum_frame_age() {
         let mut configuration = remote_stream_configuration("http://127.0.0.1:8001/stream.mjpg");
-        configuration["perception"]["rust_live"]["provider"] = json!("coral");
-        configuration["perception"]["rust_live"]["coral_runtime"]
-            ["maximum_inference_frame_age_ms"] = json!(3_000);
-
-        let settings = build_capture_settings_v3(&configuration).unwrap();
-
-        assert_eq!(settings["requested"]["maximum_frame_age_ms"], json!(3_000));
-    }
-
-    #[test]
-    fn cpu_provider_retains_generic_maximum_frame_age() {
-        let mut configuration = remote_stream_configuration("http://127.0.0.1:8001/stream.mjpg");
-        configuration["perception"]["rust_live"]["provider"] = json!("cpu");
+        configuration["perception"]["rust_live"]["provider"] = json!("openvino");
         configuration["perception"]["capture"]["maximum_frame_age_ms"] = json!(100);
-        configuration["perception"]["rust_live"]["coral_runtime"]
-            ["maximum_inference_frame_age_ms"] = json!(3_000);
 
         let settings = build_capture_settings_v3(&configuration).unwrap();
 
