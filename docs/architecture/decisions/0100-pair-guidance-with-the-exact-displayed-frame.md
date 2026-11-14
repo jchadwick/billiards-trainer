@@ -1,10 +1,10 @@
 # ADR-0100: Pair guidance with the exact displayed frame
 
-- Status: accepted
+- Status: superseded
 - Date: 2026-10-24
 - Deciders: Project maintainers
 - Supersedes: None
-- Superseded by: None
+- Superseded by: ADR-0114
 
 ## Context
 

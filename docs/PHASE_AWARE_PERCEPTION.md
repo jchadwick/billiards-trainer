@@ -1,110 +1,111 @@
-# Phase-aware perception scheduling
+# Phase-aware perception
 
-The live Rust perception path keeps camera capture at its configured rate and
-schedules analysis work independently. It favors a verified, stationary table
-layout and a separately updated cue line over running the full detector on
-every frame. During a shot, it stops full-layout and cue work while lightweight
-motion checks continue. This milestone does not attempt to track moving-ball
-trajectories or identify numbered balls.
+This specification describes the accepted target in
+[ADR-0114](architecture/decisions/0114-use-trusted-and-stale-whole-table-perception-state.md).
+It is not evidence that the runtime already conforms. Perception owns the
+working ball layout; consumers render and passively age that state. The live
+video remains the newest available video, independent of perception timing.
 
-## Runtime model
+## Runtime structure
 
-One coordinator owns phase selection, motion checks, cue refinement, tracking,
-calibration, and publication. A dedicated worker owns the inference model. The
-coordinator can continue processing motion and cue evidence while one detector
-call is in flight. The worker accepts no pending-frame queue: a busy detector
-causes that scheduled opportunity to be skipped, without queuing or catching
-up later. Work is tagged with its source session, configuration and calibration
-revisions, and motion generation so a result from an obsolete context cannot
-restore guidance.
+The coordinator owns phase selection, motion assessment, cue evaluation,
+tracking, calibration, and publication. A dedicated worker owns inference.
+Keep detector work bounded: while a call is in flight, skip the scheduled
+opportunity rather than queueing frames or catching up in bursts. Tag work and
+results with source, configuration, calibration/geometry context, ordering, and
+existing motion generation so incompatible or pre-motion results cannot restore
+trust. Capture and analysis rates remain independently configurable; use the
+versioned configuration defaults rather than introducing production rate or
+freshness constants in this specification.
 
-Capture and analysis rates are independent. The phase schedule controls
-lightweight motion assessment, full ball-layout detection, and cue processing;
-camera capture remains configured separately in the camera settings. The
-initial schedule is:
+Use the existing whole-table motion signal to choose settled or moving. Motion
+makes the whole layout stale. Occlusion, missing frames/evidence, or unavailable
+whole-table status also makes it stale and cannot count as settled. Quietness
+after motion does not restore trust: a new clean scan is required. Do not infer
+regional certainty, moving-ball trajectories, pocket events, or numbered-ball
+identity.
 
-| Phase | Motion checks | Full-layout detection | Cue processing |
-|---|---:|---:|---:|
-| Pre-shot, trusted layout | 15 Hz | 1 Hz verification | 5 Hz |
-| Aiming, cue visible | 15 Hz | 1 Hz verification | 5 Hz |
-| Shot underway | 15 Hz | Off | Off |
-| Recovery | 15 Hz | 5 Hz | 5 Hz |
+## Layout lifecycle
 
-These values live in `perception.rust_live.phase_schedule` in the versioned
-configuration defaults. Each phase has independent rates; the scheduler drops
-missed slots rather than issuing bursts. Recorded-video replay uses the same
-schedule by default and accepts a validated override with
-`--phase-schedule-json`.
+A successful clean settled scan evaluates the visible calibrated table with
+valid geometry, compatible source/calibration context, and uninterrupted quiet
+evidence since capture. It replaces the active layout wholesale. Balls absent
+from that scan are removed; a clean scan with no balls is a valid empty layout.
+Failed, occluded, incomplete, or context-invalid work is not an empty scan and
+cannot clear the previous layout. Preserve IDs only for unambiguous
+associations.
 
-## Phases and state validity
+Completion time alone does not make a scan unusable. A slow result may be
+accepted if its ordering and context still match and quiet evidence has been
+continuous since capture. A motion generation change, evidence gap, or context
+change rejects it from restoring pre-shot coordinates as trusted. Keep the last
+known layout stale until a clean replacement arrives. Preserve measurement
+capture time/`last_seen_at`; publication and repeated messages do not refresh it.
+Finite configurable freshness limits downgrade trust when motion checks or the
+feed stop, even if other state messages continue. Consumers do not keep another
+layout cache or extend producer freshness.
 
-The coordinator starts in recovery. It requires sustained quiet for 800 ms and
-three mutually consistent successful full-table observations before it marks
-a layout trusted. A visible, fresh cue on a trusted layout selects aiming. Cue
-loss returns the state to pre-shot without discarding the verified balls.
+The production marker is a table-plane center, fixed physical radius, stable
+track ID, and trusted/stale flag. Project its center and radius through
+compatible geometry. A usable detector center may be used as an explicitly
+approximate fallback when precision refinement is unavailable; do not label it
+as a measured contour. Missing precise calibration certification does not by
+itself block a marker when a usable mapping exists. Missing usable mapping or
+other dependent geometry disables the affected projection or live advice at
+the point of use. Optional contours are developer-only provenance protected by
+an explicit developer flag and exact source-frame ownership. Missing video
+frame IDs do not block center markers, and the browser never freezes or rewinds
+video to pair an overlay.
 
-Motion invalidates layout trust and guidance immediately. Confirmed motion
-selects the shot phase; occlusion or uncertain whole-table changes invalidate
-trust and select recovery without claiming that a shot occurred. Recovery
-requires new quiet evidence and a new three-observation layout consensus.
-Failed detections and missing frames do not count toward settlement.
+## Cue lifecycle and phase behavior
 
-The initial evidence limits are 200 ms for motion checks, 250 ms for cue
-geometry, and 1.5 seconds between successful full-layout verifications. A
-retained layout remains explicitly marked as retained, with its measurement
-age visible; cue-only updates and skipped detections do not make the ball
-measurements appear newer. If evidence expires, the source fails, or calibration
-changes, consumers must remove guidance eligibility. These settings are
-configurable with the phase schedule.
+Each completed current cue evaluation supplies either a line or no line. A
+negative result clears the current line immediately. Capture time determines
+whether an asynchronous result is still current; context-obsolete or
+over-age results cannot reintroduce it. Motion clears the current cue line; a
+result from an earlier motion generation cannot restore it, even within the age
+limit. Reuse one configured capture-age bound for silence/debounce rather than
+adding separate lifecycle timers. Cue state is ephemeral: do not remember an old
+line or require exact video-frame pairing. Desired practice aim is separate
+from the live cue comparison. Ball layout freshness is independent of cue
+updates.
 
-Cue endpoints and axis are image geometry. When calibration is compatible and
-the fitted shaft crosses the playing-surface boundary, the endpoint on the
-table is identified as the tip side and the endpoint outside as the butt side.
-Image-based endpoint contrast remains a fallback when the table boundary
-cannot orient the fit. Cue geometry is not a ball identity or a cue-ball-aware
-coaching result, and should not by itself be presented as a complete shot
-recommendation.
+Phases may schedule lightweight motion checks, full-layout scans, and cue work
+at configured rates. A shot stops old advice at the motion decision. Recovery
+continues motion checks and schedules clean scans until current quiet evidence
+and a successful clean scan establish a trusted replacement. Retain bounded
+workers and skip missed slots; rates are operational settings, not universal
+FPS qualification gates.
 
-## Selecting rates
+## Deterministic behavior and verification
 
-Use the reviewed recordings first, then repeat on the target camera. Keep model,
-resolution, provider, exposure, and confidence thresholds fixed for every
-comparison. For each candidate, warm up for 30 seconds and collect three
-120-second windows, alternating candidate order. Collect detector and gateway
-measurements independently. Use the replay report's phase schedule section for
-effective rates, achieved motion/cue/detector rates, intentional detector skips,
-trusted-layout duration, and recovery delays. Use `--annotations` together with
-`--scene-snapshots-jsonl` to score ball measurements against reviewed labels.
-Unlabeled or synthetic replay is useful for plumbing but cannot qualify
-localization accuracy. Add `--phase-cue-geometry-jsonl` to retain fitted cue
-lines and score their undirected axis against the cue endpoints in those same
-reviewed labels.
+Implementation must cover these outcomes with fake clocks and controlled
+worker completion rather than relying on timing luck:
 
-Start with the defaults above. Change one rate only when its corresponding
-acceptance check fails:
-
-| Failure | Next rate experiment |
+| Condition | Required behavior |
 |---|---|
-| Cue line feels delayed or cue evidence age exceeds 250 ms at p95 | Cue: 5 → 10 → 15 → 20 Hz |
-| Recovery exceeds 2 seconds at p95 after motion stops | Recovery detection: 5 → 10 → 15 Hz |
-| Stationary verification expires too often | Pre-shot/aiming detection: 1 → 2 → 5 Hz, after diagnosing missed detections |
-| Motion invalidation is late or slow rolls are missed | Motion checks: 15 → 30 Hz, then inspect motion assessment |
-| Cue axis misses its 1° p95 target | Correct the geometry or calibration and keep the rate fixed for comparison |
-| A higher rate causes detector waiting or overload | Reject that setting; reduce per-call cost or retain the lower rate |
+| Slow scan completes while compatible quiet evidence remained continuous | Admit it if order and context still match; preserve its original capture/last-seen time. |
+| Motion or a continuity gap occurs while a scan is blocked | Mark the whole layout stale; reject the result from restoring pre-motion trust. Later quietness alone does not restore trust. |
+| Clean settled scan omits balls or is validly empty | Replace the active layout exactly with its contents, including an empty layout. |
+| Scan fails, is occluded, incomplete, or context-invalid | Do not clear the active layout; keep last-known positions stale as applicable. |
+| Motion evidence expires or feed stops while other state messages continue | Downgrade trust at the configured evidence deadline; do not rejuvenate measurements. |
+| Cue evaluation is positive, negative, silent, late, or context-obsolete | Draw only current positive output; clear immediately on negative and expire/reject silent or obsolete output by configured capture-age/debounce rules. |
+| Video has no frame IDs but usable center geometry exists | Draw trusted or stale center markers while displaying newest video; do not require contour pairing. |
+| Source, calibration, or geometry context changes | Do not project incompatible old coordinates onto new imagery; reacquire. |
 
-The provisional engineering gates are: no guidance more than 150 ms after
-clearly visible ball movement; no false trusted layout in reviewed motion or
-occlusion cases; recovery within 2 seconds at p95 after visible movement stops;
-cue evidence age below 250 ms at p95 while trackable; localization recall no
-more than one percentage point below the reference; p95 center error no more
-than 10% above the reference; and cue-axis error within 1° at p95 on independent
-annotations. There must also be no unbounded queue, sustained memory growth, or
-shutdown failure. A failed geometry gate calls for an algorithm or calibration
-fix, not simply a higher processing rate.
+Existing useful checks remain: valid geometry and context matching, bounded
+worker behavior, honest capture and evidence timestamps, no trust rejuvenation,
+no old cue/current-truth presentation, and clean shutdown. Precision contour
+qualification, fixed detector FPS, and universal appearance-reference
+qualification are not prerequisites for this target. Accuracy and timing should
+be reported honestly when measured, but missing a perfection threshold is not
+a product blocker for approximate markers or the first useful coaching loop.
 
-Keep the lowest schedule that passes the gates and feels responsive in an
-aiming trial. Then run a 20-minute target-device soak with the live browser
-open. Check shutdown and restart, evidence ages, accuracy, total resource use,
-and memory. Save the selected phase profile and its evidence alongside the
-previous qualified Rust build and configuration so the rate change can be
-rolled back.
+## Implementation status
+
+ADR-0114 records the accepted product behavior. Runtime implementation,
+automated conformance checks, replay results, and actual-camera responsiveness
+remain to be completed and reported separately. Existing tests that encode
+unconditional layout expiry, multi-scan consensus, or exact-frame suppression
+must be revised while preserving context-reset, geometry-validity, bounded-work,
+and no-rejuvenation coverage.

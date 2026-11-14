@@ -28,8 +28,11 @@ footprint inside a bounded source ROI. Keep actual pixel-support, residual and
 ambiguity gates; a common physical diameter alone does not prove a center.
 
 Carry the accepted source contour and center together through tracking and public
-state. Draw that contour only on its exact observed session/frame. Clear it when
-an observation becomes stale; never draw a retained polygon on a newer image.
+state for provenance. As narrowed by ADR-0114, contours are optional
+developer-only diagnostics behind an explicit flag, drawn only on their exact
+observed session/frame and cleared when stale. Production uses the single
+table-plane center/radius marker; it does not require contour display or exact
+video-frame pairing for centers. Never draw a retained polygon on a newer image.
 
 Permit six or more unique, distributed ball-center correspondences, with validated
 full and every leave-one-out fit, conditioning, pole checks and explicit coverage

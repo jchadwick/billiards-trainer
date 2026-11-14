@@ -1,10 +1,10 @@
 # ADR-0099: Require a confirmed table appearance reference for guidance
 
-- Status: accepted
+- Status: superseded
 - Date: 2026-10-24
 - Deciders: Project maintainers
 - Supersedes: None
-- Superseded by: None
+- Superseded by: ADR-0114 (mandatory appearance-reference qualification only)
 
 ## Context
 
