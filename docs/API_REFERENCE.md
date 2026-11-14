@@ -54,31 +54,67 @@ socket.onmessage = ({ data }) => {
 ```
 
 The versioned scene and public-state schemas and fixtures live under
-[`perception/contracts`](../perception/contracts/). Numbered-ball recognition
-and trajectory predictions are not produced by the current detector.
+[`perception/contracts`](../perception/contracts/). The detector does not
+identify numbered balls or produce shot trajectories. The browser's live coach
+uses producer centers and a compatible table projection to calculate direct-pot
+guidance; this is a UI estimate, not a server prediction or complete physics
+model.
+
+Public state exposes `observation_status.perception`, containing `layout_trusted`,
+`trust_reason`, whole-table motion evidence ages, and the current cue result.
+Inside a WebSocket message, the full prefix is `data.observation_status.perception`.
+A clean settled scan
+replaces the producer layout wholesale, including a valid empty layout. Failed
+or occluded scans do not clear it. Motion or expired motion evidence makes the
+layout stale while retaining last-known centers. Consumers must not treat stale
+centers as proof of a clear path or cache them as a second layout. A slow scan
+can be accepted when source context, ordering, motion generation, and quiet
+continuity still match; capture timestamps remain unchanged.
+
+`observation_status.perception.table_projection` describes the active source-pixel to
+center-origin table-millimeter homography, physical table dimensions, and
+camera/calibration context. The compatibility HTTP root also exposes it as
+`table`, with its matching `table_calibration_revision`. Clients should reject
+spatial output when known source, configuration, calibration, rectification,
+or geometry context is incompatible. The source-selection configuration
+revision is a minimum bound: a newer configuration on the same selected source
+may remain compatible, but a producer older than the selected source revision
+cannot. A video source generation change invalidates prior display context.
+Frame-ID differences alone are not a spatial mismatch.
+
+Cue results are ephemeral. A negative evaluation clears the cue immediately;
+capture-age expiry and motion/context changes prevent old results from
+reappearing. The default cue evidence bound is configured as 250 ms in the
+current defaults. A cue line may be visible without signed direction; in that
+case its direction is unknown and it does not drive a live path prediction.
+The manual desired-aim suggestion is independent of cue detection.
 
 ## Browser assets and camera video
 
-The Rust server serves the built HTML, JavaScript, and CSS bundle. `/` redirects
-to `/live`. The live view fetches the configured `api.stream.viewer_url`
-directly in the browser and receives detection state through the WebSocket. It
-does not proxy video through the Rust API.
+The Rust server serves the built HTML, JavaScript, and CSS bundle. The browser
+loads the configured `api.stream.viewer_url` directly and receives detection
+state through the WebSocket. It does not proxy video through the Rust API. The
+live view always uses the newest video and renders compatible producer centers
+independently of video frame IDs. When physical table mapping is unavailable,
+compatible image-space centers can still be displayed, while table-space advice
+is disabled. Production ball markers use fixed physical-radius circles
+projected through the active mapping when available; a compatible detector
+center remains usable if optional precision refinement is absent or invalid.
+Marker labels are stable producer track IDs for manual selection, not ball
+numbers.
 
-### Identified MJPEG parts
+### Identified MJPEG metadata for compatible viewers
 
-Spatial overlays are drawn only when a decoded JPEG part and the perception
-decision have the same frame, capture session, engine, configuration,
-calibration, and rectification identities. The browser keeps a bounded ring of
-decoded stills; it never substitutes a nearby frame. An unmatched identified
-frame can be shown without a spatial overlay. A legacy MJPEG stream without
-the identity headers remains viewable through the browser's native image
-stream, but spatial overlays are disabled.
+The live product view does not require an identified MJPEG stream or an exact
+JPEG/perception frame join. A separate viewer that chooses to correlate a
+particular JPEG with state may use the following identity metadata; context
+must match, while frame identity is provenance rather than a production marker
+gate. Optional fitted outlines remain tied to their exact source frame.
 
-Cue geometry carries its own `source_frame_id`. The viewer shows cue geometry
-only when that source frame is the exact displayed frame. Ball positions may
-remain available from an older measurement with their original observation
-age, while the decision frame identifies the current image used for aiming;
-those identities must not be conflated.
+Cue geometry carries its own `source_frame_id` as provenance. The product
+checks current source/calibration context and capture age; it does not require
+the video viewer to display that exact frame. Ball measurements retain their
+original observation age, and phase-only updates do not make them newer.
 
 Each `multipart/x-mixed-replace` part must include a valid `Content-Length`,
 `Content-Type: image/jpeg`, and these part headers:

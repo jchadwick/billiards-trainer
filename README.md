@@ -1,18 +1,38 @@
 # Billiards Trainer
 
-Billiards Trainer detects pool balls from an overhead camera and publishes the
-latest table state to the `/live` browser view. Current priorities are correct
-ball locations and fresh updates. Numbered-ball recognition and trajectory
-prediction are not implemented in the running detector.
+Billiards Trainer is a pool practice and live aiming coach. Use `/practice` to
+edit a simulated table without a camera, or `/live` to work from the latest
+camera video and producer-reported ball positions. The live view offers
+estimated direct-pot suggestions when current table geometry supports them;
+ball-number recognition and complete shot physics are not provided.
 
 ## Current application
 
 - The server, capture supervisor, detector, tracking, state conversion, HTTP,
   WebSocket delivery, and static-file serving are Rust.
 - The client is a standard HTML/CSS/JavaScript application built from
-  `frontend/web`; it is not WebAssembly. `/` redirects to `/live`.
-- The `/live` page displays the configured camera stream directly in the
-  browser and overlays the latest detected state received over WebSocket.
+  `frontend/web`. `/` redirects to `/live`;
+  `/practice` is an editable sandbox whose simulated balls never stand in for
+  live detections.
+- The `/live` page displays the newest configured camera video while receiving
+  producer state independently over WebSocket. Compatible ball centers remain
+  visible without exact video-frame pairing.
+- In `/practice`, place the cue ball and object balls on the table, confirm the
+  cue ball, and optionally choose a target and pocket. The coach checks both
+  path segments for blockers and shows the suggested contact point, ghost-ball
+  center, desired cue path, and estimated initial object-ball path. It models
+  direct pots only; it does not model legal-game rules, spin, banks,
+  combinations, or full post-contact physics.
+- In `/live`, select the cue ball and optionally a target and pocket using the
+  marker labels. These labels identify producer tracks for manual selection;
+  they are not recognized ball numbers. Automatic direct-pot suggestions are
+  available when the layout is trusted and compatible physical table mapping
+  is present. Solid markers represent trusted positions; dashed, dim markers
+  are stale last-known positions and do not establish clear paths. Motion or
+  lost evidence pauses advice until a clean settled scan replaces the layout.
+  The newest video keeps playing during this process. The current detected cue
+  line is ephemeral and shown separately from the desired aim suggestion; the
+  desired suggestion can be used when no cue line is available.
 - Live inference uses the Rust detector with an ONNX model and its matching
   source checkpoint and export manifest. Model class numbers are not treated
   as pool-ball identities.
@@ -20,6 +40,9 @@ prediction are not implemented in the running detector.
   the server, deployment image, or normal Rust and browser test workflows.
 
 ## Run locally
+
+Live inference requires the supported OpenVINO Intel GPU environment and matching
+model assets.
 
 Install Rust, Node.js, and GStreamer development/runtime libraries for the
 selected camera or network stream. Set the model paths and capture settings in
@@ -40,6 +63,12 @@ for browser development.
 For [Docker deployment](docs/DOCKER.md), the [local distribution bundle](docs/LOCAL_DEPLOYMENT.md), or [model export](tools/README_MODEL_EXPORT.md), see the linked guides.
 
 ## Verify changes
+
+Software behavior is covered by automated frontend and Rust checks. The
+implemented coach has not yet been tried with the actual table camera in a
+shooting session. Automated checks do not establish physical aiming accuracy
+or how responsive the guidance feels during play; those need an ordinary
+on-table trial, not a new qualification program.
 
 ```sh
 make test

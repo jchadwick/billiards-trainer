@@ -8,6 +8,12 @@ and machine-specific capture settings before starting live inference. The
 example clears the recorded-video input path because the live capture runtime
 accepts camera and network sources only.
 
+A compatible four-corner table calibration supplies the physical aiming map.
+Optional optics and ball-center assets improve localization but are not required
+for approximate markers or direct-pot advice. Without a usable table mapping,
+compatible image-space markers remain available while physical advice pauses.
+A source or geometry change requires compatible calibration again.
+
 Select another file for local runs with `RUST_CONFIG`:
 
 ```sh
@@ -40,36 +46,15 @@ are recorded in [ADR-0104](architecture/decisions/0104-run-target-inference-on-t
 they are a backend selection result, not a claim of physical X/Y accuracy.
 Coral model settings are no longer accepted by the live configuration schema.
 
-`vision.camera` selects a local camera or a supported network stream. Configure
-`api.stream.viewer_url` separately when the browser should display a video
-stream. For exact spatial overlays, point it to
-`http://<device>:<http-port>/api/v1/video/identified.mjpg`. The Rust gateway
-bridges the capture preview bound to `perception.rust_live.frame_preview_port`
-(default `49322`), which must be a nonzero loopback port for this route. Keep the
-capture source and viewer source aligned. The browser never pairs by timestamp
-or nearest frame. Legacy MJPEG sources remain available as video, while spatial
-overlays are withheld until the displayed frame has matching capture identity.
-
-### Identified video and exact-frame overlays
-
-`api.stream.frame_pairing` bounds browser-side parsing and retention for
-identified MJPEG streams:
-
-| Setting | Default | Purpose |
-| --- | ---: | --- |
-| `maximum_frame_bytes` | 16 MiB | Maximum JPEG payload accepted for one part |
-| `maximum_part_header_bytes` | 16 KiB | Maximum multipart header block |
-| `buffered_frame_count` | 64 | Maximum number of decoded frames retained for pairing |
-
-The stream must use `multipart/x-mixed-replace`; every part must provide a
-`Content-Length` and `Content-Type: image/jpeg`, plus `X-Frame-Id`,
-`X-Engine-Instance-Id`, `X-Source-Session-Id`, `X-Configuration-Revision`,
-`X-Calibration-Revision`, and `X-Rectification-Revision`. Cross-origin viewer
-URLs must allow browser `fetch` with the stream's CORS policy. Invalid or
-oversized parts are rejected and do not receive a spatial overlay. These
-limits bound memory and parsing work; they do not repair incorrect identity
-metadata. The gateway obtains its JPEG bytes from the detector's exact captured
-RGB frame, and emits all identity headers from that frame descriptor.
+Set `api.stream.viewer_url` to the browser-reachable MJPEG URL of the camera
+service. The live view opens that URL directly. Use a camera service
+origin separate from the application API. The camera image and perception
+state are independent in this view; the viewer keeps the newest video and
+normal center markers do not require frame IDs or exact-frame pairing. The
+producer's active `observation_status.perception.table_projection` is the source-pixel to
+center-origin table-millimeter mapping used for world positions and projected
+aim paths. It must match the current camera/source geometry and calibration
+context. Calibration must use that same camera view.
 
 Configuration changes are validated before they are applied. Successful
 updates preserve the configuration revision and restart-required semantics.
@@ -79,7 +64,24 @@ and encrypted role-to-role transport remain planned work. Do not expose the
 current API to a LAN or the public Internet.
 
 See the [coordinate contract](COORDINATE_SYSTEMS.md) and
-[API reference](API_REFERENCE.md) for related wire behavior. The initial
-per-phase analysis rates and evidence-age limits are under
-`perception.rust_live.phase_schedule`; see the
-[phase-aware perception guide](PHASE_AWARE_PERCEPTION.md) before tuning them.
+[API reference](API_REFERENCE.md) for related wire behavior. Per-phase
+analysis rates and evidence-age limits are under
+`perception.rust_live.phase_schedule`. The current cue evidence expiry default
+is 250 ms. The legacy layout-scan expiry setting defaults to 1500 ms but does
+not expire layout trust; current whole-table motion evidence governs trust.
+These settings do not define physical accuracy or latency qualification. Older
+consensus, tolerance, and layout-scan-expiry settings remain accepted for
+configuration compatibility but do not gate the current trusted/stale layout
+policy. See the [phase-aware perception guide](PHASE_AWARE_PERCEPTION.md) for
+runtime behavior and supported tuning.
+
+The live coach ranks feasible direct-pot suggestions using its default
+policy: cut angle, then travel, then stable target and pocket IDs. The pure
+geometry helper accepts ranking options; runtime configuration does not expose
+a ranking setting. Geometry is
+checked in physical table coordinates for both cue-to-contact and
+object-to-pocket paths, accounting for ball radii. This is direct-pot aiming
+guidance only; the application does not implement legal-game rules, spin,
+banks, combinations, or full post-contact physics. Diagnostics and precision
+calibration metrics help inspect the system but are not gates for these
+approximate estimates.

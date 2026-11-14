@@ -4,8 +4,8 @@
 
 The supported application has one server-side runtime: Rust. The browser
 client remains HTML, CSS, and JavaScript and is served as static files by the
-Rust gateway. The browser route `/` redirects to `/live`; the live page is the
-only product view.
+Rust gateway. The browser includes setup, an editable `/practice` sandbox, and
+the camera based `/live` coach.
 
 `billiards-server` owns configuration, HTTP and WebSocket routes, static-file
 serving, and supervision of live capture. The live detector reads frames from
@@ -25,16 +25,28 @@ updates. The system does not promise delivery of every camera frame. A detected
 state is only current to its source observation; the server preserves source
 identity, frame identity, timestamps, and observation status for consumers.
 
-The browser loads `api.stream.viewer_url`; ball state is received separately
-over WebSocket. Production can point the viewer URL at
-`/api/v1/video/identified.mjpg`, where the gateway bridges the detector's
-loopback-only frame preview and attaches the exact capture identity to each
-JPEG part. The browser buffers a bounded set of decoded stills and draws spatial
-guidance only over the exact JPEG whose identity matches the perception
-decision. If the pair is missing or any producer/session/geometry revision
-differs, the view withholds the spatial overlay. Legacy MJPEG remains visible
-as video without spatial overlays. The gateway bridge is limited to configured
-preview clients and frame sizes.
+The browser loads `api.stream.viewer_url` directly; ball state is received
+separately over WebSocket. The newest video continues independently of state
+delivery; the live view does not freeze or rewind it to find a matching frame.
+Perception owns the whole-table layout and reports trusted or stale last-known
+centers. The browser renders compatible centers as solid or dim dashed markers
+and does not retain a second ball layout. Frame IDs and optional fitted outlines
+remain provenance for diagnostics, not prerequisites for normal markers.
+
+Live advice uses the active table projection when its source and calibration
+context match the video and state. That projection maps source-image pixels to
+table-plane millimeters with the origin at the playing-surface center. The
+browser inverts the same homography to draw suggested paths. If usable table
+coordinates or a trusted layout are unavailable, it pauses advice; compatible
+image-space center markers may still be shown. The cue-ball choice, target, and
+pocket are manual UI selections. Producer marker labels are track IDs, not
+recognized ball numbers. Direct-pot suggestions check cue-to-contact and
+object-to-pocket clearance, then rank by configured policy. They show a
+ghost-ball/contact aim and estimated initial object path, not legal-game rules,
+spin, banks, combinations, or complete post-contact physics.
+
+`/practice` uses editable simulated positions and shared direct-pot geometry.
+It is self-contained and does not read camera or producer state.
 
 ## Deployment boundary
 
@@ -49,13 +61,15 @@ the planned remote roles, authenticated transport, and production frame
 identity path are implemented and qualified; a trusted LAN or VPN alone does
 not make the current unauthenticated API safe to expose.
 
-## Current scope
+## Current scope and validation
 
-The detector reports generic ball locations and cue status. It does not
-reliably identify numbered balls, and the running server has no trajectory
-prediction producer. Those features are outside the current live path. The
-current `/live` UI and the Rust state contracts are the reference for supported
-behavior.
+The detector reports generic ball centers and cue status; it does not identify
+numbered balls. Direct-pot guidance is computed by the browser from producer
+centers and physical table geometry, not by a trajectory-prediction producer.
+It estimates initial paths only. Automated software checks cover the
+implemented UI and producer lifecycle. Acceptance on a physical billiards
+table has not been performed, and no physical accuracy, end-to-end latency, or
+deployment performance qualification is claimed.
 
 ## Runtime entry points
 
@@ -70,4 +84,4 @@ behavior.
 
 See the [API reference](API_REFERENCE.md) and [configuration guide](CONFIG.md)
 for their current contracts. The [phase-aware perception guide](PHASE_AWARE_PERCEPTION.md)
-describes scheduling, state trust, and rate qualification.
+describes scheduling, state trust, and configurable work rates.

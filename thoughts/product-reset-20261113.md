@@ -1,6 +1,8 @@
 # Product reset: a helpful, responsive pool coach
 
-Status: user-approved target, updated 2026-11-13; implementation pending.
+Status: user-approved target; software implementation completed 2026-11-13.
+Automated verification passed; physical-table play acceptance remains outstanding.
+See [execution record](product-reset-execution-20261113.md) for delivered scope and checks.
 
 ## Goal and authority
 
