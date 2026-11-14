@@ -129,6 +129,29 @@ pub struct PerceptionStateV1 {
     /// unavailable by newer consumers and never enables guidance.
     #[serde(default)]
     pub table_visibility: Option<TableVisibilityStateV1>,
+    /// Exact active image-to-table mapping used for measured production centers.
+    /// This is runtime evidence, not a copy of static corner inputs.
+    #[serde(default)]
+    pub table_projection: Option<TableProjectionV1>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TableProjectionV1 {
+    pub direction: String,
+    pub image_space: String,
+    pub source_width_px: u32,
+    pub source_height_px: u32,
+    pub camera_profile_id: String,
+    pub calibration_revision: u64,
+    pub rectification_revision: u64,
+    pub table_width_mm: f64,
+    pub table_height_mm: f64,
+    pub unit: String,
+    pub origin: String,
+    pub x_axis: String,
+    pub y_axis: String,
+    pub pixel_to_table_mm: [[f64; 3]; 3],
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -663,13 +686,46 @@ impl SceneStateLifecycle {
                 .saturating_sub(receipt)
                 .saturating_add(stored.localization_age_offset_ns)
         });
-        let freshness = match localization_age_ns {
-            None => StateFreshness::Stale,
-            Some(age) if age >= self.config.expire_after_ns => StateFreshness::Expired,
-            Some(age) if stored.health_forced_stale || age >= self.config.stale_after_ns => {
-                StateFreshness::Stale
+        let live_layout_trusted = self
+            .latest_perception_status
+            .as_ref()
+            .is_some_and(|status| {
+                let delivered_at = self.perception_received_monotonic_ns.unwrap_or_default();
+                let elapsed_ms = now_monotonic_ns
+                    .saturating_sub(delivered_at)
+                    .checked_div(1_000_000)
+                    .unwrap_or_default()
+                    .min(u128::from(u64::MAX)) as u64;
+                let age_is_current = |age_field: &str, maximum_field: &str| {
+                    status
+                        .get(age_field)
+                        .and_then(Value::as_u64)
+                        .zip(status.get(maximum_field).and_then(Value::as_u64))
+                        .is_some_and(|(age, maximum)| age.saturating_add(elapsed_ms) <= maximum)
+                };
+                !stored.health_forced_stale
+                    && status.get("layout_trusted").and_then(Value::as_bool) == Some(true)
+                    && age_is_current("latest_motion_check_age_ms", "motion_evidence_max_age_ms")
+            });
+        let freshness = if live_layout_trusted {
+            // Full detector scans are intentionally slow and periodic. Their
+            // original measurement age is reported separately and must not
+            // expire a layout supported by current quiet motion evidence.
+            StateFreshness::Fresh
+        } else {
+            match localization_age_ns {
+                None => StateFreshness::Stale,
+                Some(age)
+                    if age >= self.config.expire_after_ns && stored.payload.balls.is_empty() =>
+                {
+                    StateFreshness::Expired
+                }
+                Some(age) if age >= self.config.expire_after_ns => StateFreshness::Stale,
+                Some(age) if stored.health_forced_stale || age >= self.config.stale_after_ns => {
+                    StateFreshness::Stale
+                }
+                Some(_) => StateFreshness::Fresh,
             }
-            Some(_) => StateFreshness::Fresh,
         };
         let mut payload = stored.payload.clone();
         match freshness {
@@ -714,6 +770,13 @@ impl SceneStateLifecycle {
                 perception.clone(),
                 now_monotonic_ns.saturating_sub(received_at),
             );
+            if payload.observation_status["perception"]
+                .get("layout_trusted")
+                .and_then(Value::as_bool)
+                != Some(true)
+            {
+                mark_payload_stale(&mut payload, None);
+            }
         }
         let ball_age_ns = if freshness == StateFreshness::Expired {
             HashMap::new()
@@ -859,7 +922,9 @@ fn refresh_perception_status(mut status: Value, age_since_delivery_ns: u128) -> 
                 age_field.to_owned(),
                 json!(current_age.saturating_add(age_ms)),
             );
-            if current_age.saturating_add(age_ms) > maximum {
+            if age_field == "latest_motion_check_age_ms"
+                && current_age.saturating_add(age_ms) > maximum
+            {
                 object.insert("layout_trusted".to_owned(), json!(false));
                 object.insert("empty_layout_verified".to_owned(), json!(false));
                 object.insert("guidance_valid".to_owned(), json!(false));
@@ -901,10 +966,6 @@ fn refresh_perception_status(mut status: Value, age_since_delivery_ns: u128) -> 
         };
         if object.get("layout_trusted").and_then(Value::as_bool) != Some(true)
             || !evidence_is_fresh("latest_motion_check_age_ms", "motion_evidence_max_age_ms")
-            || !evidence_is_fresh(
-                "last_ball_observation_age_ms",
-                "layout_verification_max_age_ms",
-            )
         {
             object.insert("empty_layout_verified".to_owned(), json!(false));
         }
@@ -939,7 +1000,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn expired_layout_evidence_clears_trust_and_verified_empty_status() {
+    fn old_scan_age_does_not_clear_trust_while_motion_evidence_is_current() {
         let status = json!({
             "phase": "pre_shot",
             "layout_trusted": true,
@@ -955,10 +1016,10 @@ mod tests {
         });
 
         let refreshed = refresh_perception_status(status, 2_000_000);
-        assert_eq!(refreshed["layout_trusted"], false);
-        assert_eq!(refreshed["empty_layout_verified"], false);
-        assert_eq!(refreshed["phase"], "recovering");
-        assert_eq!(refreshed["trust_reason"], "layout_verification_expired");
+        assert_eq!(refreshed["layout_trusted"], true);
+        assert_eq!(refreshed["empty_layout_verified"], true);
+        assert_eq!(refreshed["phase"], "pre_shot");
+        assert_eq!(refreshed["last_ball_observation_age_ms"], 1_501);
     }
 
     #[test]

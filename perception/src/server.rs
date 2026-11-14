@@ -1201,30 +1201,21 @@ fn validate_perception_state(state: &PerceptionStateV1) -> Result<(), String> {
         return Err("perception delivery contains invalid phase or evidence limits".into());
     }
     if state.guidance_valid {
-        let visible_table = state.table_visibility.as_ref().is_some_and(|visibility| {
-            visibility.status == crate::public_state_lifecycle::TableVisibilityStatusV1::Visible
-                && visibility.observation_age_ms <= state.motion_evidence_max_age_ms
-        });
-        let cue_is_fresh = state.cue.as_ref().is_some_and(|cue| {
-            cue.observation_age_ms <= state.cue_evidence_max_age_ms
-                && cue.source_frame_id.as_deref() == state.decision_frame_id.as_deref()
-        }) && state
-            .cue_evidence_age_ms
-            .is_some_and(|age| age <= state.cue_evidence_max_age_ms);
+        let cue_is_fresh = state
+            .cue
+            .as_ref()
+            .is_some_and(|cue| cue.observation_age_ms <= state.cue_evidence_max_age_ms)
+            && state
+                .cue_evidence_age_ms
+                .is_some_and(|age| age <= state.cue_evidence_max_age_ms);
         if !state.layout_trusted
-            || state.phase != "aiming"
-            || state.decision_frame_id.as_deref().is_none_or(str::is_empty)
-            || !visible_table
-            || !state
-                .last_ball_observation_age_ms
-                .is_some_and(|age| age <= state.layout_verification_max_age_ms)
             || !state
                 .latest_motion_check_age_ms
                 .is_some_and(|age| age <= state.motion_evidence_max_age_ms)
             || !cue_is_fresh
         {
             return Err(
-                "guidance requires fresh frame-bound layout, motion, cue, and table evidence"
+                "guidance requires trusted layout, current whole-table motion, and timely cue evidence"
                     .into(),
             );
         }
@@ -1248,6 +1239,51 @@ fn validate_perception_state(state: &PerceptionStateV1) -> Result<(), String> {
     }) {
         return Err("perception table-visibility evidence is invalid".into());
     }
+    if let Some(projection) = state.table_projection.as_ref() {
+        let image_space = match projection.image_space.as_str() {
+            "raw" => crate::ImageSpace::Raw,
+            "rectified" => crate::ImageSpace::Rectified,
+            _ => return Err("perception table projection has invalid image space".into()),
+        };
+        let calibration = crate::calibration::TableCalibrationV1 {
+            schema_version: crate::calibration::TABLE_CALIBRATION_SCHEMA_VERSION,
+            calibration_revision: projection.calibration_revision,
+            camera_profile_id: projection.camera_profile_id.clone(),
+            rectification_revision: projection.rectification_revision,
+            image_space,
+            source_width_px: projection.source_width_px,
+            source_height_px: projection.source_height_px,
+            coordinate_frame:
+                crate::calibration::TableCoordinateFrame::CenterOriginXCorner0To1YCorner0To3,
+            table_width_mm: projection.table_width_mm,
+            table_height_mm: projection.table_height_mm,
+            pixel_to_table_mm: projection.pixel_to_table_mm,
+        };
+        if projection.direction != "source_image_px_to_table_mm"
+            || projection.unit != "millimeters"
+            || projection.origin != "playing_surface_center"
+            || projection.x_axis != "corner_0_to_1"
+            || projection.y_axis != "corner_0_to_3"
+            || state
+                .image_width_px
+                .is_some_and(|width| width != projection.source_width_px)
+            || state
+                .image_height_px
+                .is_some_and(|height| height != projection.source_height_px)
+            || state
+                .decision_calibration_revision
+                .is_some_and(|revision| revision != projection.calibration_revision)
+            || state
+                .decision_rectification_revision
+                .is_some_and(|revision| revision != projection.rectification_revision)
+            || calibration.validate().is_err()
+        {
+            return Err(
+                "perception table projection is invalid or does not match the decision context"
+                    .into(),
+            );
+        }
+    }
     if state.cue.as_ref().is_some_and(|cue| {
         cue.source_frame_id
             .as_ref()
@@ -1257,9 +1293,6 @@ fn validate_perception_state(state: &PerceptionStateV1) -> Result<(), String> {
     }
     if state.empty_layout_verified
         && (!state.layout_trusted
-            || !state
-                .last_ball_observation_age_ms
-                .is_some_and(|age| age <= state.layout_verification_max_age_ms)
             || !state
                 .latest_motion_check_age_ms
                 .is_some_and(|age| age <= state.motion_evidence_max_age_ms))
@@ -2090,6 +2123,16 @@ fn websocket_scene_message_with_retention(
     }
 
     let status = &state.current.payload.observation_status;
+    // This compatibility query option is retained for old clients, but the
+    // phase-aware producer owns its complete trusted/stale ball layout.
+    if status
+        .pointer("/perception/phase")
+        .and_then(Value::as_str)
+        .is_some()
+    {
+        message["data"]["observation_status"]["position_retention"] = Value::Null;
+        return message;
+    }
     let current_context = position_retention_context(status);
     let current_status = status
         .get("ball_positions_status")
@@ -2345,7 +2388,7 @@ fn http_scene_response(state: &PublishedState) -> Value {
         "frame_number": frame_number,
         "balls": balls,
         "cue": null,
-        "table": null,
+        "table": status.pointer("/perception/table_projection").cloned().unwrap_or(Value::Null),
         "game_type": null,
         "session": null,
         "is_valid": is_valid,
@@ -2354,7 +2397,7 @@ fn http_scene_response(state: &PublishedState) -> Value {
         "core_metadata_timestamp": null,
         "table_metadata_status": "unavailable",
         "scene_calibration_revision": status.get("calibration_revision").cloned().unwrap_or(Value::Null),
-        "table_calibration_revision": null,
+        "table_calibration_revision": status.pointer("/perception/table_projection/calibration_revision").cloned().unwrap_or(Value::Null),
         "events": [],
         "confidence_status": if confidence.is_some() { "mean_detector_confidence" } else { "unavailable" },
         "observation_status": status,
@@ -2758,6 +2801,7 @@ mod tests {
             decision_calibration_revision: None,
             decision_rectification_revision: None,
             table_visibility: None,
+            table_projection: None,
         };
         assert!(validate_perception_state(&state).is_ok());
         let encoded = serde_json::to_value(&state).unwrap();
@@ -2780,7 +2824,7 @@ mod tests {
     }
 
     #[test]
-    fn verified_empty_state_requires_trust_and_a_full_layout_observation() {
+    fn verified_empty_state_requires_trust_and_current_motion_evidence() {
         let mut state = PerceptionStateV1 {
             event_sequence: 1,
             image_width_px: None,
@@ -2802,17 +2846,17 @@ mod tests {
             decision_calibration_revision: None,
             decision_rectification_revision: None,
             table_visibility: None,
+            table_projection: None,
         };
         assert!(validate_perception_state(&state).is_err());
         state.layout_trusted = true;
-        assert!(validate_perception_state(&state).is_err());
-        state.last_ball_observation_age_ms = Some(0);
+        state.last_ball_observation_age_ms = None;
         state.latest_motion_check_age_ms = Some(0);
         assert!(validate_perception_state(&state).is_ok());
     }
 
     #[test]
-    fn guidance_requires_fresh_frame_bound_table_and_cue_evidence() {
+    fn guidance_requires_current_motion_and_cue_evidence_without_frame_join() {
         let mut state = PerceptionStateV1 {
             event_sequence: 2,
             image_width_px: Some(1280),
@@ -2841,6 +2885,7 @@ mod tests {
             decision_frame_id: Some("frame-2".into()),
             decision_calibration_revision: Some(7),
             decision_rectification_revision: Some(9),
+            table_projection: None,
             table_visibility: Some(crate::public_state_lifecycle::TableVisibilityStateV1 {
                 status: crate::public_state_lifecycle::TableVisibilityStatusV1::Visible,
                 reason: "reference_match".into(),
@@ -2851,23 +2896,27 @@ mod tests {
         assert!(validate_perception_state(&state).is_ok());
 
         state.table_visibility = None;
-        assert!(validate_perception_state(&state).is_err());
+        assert!(validate_perception_state(&state).is_ok());
         state.table_visibility = Some(crate::public_state_lifecycle::TableVisibilityStateV1 {
             status: crate::public_state_lifecycle::TableVisibilityStatusV1::NotVisible,
             reason: "cloth_mismatch".into(),
             observation_frame_id: "frame-2".into(),
             observation_age_ms: 0,
         });
-        assert!(validate_perception_state(&state).is_err());
+        assert!(validate_perception_state(&state).is_ok());
         state.table_visibility = Some(crate::public_state_lifecycle::TableVisibilityStateV1 {
             status: crate::public_state_lifecycle::TableVisibilityStatusV1::Visible,
             reason: "reference_match".into(),
             observation_frame_id: "frame-2".into(),
             observation_age_ms: 201,
         });
-        assert!(validate_perception_state(&state).is_err());
+        assert!(validate_perception_state(&state).is_ok());
         state.table_visibility.as_mut().unwrap().observation_age_ms = 0;
         state.decision_frame_id = None;
+        state.cue.as_mut().unwrap().source_frame_id = Some("older-cue-frame".into());
+        state.last_ball_observation_age_ms = Some(9_000);
+        assert!(validate_perception_state(&state).is_ok());
+        state.latest_motion_check_age_ms = Some(201);
         assert!(validate_perception_state(&state).is_err());
     }
 
@@ -3006,6 +3055,7 @@ mod tests {
             decision_calibration_revision: None,
             decision_rectification_revision: None,
             table_visibility: None,
+            table_projection: None,
         }
     }
 
@@ -3338,6 +3388,51 @@ mod tests {
         std::os::windows::fs::symlink_dir(outside.path(), &link).unwrap();
         assert!(
             super::resolve_store_path_under_root(link.join("session.json"), root.path(),).is_err()
+        );
+    }
+
+    #[tokio::test]
+    async fn http_state_exposes_the_active_projection_and_matching_revision() {
+        let gateway = Gateway::new(test_config()).unwrap();
+        gateway
+            .activate_producer_epoch("engine-projection".into(), "session-projection".into())
+            .unwrap();
+        gateway
+            .accept_scene(scene_for(
+                "engine-projection",
+                "session-projection",
+                1,
+                "frame-projection",
+            ))
+            .unwrap();
+        let calibration: crate::calibration::TableCalibrationV1 = serde_json::from_str(
+            include_str!("../contracts/calibration/v1/table-calibration-perspective.json"),
+        )
+        .unwrap();
+        let calibration = calibration.into_validated().unwrap();
+        let mut perception = test_perception_state(1, true, false);
+        perception.image_width_px = Some(1000);
+        perception.image_height_px = Some(500);
+        perception.decision_calibration_revision = Some(3);
+        perception.decision_rectification_revision = Some(2);
+        perception.table_projection = Some(
+            crate::capture_runtime::table_projection_from_calibration(&calibration),
+        );
+        gateway
+            .accept_perception_state(1, "engine-projection", "session-projection", perception)
+            .unwrap();
+
+        let snapshot = gateway.snapshot_now().unwrap();
+        let response = http_scene_response(&snapshot);
+        assert_eq!(response["table_calibration_revision"], 3);
+        assert_eq!(
+            response["table"]["direction"],
+            "source_image_px_to_table_mm"
+        );
+        assert_eq!(response["table"]["table_width_mm"], 2000.0);
+        assert_eq!(
+            response["table"]["pixel_to_table_mm"][0][0],
+            calibration.pixel_to_table_mm()[0][0]
         );
     }
 
@@ -3768,7 +3863,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn websocket_position_retention_is_opt_in_and_preserves_state_validity() {
+    async fn websocket_phase_aware_producer_state_bypasses_optional_position_retention() {
         let gateway = Gateway::new(test_config()).unwrap();
         gateway
             .activate_producer_epoch("engine-retain".into(), "session-retain".into())
@@ -3781,7 +3876,7 @@ mod tests {
                 1,
                 "engine-retain",
                 "session-retain",
-                test_perception_state(1, false, false),
+                test_perception_state(1, true, false),
             )
             .unwrap();
 
@@ -3789,18 +3884,32 @@ mod tests {
         let initial = receive_websocket_state(&mut client).await;
         let original_ball_count = initial["data"]["ball_count"].as_u64().unwrap();
         assert!(original_ball_count > 0);
+        assert!(initial["data"]["observation_status"]["position_retention"].is_null());
         assert_eq!(
-            initial["data"]["observation_status"]["position_retention"]["retained"],
-            false
+            initial["data"]["observation_status"]["perception"]["layout_trusted"], true,
+            "producer trust is preserved while gateway retention is bypassed"
         );
         assert_eq!(
-            initial["data"]["observation_status"]["position_retention"]["grace_ms"],
-            500
+            initial["data"]["balls"],
+            websocket_scene_message(&gateway.snapshot_now().unwrap())["data"]["balls"]
         );
+
+        gateway
+            .accept_perception_state(
+                2,
+                "engine-retain",
+                "session-retain",
+                test_perception_state(2, false, false),
+            )
+            .unwrap();
+        let stale = receive_websocket_state(&mut client).await;
+        assert_eq!(stale["data"]["ball_count"], original_ball_count);
         assert_eq!(
-            initial["data"]["observation_status"]["perception"]["layout_trusted"], false,
-            "retention must not upgrade an untrusted layout"
+            stale["data"]["balls"],
+            websocket_scene_message(&gateway.snapshot_now().unwrap())["data"]["balls"],
+            "stale producer positions remain exactly producer-owned"
         );
+        assert!(stale["data"]["observation_status"]["position_retention"].is_null());
 
         let mut empty_scene = scene_for(
             "engine-retain",
@@ -3811,38 +3920,25 @@ mod tests {
         empty_scene.balls.clear();
         gateway.accept_scene(empty_scene).unwrap();
         let retained = receive_websocket_state(&mut client).await;
-        assert_eq!(retained["data"]["ball_count"], original_ball_count);
+        assert_eq!(retained["data"]["ball_count"], 0);
         assert_eq!(
-            retained["data"]["observation_status"]["ball_positions_status"],
-            "cached"
+            retained["data"]["balls"],
+            websocket_scene_message(&gateway.snapshot_now().unwrap())["data"]["balls"],
+            "a clean empty replacement cannot be repopulated from gateway cache"
         );
         assert_eq!(
-            retained["data"]["observation_status"]["perception"]["layout_trusted"],
-            false
+            retained["data"]["observation_status"]["ball_positions_status"], "unavailable",
+            "phase-aware position status is passed through exactly from producer"
+        );
+        assert_eq!(
+            retained["data"]["observation_status"]["perception"]["layout_trusted"], false,
+            "gateway output retains the producer's stale-state decision"
         );
         assert_eq!(
             retained["data"]["observation_status"]["perception"]["guidance_valid"],
             false
         );
-        assert_eq!(
-            retained["data"]["observation_status"]["position_retention"]["retained"],
-            true
-        );
-        assert_eq!(
-            retained["data"]["observation_status"]["position_retention"]["original_status"],
-            "observed"
-        );
-        assert_eq!(
-            retained["data"]["observation_status"]["position_retention"]["source_identity"]
-                ["source_frame_id"],
-            "frame-1"
-        );
-        assert_eq!(retained["data"]["balls"][0]["is_observed"], false);
-        assert_eq!(
-            retained["data"]["balls"][0]["position_kind"],
-            "last_observed"
-        );
-        assert_eq!(retained["data"]["balls"][0]["tracking_status"], "lost");
+        assert!(retained["data"]["observation_status"]["position_retention"].is_null());
 
         gateway
             .accept_scene(scene_for(
@@ -3854,32 +3950,21 @@ mod tests {
             .unwrap();
         let recovered = receive_websocket_state(&mut client).await;
         assert!(recovered["data"]["ball_count"].as_u64().unwrap() > 0);
-        assert_eq!(
-            recovered["data"]["observation_status"]["position_retention"]["retained"], false,
-            "a successful observed layout resets the unavailable interval"
-        );
+        assert!(recovered["data"]["observation_status"]["position_retention"].is_null());
 
         let mut empty_again = scene_for("engine-retain", "session-retain", 4, "frame-empty-again");
         empty_again.balls.clear();
         gateway.accept_scene(empty_again).unwrap();
         let retained_again = receive_websocket_state(&mut client).await;
-        assert_eq!(retained_again["data"]["ball_count"], original_ball_count);
-        assert_eq!(
-            retained_again["data"]["observation_status"]["position_retention"]["retained"],
-            true
-        );
-        assert_eq!(
-            retained_again["data"]["observation_status"]["position_retention"]["source_identity"]
-                ["source_frame_id"],
-            "frame-recovered"
-        );
+        assert_eq!(retained_again["data"]["ball_count"], 0);
+        assert!(retained_again["data"]["observation_status"]["position_retention"].is_null());
 
         gateway
             .accept_perception_state(
-                2,
+                3,
                 "engine-retain",
                 "session-retain",
-                test_perception_state(2, true, true),
+                test_perception_state(3, true, true),
             )
             .unwrap();
         let verified_empty = receive_websocket_state(&mut client).await;
@@ -3888,29 +3973,19 @@ mod tests {
             verified_empty["data"]["observation_status"]["perception"]["empty_layout_verified"],
             true
         );
-        assert_eq!(
-            verified_empty["data"]["observation_status"]["position_retention"]["retained"], false,
-            "a verified empty table must clear the per-client cache"
-        );
-        assert_eq!(
-            verified_empty["data"]["observation_status"]["position_retention"]["source_identity"],
-            Value::Null
-        );
+        assert!(verified_empty["data"]["observation_status"]["position_retention"].is_null());
 
         gateway
             .accept_perception_state(
-                3,
+                4,
                 "engine-retain",
                 "session-retain",
-                test_perception_state(3, false, false),
+                test_perception_state(4, false, false),
             )
             .unwrap();
         let after_verified_empty = receive_websocket_state(&mut client).await;
         assert_eq!(after_verified_empty["data"]["ball_count"], 0);
-        assert_eq!(
-            after_verified_empty["data"]["observation_status"]["position_retention"]["retained"],
-            false
-        );
+        assert!(after_verified_empty["data"]["observation_status"]["position_retention"].is_null());
 
         client.close(None).await.unwrap();
         server.abort();
@@ -4556,6 +4631,7 @@ mod tests {
                     decision_calibration_revision: None,
                     decision_rectification_revision: None,
                     table_visibility: None,
+                    table_projection: None,
                 },
             )
             .unwrap();
@@ -4630,6 +4706,7 @@ mod tests {
                     decision_calibration_revision: None,
                     decision_rectification_revision: None,
                     table_visibility: None,
+                    table_projection: None,
                 },
             )
             .unwrap();

@@ -38,14 +38,17 @@
     },
     "point": {
       "type": "array",
-      "prefixItems": [{ "type": "number" }, { "type": "number" }],
+      "prefixItems": [
+        { "type": "number" },
+        { "type": "number" }
+      ],
       "minItems": 2,
       "maxItems": 2
     },
     "perception": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["event_sequence", "image_width_px", "image_height_px", "phase", "layout_revision", "layout_trusted", "empty_layout_verified", "guidance_valid", "trust_reason", "last_ball_observation_age_ms", "latest_motion_check_age_ms", "cue_evidence_age_ms", "motion_evidence_max_age_ms", "cue_evidence_max_age_ms", "layout_verification_max_age_ms", "cue"],
+      "required": ["event_sequence", "image_width_px", "image_height_px", "phase", "layout_revision", "layout_trusted", "empty_layout_verified", "guidance_valid", "trust_reason", "last_ball_observation_age_ms", "latest_motion_check_age_ms", "cue_evidence_age_ms", "motion_evidence_max_age_ms", "cue_evidence_max_age_ms", "layout_verification_max_age_ms", "cue", "table_projection"],
       "properties": {
         "event_sequence": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
         "image_width_px": { "type": ["integer", "null"], "minimum": 1 },
@@ -62,7 +65,12 @@
         "motion_evidence_max_age_ms": { "type": "integer", "minimum": 1 },
         "cue_evidence_max_age_ms": { "type": "integer", "minimum": 1 },
         "layout_verification_max_age_ms": { "type": "integer", "minimum": 1 },
-        "cue": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/cue" }] },
+        "cue": {
+          "oneOf": [
+            { "type": "null" },
+            { "$ref": "#/$defs/cue" }
+          ]
+        },
         "decision_frame_id": { "type": ["string", "null"], "minLength": 1, "maxLength": 128 },
         "decision_calibration_revision": { "type": ["integer", "null"], "minimum": 0, "maximum": 9007199254740991 },
         "decision_rectification_revision": { "type": ["integer", "null"], "minimum": 0, "maximum": 9007199254740991 },
@@ -78,6 +86,42 @@
                 "reason": { "type": "string", "minLength": 1, "maxLength": 128 },
                 "observation_frame_id": { "type": "string", "minLength": 1, "maxLength": 128 },
                 "observation_age_ms": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }
+              }
+            }
+          ]
+        },
+        "table_projection": {
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["direction", "image_space", "source_width_px", "source_height_px", "camera_profile_id", "calibration_revision", "rectification_revision", "table_width_mm", "table_height_mm", "unit", "origin", "x_axis", "y_axis", "pixel_to_table_mm"],
+              "properties": {
+                "direction": { "const": "source_image_px_to_table_mm" },
+                "image_space": { "enum": ["raw", "rectified"] },
+                "source_width_px": { "type": "integer", "minimum": 1 },
+                "source_height_px": { "type": "integer", "minimum": 1 },
+                "camera_profile_id": { "type": "string", "minLength": 1 },
+                "calibration_revision": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+                "rectification_revision": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+                "table_width_mm": { "type": "number", "exclusiveMinimum": 0 },
+                "table_height_mm": { "type": "number", "exclusiveMinimum": 0 },
+                "unit": { "const": "millimeters" },
+                "origin": { "const": "playing_surface_center" },
+                "x_axis": { "const": "corner_0_to_1" },
+                "y_axis": { "const": "corner_0_to_3" },
+                "pixel_to_table_mm": {
+                  "type": "array",
+                  "minItems": 3,
+                  "maxItems": 3,
+                  "items": {
+                    "type": "array",
+                    "minItems": 3,
+                    "maxItems": 3,
+                    "items": { "type": "number" }
+                  }
+                }
               }
             }
           ]

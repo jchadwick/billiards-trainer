@@ -24,6 +24,8 @@ pub struct PublicStateConfig {
     pub canonical_width_px: u32,
     pub canonical_height_px: u32,
     pub assumed_ball_radius_px: f64,
+    /// Configured standard ball radius in the calibrated table plane.
+    pub assumed_ball_radius_mm: f64,
 }
 
 impl Default for PublicStateConfig {
@@ -49,9 +51,12 @@ impl PublicStateConfig {
             || self.canonical_height_px == 0
             || !self.assumed_ball_radius_px.is_finite()
             || self.assumed_ball_radius_px <= 0.0
+            || !self.assumed_ball_radius_mm.is_finite()
+            || self.assumed_ball_radius_mm <= 0.0
         {
             return Err(PublicStateError::Compatibility(
-                "canonical dimensions and assumed radius must be positive and finite".into(),
+                "canonical dimensions and assumed pixel/table radii must be positive and finite"
+                    .into(),
             ));
         }
         Ok(())
@@ -136,6 +141,8 @@ pub struct PublicBall {
     pub radius_scale: [f64; 2],
     pub radius_unit: String,
     pub radius_source: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub table_radius_mm: Option<f64>,
     pub confidence: f64,
     pub confidence_kind: String,
     pub last_observation_confidence: Option<f64>,
@@ -298,6 +305,9 @@ impl SceneSnapshotStateAdapter {
                 } else {
                     RADIUS_SOURCE.to_owned()
                 },
+                table_radius_mm: table_point
+                    .is_some()
+                    .then_some(self.config.assumed_ball_radius_mm),
                 confidence: if observed {
                     confidence.unwrap_or(0.0)
                 } else {

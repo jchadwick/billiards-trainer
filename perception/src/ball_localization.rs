@@ -623,7 +623,8 @@ pub struct BallRefinementBatch {
 }
 
 /// The one image center selected for tracking, with a physical table position
-/// only when the same accepted crop fit passes the matching center calibration.
+/// when the existing frame/calibration mapping can project it. Refinement
+/// status and contour provenance remain independent diagnostics.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ResolvedBallMeasurement {
     pub detection_index: u64,
@@ -845,22 +846,27 @@ pub fn resolve_ball_measurements_for_batch(
                         .flatten()
                 })
                 .unwrap_or([detection.center_image_px.x, detection.center_image_px.y]);
-            let table_center_mm = refinement
-                .filter(|refinement| refinement.status == RefinementStatus::Accepted)
-                .and_then(|_| {
-                    let calibration = profile?.calibration.as_ref()?;
-                    let context = profile?.calibration_context(camera_profile_id)?;
-                    calibration
-                        .project(
-                            crate::calibration::ImagePointPx {
-                                x_px: center[0],
-                                y_px: center[1],
-                            },
-                            context,
-                        )
-                        .ok()
-                        .map(|table| [table.x_mm, table.y_mm])
-                });
+            let table_center_mm = profile.and_then(|profile| {
+                let calibration = profile.table_calibration.as_ref()?;
+                let context = crate::calibration::CalibrationContext {
+                    calibration_revision: calibration.calibration_revision(),
+                    camera_profile_id,
+                    rectification_revision: calibration.rectification_revision(),
+                    image_space: calibration.image_space(),
+                    source_width_px: batch.source.width_px,
+                    source_height_px: batch.source.height_px,
+                };
+                calibration
+                    .project(
+                        crate::calibration::ImagePointPx {
+                            x_px: center[0],
+                            y_px: center[1],
+                        },
+                        context,
+                    )
+                    .ok()
+                    .map(|table| [table.x_mm, table.y_mm])
+            });
             ResolvedBallMeasurement {
                 detection_index: detection.detection_index,
                 center_image_px: center,
@@ -889,8 +895,8 @@ pub fn resolve_ball_measurements_for_batch(
         refiner_revision: optics.map(|optics| optics.refiner_revision),
         table_revision: profile.map_or(0, |profile| profile.settings.table_revision),
         calibration_revision: profile
-            .and_then(|profile| profile.calibration.as_ref())
-            .map(|calibration| calibration.as_asset().calibration_revision),
+            .and_then(|profile| profile.table_calibration.as_ref())
+            .map(|calibration| calibration.calibration_revision()),
         measurements,
     }
 }

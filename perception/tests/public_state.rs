@@ -93,6 +93,7 @@ fn calibrated_positions_cannot_escape_without_valid_revision_alignment() {
         payload.balls[0].table_position.as_ref().unwrap().unit,
         "millimeters"
     );
+    assert_eq!(payload.balls[0].table_radius_mm, Some(28.575));
     // The contract binds all table coordinates to snapshot.revisions; it has no
     // separate per-measurement revision that an adapter could independently verify.
 }
@@ -112,6 +113,10 @@ fn config_is_validated_and_changes_scaling_and_assumed_radius_explicitly() {
             assumed_ball_radius_px: 0.,
             ..Default::default()
         },
+        PublicStateConfig {
+            assumed_ball_radius_mm: 0.,
+            ..Default::default()
+        },
     ] {
         assert!(SceneSnapshotStateAdapter::new(config).is_err());
     }
@@ -119,6 +124,7 @@ fn config_is_validated_and_changes_scaling_and_assumed_radius_explicitly() {
         canonical_width_px: 1920,
         canonical_height_px: 1080,
         assumed_ball_radius_px: 18.,
+        ..Default::default()
     })
     .unwrap();
     let payload = configured.adapt(&base(), None, None).unwrap().unwrap();

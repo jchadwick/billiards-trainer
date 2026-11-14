@@ -151,6 +151,71 @@ fn first_measurement_is_published_immediately_without_identity_guessing() {
 }
 
 #[test]
+fn clean_full_layout_replaces_absent_tracks_and_accepts_a_valid_empty_result() {
+    let mut tracker = SceneTrackerV1::new(config());
+    let mut process_full = |batch: &DetectionBatchV1| {
+        let resolved = ResolvedBallMeasurementBatch::from_detection_batch_midpoints(
+            batch,
+            1,
+            "camera-profile-test",
+            7,
+            3,
+        );
+        tracker
+            .process_full_layout_with_resolved_ball_measurements(
+                batch,
+                Timestamp {
+                    ticks: (2_000_000_000_u64 + batch.batch_sequence).to_string(),
+                    unit: TimeUnit::Nanoseconds,
+                    clock: ClockKind::Monotonic,
+                    domain_id: "scene-writer-clock-a".to_owned(),
+                    stage: TimestampStage::SnapshotPublication,
+                },
+                &resolved,
+            )
+            .unwrap()
+            .snapshot
+    };
+    let initial = process_full(&frame(
+        1,
+        1_000_000_000,
+        &[ball(20.0, 30.0), ball(80.0, 30.0)],
+    ));
+    assert_eq!(initial.balls.len(), 2);
+    let initial_track_id = initial.balls[0].track_id.clone();
+
+    // The periodic full scan is intentionally beyond the legacy one-second
+    // active-track age; association still preserves both unambiguous IDs.
+    let delayed = process_full(&frame(
+        2,
+        2_100_000_000,
+        &[ball(21.0, 30.0), ball(81.0, 30.0)],
+    ));
+    assert_eq!(
+        delayed
+            .balls
+            .iter()
+            .map(|ball| ball.track_id.as_str())
+            .collect::<Vec<_>>(),
+        initial
+            .balls
+            .iter()
+            .map(|ball| ball.track_id.as_str())
+            .collect::<Vec<_>>()
+    );
+
+    let replacement = process_full(&frame(3, 2_200_000_000, &[ball(22.0, 30.0)]));
+    assert_eq!(replacement.balls.len(), 1);
+    assert_eq!(replacement.balls[0].track_id, initial_track_id);
+
+    let empty = process_full(&frame(4, 2_300_000_000, &[]));
+    assert!(
+        empty.balls.is_empty(),
+        "a clean empty scan removes every active ball"
+    );
+}
+
+#[test]
 fn global_assignment_preserves_both_tracks_when_greedy_matching_would_lose_one() {
     let mut tracker = SceneTrackerV1::new(config());
     let first = process(

@@ -177,7 +177,8 @@
           "y": 200.0,
           "unit": "millimeters",
           "origin": "playing_surface_center"
-        }
+        },
+        "table_radius_mm": 28.575
       }
     ],
     "observation_status": {

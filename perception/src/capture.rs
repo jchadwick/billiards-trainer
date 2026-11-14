@@ -2423,6 +2423,11 @@ fn test_frame_budget() -> CaptureFrameBudget {
     TEST_THREAD_FRAME_BUDGET.with(Clone::clone)
 }
 
+// Unit-test fake sources share the same process-wide owner gate as production.
+// Serialize their lifetimes across modules, not just within capture's tests.
+#[cfg(test)]
+pub(crate) static CAPTURE_RUNTIME_TEST_LOCK: Mutex<()> = Mutex::new(());
+
 #[derive(Debug)]
 struct CaptureOwnerLease {
     gate: CaptureOwnerGate,
@@ -4930,7 +4935,7 @@ mod worker_tests {
     use std::thread::ThreadId;
     use std::time::{Duration, Instant};
 
-    static RUNTIME_COORDINATOR_TEST_LOCK: Mutex<()> = Mutex::new(());
+    use super::CAPTURE_RUNTIME_TEST_LOCK as RUNTIME_COORDINATOR_TEST_LOCK;
 
     #[derive(Debug, Clone)]
     struct FakePlan {

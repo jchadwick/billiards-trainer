@@ -286,7 +286,27 @@ impl SceneTrackerV1 {
         validate_resolved_ball_measurements(batch, resolved, &self.config)?;
         let mut next = self.clone();
         let (snapshot, association_capacity_evictions) =
-            next.process_inner(batch, published_at, resolved)?;
+            next.process_inner(batch, published_at, resolved, false)?;
+        *self = next;
+        Ok(SceneTrackingResult {
+            snapshot,
+            association_capacity_evictions,
+        })
+    }
+
+    /// Process a clean settled full-table scan. Track identifiers are retained
+    /// for matched balls, while every unmatched old track is removed from the
+    /// active layout in this same transaction (including a valid empty scan).
+    pub fn process_full_layout_with_resolved_ball_measurements(
+        &mut self,
+        batch: &DetectionBatchV1,
+        published_at: Timestamp,
+        resolved: &ResolvedBallMeasurementBatch,
+    ) -> Result<SceneTrackingResult, TrackingError> {
+        validate_resolved_ball_measurements(batch, resolved, &self.config)?;
+        let mut next = self.clone();
+        let (snapshot, association_capacity_evictions) =
+            next.process_inner(batch, published_at, resolved, true)?;
         *self = next;
         Ok(SceneTrackingResult {
             snapshot,
@@ -299,6 +319,7 @@ impl SceneTrackerV1 {
         batch: &DetectionBatchV1,
         published_at: Timestamp,
         resolved: &ResolvedBallMeasurementBatch,
+        replace_layout_wholesale: bool,
     ) -> Result<(SceneSnapshotV1, usize), TrackingError> {
         batch
             .validate()
@@ -402,8 +423,13 @@ impl SceneTrackerV1 {
 
         let now_ns = source_timestamp_ns;
         let max_age_ns = self.config.maximum_track_age.as_nanos();
-        self.tracks
-            .retain(|track| now_ns.saturating_sub(track.last_timestamp_ns) < max_age_ns);
+        // Full-table scans may intentionally be much slower than the legacy
+        // tracking age. Let the clean scan associate first; wholesale layout
+        // replacement below removes every unmatched track transactionally.
+        if !replace_layout_wholesale {
+            self.tracks
+                .retain(|track| now_ns.saturating_sub(track.last_timestamp_ns) < max_age_ns);
+        }
 
         let ball_detections = batch
             .detections
@@ -575,6 +601,20 @@ impl SceneTrackerV1 {
                 }),
             });
             matched_track_indices.insert(self.tracks.len() - 1);
+        }
+
+        if replace_layout_wholesale {
+            self.tracks = self
+                .tracks
+                .drain(..)
+                .enumerate()
+                .filter_map(|(index, track)| {
+                    matched_track_indices.contains(&index).then_some(track)
+                })
+                .collect();
+            // Every track remaining after replacement was observed by this
+            // successful full-table evaluation, including zero tracks.
+            matched_track_indices = (0..self.tracks.len()).collect();
         }
 
         let lost_after_ns = self.config.lost_after.as_nanos();
@@ -862,7 +902,6 @@ fn validate_resolved_ball_measurements(
                     )
             })
             || !valid_table_position
-            || (has_table_position && !status_allows_table_position)
             || (has_table_position && resolved.calibration_revision.is_none())
             || (measurement.refinement_status
                 == Some(crate::ball_localization::RefinementStatus::Accepted)

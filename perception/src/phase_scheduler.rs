@@ -99,7 +99,9 @@ impl Default for SchedulerConfig {
                 cue_hz: 0.0,
             },
             quiet_dwell: Duration::from_millis(800),
-            layout_consensus_count: 3,
+            // Retained for compatibility with older configuration files. A
+            // single successful clean full-table scan now replaces the layout.
+            layout_consensus_count: 1,
             layout_position_tolerance_px: 4.0,
             motion_evidence_expiry: Duration::from_millis(200),
             cue_evidence_expiry: Duration::from_millis(250),
@@ -305,6 +307,26 @@ impl PhaseScheduler {
         self.motion_generation
     }
 
+    /// The configured capture-age bound shared by cue freshness and silence.
+    pub fn cue_evidence_expiry(&self) -> Duration {
+        self.config.cue_evidence_expiry
+    }
+
+    /// Whether a full scan captured after settlement completed can replace the
+    /// whole-table layout now. This prevents slow work captured before the
+    /// quiet dwell from becoming trusted merely because it finished later.
+    pub fn clean_layout_capture_is_current(&self, captured_at: Duration, now: Duration) -> bool {
+        self.motion == Some(MotionEvidence::Quiet)
+            && self
+                .motion_at
+                .is_some_and(|at| now.saturating_sub(at) <= self.config.motion_evidence_expiry)
+            && self.quiet_since.is_some_and(|quiet_since| {
+                quiet_since
+                    .checked_add(self.config.quiet_dwell)
+                    .is_some_and(|settled_at| captured_at >= settled_at)
+            })
+    }
+
     pub fn map_trusted(&self) -> bool {
         self.trusted
     }
@@ -336,6 +358,8 @@ impl PhaseScheduler {
                 let onset = self.trusted || previous_motion == Some(MotionEvidence::Quiet);
                 self.invalidate_layout(TrustReason::MotionDetected);
                 self.quiet_since = None;
+                self.cue_at = None;
+                self.cue = CueEvidence::Unknown;
                 if onset {
                     self.bump_motion_generation()?;
                 }
@@ -345,6 +369,8 @@ impl PhaseScheduler {
                 let onset = self.trusted || previous_motion == Some(MotionEvidence::Quiet);
                 self.invalidate_layout(TrustReason::OccludedOrUncertain);
                 self.quiet_since = None;
+                self.cue_at = None;
+                self.cue = CueEvidence::Unknown;
                 if onset {
                     self.bump_motion_generation()?;
                 }
@@ -391,7 +417,21 @@ impl PhaseScheduler {
         now: Duration,
         observation: LayoutObservation,
     ) -> Result<(), SchedulerError> {
+        self.observe_layout_at(now, now, observation)
+    }
+
+    /// Record when the detector measured the layout separately from when the
+    /// coordinator made its trust decision after asynchronous processing.
+    pub fn observe_layout_at(
+        &mut self,
+        now: Duration,
+        observed_at: Duration,
+        observation: LayoutObservation,
+    ) -> Result<(), SchedulerError> {
         self.check_time(now)?;
+        if observed_at > now {
+            return Err(SchedulerError::TimeWentBackwards);
+        }
         if let LayoutObservation::Success(points) = &observation {
             if points
                 .iter()
@@ -406,16 +446,13 @@ impl PhaseScheduler {
         match observation {
             LayoutObservation::Failed => {}
             LayoutObservation::Success(points) => {
-                self.layout_at = Some(now);
-                if self.candidate_layout.as_ref().is_some_and(|candidate| {
-                    layouts_match(candidate, &points, self.config.layout_position_tolerance_px)
-                }) {
-                    self.consistent_layouts = self.consistent_layouts.saturating_add(1);
-                } else {
-                    self.candidate_layout = Some(points);
-                    self.consistent_layouts = 1;
-                }
-                if self.consistent_layouts >= self.config.layout_consensus_count && !self.trusted {
+                self.layout_at = Some(observed_at);
+                // Every successful clean full scan is authoritative. Consensus
+                // settings remain deserializable for old configs, but no longer
+                // delay replacement or require agreement before trust.
+                self.candidate_layout = Some(points);
+                self.consistent_layouts = 1;
+                if !self.trusted {
                     self.layout_revision = self
                         .layout_revision
                         .checked_add(1)
@@ -501,9 +538,9 @@ impl PhaseScheduler {
             .is_some_and(|at| now.saturating_sub(at) <= self.config.motion_evidence_expiry);
         let motion_fresh_quiet =
             self.motion == Some(MotionEvidence::Quiet) && motion_evidence_fresh;
-        let layout_fresh = self
-            .layout_at
-            .is_some_and(|at| now.saturating_sub(at) <= self.config.layout_evidence_expiry);
+        // Measurement age is diagnostic only. A quiet stationary layout stays
+        // trusted while current whole-table motion evidence remains fresh.
+        let layout_fresh = self.layout_at.is_some();
         let cue_fresh = self
             .cue_at
             .is_some_and(|at| now.saturating_sub(at) <= self.config.cue_evidence_expiry)
@@ -535,7 +572,6 @@ impl PhaseScheduler {
             empty_layout_verified: self.trusted
                 && motion_fresh_quiet
                 && layout_fresh
-                && self.consistent_layouts >= self.config.layout_consensus_count
                 && self.candidate_layout.as_ref().is_some_and(Vec::is_empty),
             guidance_valid: self.trusted
                 && motion_fresh_quiet
@@ -582,15 +618,6 @@ impl PhaseScheduler {
         {
             self.cue = CueEvidence::Unknown;
         }
-        if !self
-            .layout_at
-            .is_some_and(|at| now.saturating_sub(at) <= self.config.layout_evidence_expiry)
-            && self.trusted
-        {
-            self.trusted = false;
-            self.trust_reason = TrustReason::LayoutVerificationExpired;
-            self.consistent_layouts = 0;
-        }
         Ok(())
     }
 
@@ -609,9 +636,7 @@ impl PhaseScheduler {
             && self
                 .motion_at
                 .is_some_and(|at| now.saturating_sub(at) <= self.config.motion_evidence_expiry);
-        let layout_fresh = self
-            .layout_at
-            .is_some_and(|at| now.saturating_sub(at) <= self.config.layout_evidence_expiry);
+        let layout_fresh = self.layout_at.is_some();
         if !self.trusted || !motion_fresh_quiet || !layout_fresh {
             if self.phase != Phase::Shot || self.motion != Some(MotionEvidence::Moving) {
                 self.transition(Phase::Recovering, now);
@@ -655,6 +680,7 @@ impl PhaseScheduler {
     }
 }
 
+#[allow(dead_code)]
 fn layouts_match(left: &[ImagePoint], right: &[ImagePoint], tolerance: f64) -> bool {
     if left.len() != right.len() {
         return false;
@@ -730,7 +756,7 @@ mod tests {
     }
 
     #[test]
-    fn waits_for_quiet_dwell_and_three_consistent_successes() {
+    fn one_successful_scan_after_quiet_dwell_establishes_trust() {
         let mut s = scheduler();
         s.observe_motion(ms(0), MotionEvidence::Quiet).unwrap();
         s.observe_layout(ms(799), layout(10.0)).unwrap();
@@ -739,14 +765,38 @@ mod tests {
         s.observe_layout(ms(800), LayoutObservation::Failed)
             .unwrap();
         s.observe_layout(ms(810), layout(10.0)).unwrap();
-        s.observe_layout(ms(820), layout(10.0)).unwrap();
-        assert!(!s.map_trusted());
-        s.observe_layout(ms(830), layout(11.0)).unwrap();
         assert!(s.map_trusted());
     }
 
     #[test]
-    fn empty_layout_requires_quiet_dwell_and_configured_success_consensus() {
+    fn slow_layout_decision_keeps_the_detector_capture_timestamp() {
+        let config = SchedulerConfig {
+            motion_evidence_expiry: ms(1_000),
+            layout_evidence_expiry: ms(5_000),
+            ..SchedulerConfig::default()
+        };
+        let mut s = PhaseScheduler::new(config).unwrap();
+        for time in [0, 800, 1_600, 2_400, 3_000] {
+            s.observe_motion(ms(time), MotionEvidence::Quiet).unwrap();
+        }
+        s.observe_layout_at(ms(3_000), ms(1_000), layout(10.0))
+            .unwrap();
+
+        let evidence = s.evidence(ms(3_000)).unwrap();
+        assert!(
+            evidence.map_trusted,
+            "current quiet continuity controls trust"
+        );
+        assert_eq!(evidence.layout_at, Some(ms(1_000)));
+        assert_eq!(
+            evidence.layout_at.map(|at| ms(3_000).saturating_sub(at)),
+            Some(ms(2_000)),
+            "decision time must not rejuvenate a slow detector measurement"
+        );
+    }
+
+    #[test]
+    fn empty_layout_requires_quiet_dwell_and_one_successful_scan() {
         let mut s = scheduler();
         s.observe_motion(ms(0), MotionEvidence::Quiet).unwrap();
         s.observe_layout(ms(799), LayoutObservation::Success(vec![]))
@@ -754,15 +804,9 @@ mod tests {
         assert!(!s.evidence(ms(799)).unwrap().empty_layout_verified);
 
         s.observe_motion(ms(800), MotionEvidence::Quiet).unwrap();
-        for (time, expected) in [(800, false), (850, false), (900, true)] {
-            s.observe_layout(ms(time), LayoutObservation::Success(vec![]))
-                .unwrap();
-            assert_eq!(
-                s.evidence(ms(time)).unwrap().empty_layout_verified,
-                expected,
-                "empty verification should change only after the configured consensus"
-            );
-        }
+        s.observe_layout(ms(800), LayoutObservation::Success(vec![]))
+            .unwrap();
+        assert!(s.evidence(ms(800)).unwrap().empty_layout_verified);
     }
 
     #[test]
@@ -770,10 +814,8 @@ mod tests {
         let mut s = scheduler();
         s.observe_motion(ms(0), MotionEvidence::Quiet).unwrap();
         s.observe_motion(ms(800), MotionEvidence::Quiet).unwrap();
-        for time in [800, 850, 900] {
-            s.observe_layout(ms(time), LayoutObservation::Success(vec![]))
-                .unwrap();
-        }
+        s.observe_layout(ms(800), LayoutObservation::Success(vec![]))
+            .unwrap();
         assert!(s.evidence(ms(900)).unwrap().empty_layout_verified);
 
         s.observe_layout(ms(910), LayoutObservation::Failed)
@@ -788,7 +830,7 @@ mod tests {
         s.observe_motion(ms(1_800), MotionEvidence::Quiet).unwrap();
         s.observe_layout(ms(1_800), LayoutObservation::Success(vec![]))
             .unwrap();
-        assert!(!s.evidence(ms(1_800)).unwrap().empty_layout_verified);
+        assert!(s.evidence(ms(1_800)).unwrap().empty_layout_verified);
         s.invalidate_context(ms(1_810)).unwrap();
         assert!(!s.evidence(ms(1_810)).unwrap().empty_layout_verified);
     }
@@ -938,10 +980,10 @@ mod tests {
     }
 
     #[test]
-    fn extended_evidence_windows_preserve_consensus_across_slow_inference() {
+    fn an_old_full_scan_stays_trusted_while_current_motion_evidence_is_fresh() {
         let config = SchedulerConfig {
             motion_evidence_expiry: ms(3_000),
-            layout_evidence_expiry: ms(3_000),
+            layout_evidence_expiry: ms(100),
             ..SchedulerConfig::default()
         };
         let mut s = PhaseScheduler::new(config).unwrap();
@@ -949,15 +991,14 @@ mod tests {
         s.observe_motion(ms(800), MotionEvidence::Quiet).unwrap();
         let generation = s.motion_generation();
 
-        // Model inference can take roughly 1.5 seconds on constrained hosts.
-        // The scheduler must keep the capture generation valid across that
-        // delay and accept matching layouts needed to establish trust.
-        for time in [800, 2_300, 3_800] {
-            s.observe_layout(ms(time), layout(10.0)).unwrap();
-            assert_eq!(s.motion_generation(), generation);
-        }
-
+        // The source scan is already older than the legacy layout-expiry
+        // setting here. Its original age must not be reset by later quiet
+        // frames; current motion evidence is the trust lifetime.
+        s.observe_layout(ms(800), layout(10.0)).unwrap();
+        assert!(s.evidence(ms(2_300)).unwrap().map_trusted);
         assert!(s.evidence(ms(3_800)).unwrap().map_trusted);
+        assert_eq!(s.evidence(ms(3_800)).unwrap().layout_at, Some(ms(800)));
+        assert_eq!(s.motion_generation(), generation);
     }
 
     #[test]

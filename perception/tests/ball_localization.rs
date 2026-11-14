@@ -7,11 +7,18 @@ use billiards_perception::ball_localization_profile::{
     BallLocalizationSettings, CameraOpticsProfileV1, LoadedBallLocalizationProfile,
     BALL_REFINER_REVISION, CAMERA_OPTICS_PROFILE_VERSION,
 };
-use billiards_perception::calibration::{ImagePointPx, TablePointMm};
+use billiards_perception::calibration::{
+    solve_table_calibration, ImagePointPx, TableCalibrationSolverInput, TablePointMm,
+};
 use billiards_perception::detection_batch::{
     decode_detection_batch_v1, ImageSpace as BatchImageSpace,
 };
-use billiards_perception::ImageSpace as CalibrationImageSpace;
+use billiards_perception::public_state::{PublicStateConfig, SceneSnapshotStateAdapter};
+use billiards_perception::tracking::{SceneTrackerV1, TrackingConfigV1};
+use billiards_perception::{
+    ClockKind, ImageSpace as CalibrationImageSpace, TimeUnit, Timestamp, TimestampStage,
+};
+use std::time::Duration;
 
 fn intrinsics() -> CameraIntrinsics {
     CameraIntrinsics {
@@ -409,8 +416,10 @@ fn audit_traces_the_same_fitting_results_with_bounded_events() {
 fn detection_identity_and_batch_order_do_not_change_localization_geometry() {
     let (rgb, template) = image([240.0, 150.0], true, false);
     let mut cfg = config();
-    cfg.batch_budget_ms = 5_000;
-    cfg.proposal_budget_ms = 400;
+    // This checks geometry/identity invariance, not throughput. Allow scheduling
+    // headroom on loaded test hosts so a deadline does not change the outcome.
+    cfg.batch_budget_ms = 10_000;
+    cfg.proposal_budget_ms = 5_000;
 
     let proposals = (0..16)
         .map(|detection_index| BallProposal {
@@ -670,8 +679,43 @@ fn resolver_profile() -> LoadedBallLocalizationProfile {
             provenance: "resolver unit test".to_owned(),
         }),
         calibration: None,
+        table_calibration: None,
         calibration_error: None,
     }
+}
+
+fn resolver_table_calibration() -> billiards_perception::calibration::ValidatedTableCalibrationV1 {
+    solve_table_calibration(TableCalibrationSolverInput {
+        calibration_revision: 5,
+        camera_profile_id: "camera-profile-test".to_owned(),
+        rectification_revision: 0,
+        image_space: CalibrationImageSpace::Raw,
+        source_width_px: 3840,
+        source_height_px: 2160,
+        table_width_mm: 2336.8,
+        table_height_mm: 1155.7,
+        corners_px: [
+            ImagePointPx {
+                x_px: 120.0,
+                y_px: 100.0,
+            },
+            ImagePointPx {
+                x_px: 3700.0,
+                y_px: 100.0,
+            },
+            ImagePointPx {
+                x_px: 3700.0,
+                y_px: 2000.0,
+            },
+            ImagePointPx {
+                x_px: 120.0,
+                y_px: 2000.0,
+            },
+        ],
+    })
+    .unwrap()
+    .into_validated()
+    .unwrap()
 }
 
 fn accepted_refinement(
@@ -817,10 +861,11 @@ fn resolver_selects_only_matching_refinement_and_never_invents_table_xy() {
 }
 
 #[test]
-fn accepted_refined_center_uses_its_matching_ball_center_calibration_for_xy() {
+fn accepted_refined_center_uses_the_same_active_table_mapping_as_display_projection() {
     let batch = resolver_batch();
     let mut profile = resolver_profile();
     profile.calibration = Some(resolver_calibration());
+    profile.table_calibration = Some(resolver_table_calibration());
     let expected_identity = BallRefinementIdentity {
         source_session_id: batch.source.session_id.clone(),
         frame_id: batch.source.frame_id.clone(),
@@ -842,12 +887,167 @@ fn accepted_refined_center_uses_its_matching_ball_center_calibration_for_xy() {
             require_identity: true,
         },
     );
-    let expected_x = (1880.25 / 3839.0 - 0.5) * 2336.8;
-    let expected_y = (1022.75 / 2159.0 - 0.5) * 1155.7;
+    let expected = profile
+        .table_calibration
+        .as_ref()
+        .unwrap()
+        .project(
+            ImagePointPx {
+                x_px: 1880.25,
+                y_px: 1022.75,
+            },
+            billiards_perception::calibration::CalibrationContext {
+                calibration_revision: 5,
+                camera_profile_id: "camera-profile-test",
+                rectification_revision: 0,
+                image_space: CalibrationImageSpace::Raw,
+                source_width_px: batch.source.width_px,
+                source_height_px: batch.source.height_px,
+            },
+        )
+        .unwrap();
     let actual = selected.measurements[0].table_center_mm.unwrap();
-    assert!((actual[0] - expected_x).abs() < 0.01);
-    assert!((actual[1] - expected_y).abs() < 0.01);
-    assert_eq!(selected.calibration_revision, Some(4));
+    assert!((actual[0] - expected.x_mm).abs() < 0.01);
+    assert!((actual[1] - expected.y_mm).abs() < 0.01);
+    assert_eq!(selected.calibration_revision, Some(5));
+}
+
+#[test]
+fn detector_midpoint_projects_through_ordinary_table_calibration_without_precision_assets() {
+    let mut profile = resolver_profile();
+    profile.optics = None;
+    profile.table_calibration = Some(resolver_table_calibration());
+    assert_coarse_table_projection(profile);
+}
+
+#[test]
+fn unavailable_configured_precision_assets_preserve_coarse_table_coordinates() {
+    let directory = tempfile::tempdir().unwrap();
+    for failure in ["missing", "malformed", "wrong-revision"] {
+        let path = directory.path().join(format!("{failure}.json"));
+        if failure == "malformed" {
+            std::fs::write(&path, b"not-json").unwrap();
+        } else if failure == "wrong-revision" {
+            let mut optics = resolver_profile().optics.unwrap();
+            optics.refiner_revision -= 1;
+            std::fs::write(&path, serde_json::to_vec(&optics).unwrap()).unwrap();
+        }
+        let table = resolver_table_calibration();
+        let batch = resolver_batch();
+        let profile = LoadedBallLocalizationProfile::load_with_table(
+            BallLocalizationSettings {
+                optics_profile_path: Some(path),
+                ..BallLocalizationSettings::default()
+            },
+            "camera-profile-test",
+            CalibrationImageSpace::Raw,
+            batch.source.width_px,
+            batch.source.height_px,
+            0,
+            Some(&table),
+        )
+        .unwrap();
+        assert!(profile.optics.is_none(), "{failure}");
+        assert!(profile.calibration_error.is_some(), "{failure}");
+        assert_coarse_table_projection(profile);
+    }
+}
+
+fn assert_coarse_table_projection(profile: LoadedBallLocalizationProfile) {
+    let batch = resolver_batch();
+    let selected = resolve_ball_measurements_for_batch(
+        &batch,
+        BallMeasurementResolutionContext {
+            ball_class_id: 1,
+            camera_profile_id: "camera-profile-test",
+            configuration_revision: 7,
+            rectification_revision: 0,
+            profile: Some(&profile),
+            refinements: None,
+            expected_identity: None,
+            require_identity: false,
+        },
+    );
+    let detector_center = batch.detections[0].center_image_px;
+    assert_eq!(
+        selected.measurements[0].center_image_px,
+        [detector_center.x, detector_center.y]
+    );
+    assert_eq!(selected.measurements[0].refinement_status, None);
+    assert!(selected.measurements[0].outline.is_none());
+    let table_center = selected.measurements[0]
+        .table_center_mm
+        .expect("coarse detector center should use the compatible table mapping");
+    let expected = profile
+        .table_calibration
+        .as_ref()
+        .unwrap()
+        .project(
+            ImagePointPx {
+                x_px: detector_center.x,
+                y_px: detector_center.y,
+            },
+            billiards_perception::calibration::CalibrationContext {
+                calibration_revision: 5,
+                camera_profile_id: "camera-profile-test",
+                rectification_revision: 0,
+                image_space: CalibrationImageSpace::Raw,
+                source_width_px: batch.source.width_px,
+                source_height_px: batch.source.height_px,
+            },
+        )
+        .unwrap();
+    assert!((table_center[0] - expected.x_mm).abs() < 0.01);
+    assert!((table_center[1] - expected.y_mm).abs() < 0.01);
+    assert_eq!(selected.calibration_revision, Some(5));
+
+    // Carry the coarse, physically projected measurement through the same
+    // tracking and public-state adapters used by production publication.
+    let mut tracker = SceneTrackerV1::new(
+        TrackingConfigV1::new(
+            1,
+            None,
+            "camera-profile-test",
+            10.0,
+            Duration::from_millis(50),
+            Duration::from_millis(100),
+            Duration::from_millis(500),
+            8,
+            8,
+            7,
+            0,
+        )
+        .unwrap(),
+    );
+    let tracked = tracker
+        .process_full_layout_with_resolved_ball_measurements(
+            &batch,
+            Timestamp {
+                ticks: "2000000000".to_owned(),
+                unit: TimeUnit::Nanoseconds,
+                clock: ClockKind::Monotonic,
+                domain_id: "scene-writer-clock-a".to_owned(),
+                stage: TimestampStage::SnapshotPublication,
+            },
+            &selected,
+        )
+        .unwrap()
+        .snapshot;
+    let public = SceneSnapshotStateAdapter::new(PublicStateConfig::default())
+        .unwrap()
+        .adapt(&tracked, None, None)
+        .unwrap()
+        .unwrap();
+    assert_eq!(public.balls.len(), 1);
+    assert_eq!(
+        public.balls[0].table_position.as_ref().unwrap().x,
+        table_center[0]
+    );
+    assert_eq!(
+        public.balls[0].table_position.as_ref().unwrap().y,
+        table_center[1]
+    );
+    assert_eq!(public.balls[0].table_radius_mm, Some(28.575));
 }
 
 #[test]

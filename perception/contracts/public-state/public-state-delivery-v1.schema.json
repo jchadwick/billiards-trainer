@@ -146,6 +146,7 @@
         "radius_scale": { "type": "array", "prefixItems": [{ "type": "number" }, { "type": "number" }], "minItems": 2, "maxItems": 2 },
         "radius_unit": { "const": "canonical_pixels" },
         "radius_source": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "table_radius_mm": { "type": "number", "exclusiveMinimum": 0 },
         "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
         "confidence_kind": { "enum": ["detector_observation", "unavailable"] },
         "last_observation_confidence": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
@@ -169,6 +170,9 @@
           "is_observed": { "const": true }, "tracking_status": { "const": "observed" },
           "position_kind": { "const": "measured" }
         } }
+      }, {
+        "if": { "required": ["table_radius_mm"] },
+        "then": { "required": ["table_position"] }
       }]
     }
   }

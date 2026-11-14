@@ -18,7 +18,7 @@ use crate::ball_center_calibration::{
 use crate::ball_localization::{
     BallLocalizationConfig, CameraIntrinsics, REGULATION_BALL_DIAMETER_MM,
 };
-use crate::calibration::CalibrationContext;
+use crate::calibration::{CalibrationContext, ValidatedTableCalibrationV1};
 use crate::ImageSpace;
 
 /// The current on-disk optics-profile contract version.
@@ -72,11 +72,13 @@ impl BallLocalizationSettings {
             "physical diameter must match the guaranteed 57.15 mm regulation ball"
         );
         ensure!(
-            self.table_width_mm == PLAYING_AREA_WIDTH_MM
-                && self.table_height_mm == PLAYING_AREA_HEIGHT_MM
+            self.table_width_mm.is_finite()
+                && self.table_width_mm > 0.0
+                && self.table_height_mm.is_finite()
+                && self.table_height_mm > 0.0
                 && self.table_revision > 0
                 && self.table_revision <= MAX_SAFE_JSON_INTEGER,
-            "ball localization table dimensions or revision do not match the verified playing area"
+            "ball localization requires positive finite table dimensions and a valid table revision"
         );
         ensure!(
             (1024..=16_777_216).contains(&self.maximum_asset_bytes),
@@ -204,6 +206,10 @@ pub struct LoadedBallLocalizationProfile {
     pub settings: BallLocalizationSettings,
     pub optics: Option<CameraOpticsProfileV1>,
     pub calibration: Option<ValidatedBallCenterCalibrationV1>,
+    /// Ordinary operator table calibration is the production coordinate map.
+    /// Precision ball-center assets may refine image centers, but must not
+    /// silently replace the map used to project paths back into the image.
+    pub table_calibration: Option<ValidatedTableCalibrationV1>,
     pub calibration_error: Option<String>,
 }
 
@@ -216,23 +222,66 @@ impl LoadedBallLocalizationProfile {
         height_px: u32,
         rectification_revision: u64,
     ) -> Result<Self> {
+        Self::load_with_table(
+            settings,
+            camera_profile_id,
+            image_space,
+            width_px,
+            height_px,
+            rectification_revision,
+            None,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn load_with_table(
+        mut settings: BallLocalizationSettings,
+        camera_profile_id: &str,
+        image_space: ImageSpace,
+        width_px: u32,
+        height_px: u32,
+        rectification_revision: u64,
+        active_table: Option<&ValidatedTableCalibrationV1>,
+    ) -> Result<Self> {
         settings.validate()?;
+        if let Some(table) = active_table {
+            (settings.table_width_mm, settings.table_height_mm) =
+                table.playing_surface_dimensions_mm();
+        }
         let Some(optics_path) = settings.optics_profile_path.as_deref() else {
             return Ok(Self {
                 settings,
                 optics: None,
                 calibration: None,
+                table_calibration: active_table.cloned(),
                 calibration_error: None,
             });
         };
-        let optics: CameraOpticsProfileV1 =
-            read_bounded_json(optics_path, settings.maximum_asset_bytes)?;
-        optics.validate_frame(camera_profile_id, image_space, width_px, height_px)?;
-        ensure!(
-            optics.refiner_revision == BALL_REFINER_REVISION,
-            "optics profile uses unsupported ball refiner revision {} (runtime supports {BALL_REFINER_REVISION})",
-            optics.refiner_revision
-        );
+        let optics_result = (|| -> Result<CameraOpticsProfileV1> {
+            let optics: CameraOpticsProfileV1 =
+                read_bounded_json(optics_path, settings.maximum_asset_bytes)?;
+            optics.validate_frame(camera_profile_id, image_space, width_px, height_px)?;
+            ensure!(
+                optics.refiner_revision == BALL_REFINER_REVISION,
+                "optics profile uses unsupported ball refiner revision {} (runtime supports {BALL_REFINER_REVISION})",
+                optics.refiner_revision
+            );
+            Ok(optics)
+        })();
+        let optics = match optics_result {
+            Ok(optics) => optics,
+            // Optional precision assets must never take the ordinary table map
+            // down with them. Keep validation strict: no invalid optics are used.
+            Err(error) => {
+                return Ok(Self {
+                    settings,
+                    optics: None,
+                    calibration: None,
+                    table_calibration: active_table.cloned(),
+                    calibration_error: Some(format!("{error:#}")),
+                });
+            }
+        };
 
         let calibration_result = settings.ball_center_calibration_path.as_deref().map(|path| {
                 let asset: BallCenterCalibrationV1 =
@@ -242,8 +291,14 @@ impl LoadedBallLocalizationProfile {
                         && asset.table_width_mm == settings.table_width_mm
                         && asset.table_height_mm == settings.table_height_mm
                         && asset.table_revision == settings.table_revision,
-                    "ball-center calibration physical table or ball dimensions differ from configured values"
+                    "ball-center calibration physical dimensions or table revision differ from runtime values"
                 );
+                if let Some(table) = active_table {
+                    ensure!(
+                        asset.calibration_revision == table.calibration_revision(),
+                        "ball-center calibration revision differs from the active table calibration"
+                    );
+                }
                 let validated = asset
                     .into_validated()
                     .map_err(|error| anyhow::anyhow!("invalid ball-center calibration: {error}"))?;
@@ -274,6 +329,7 @@ impl LoadedBallLocalizationProfile {
             settings,
             optics: Some(optics),
             calibration,
+            table_calibration: active_table.cloned(),
             calibration_error,
         })
     }
@@ -378,7 +434,7 @@ mod tests {
             optics_profile_path: Some(path),
             ..BallLocalizationSettings::default()
         };
-        assert!(LoadedBallLocalizationProfile::load_for_frame(
+        let loaded = LoadedBallLocalizationProfile::load_for_frame(
             settings,
             "camera-a",
             ImageSpace::Raw,
@@ -386,7 +442,10 @@ mod tests {
             2160,
             0,
         )
-        .is_err());
+        .unwrap();
+        assert!(loaded.optics.is_none());
+        assert!(loaded.calibration.is_none());
+        assert!(loaded.calibration_error.is_some());
     }
 
     #[test]
@@ -399,6 +458,38 @@ mod tests {
         assert!(read_bounded_json::<CameraOpticsProfileV1>(&path, 3).is_err());
         std::fs::write(&path, b"not-json").unwrap();
         assert!(read_bounded_json::<CameraOpticsProfileV1>(&path, 4096).is_err());
+    }
+
+    #[test]
+    fn calibrated_table_dimensions_can_differ_from_configured_defaults() {
+        let table: crate::calibration::TableCalibrationV1 = serde_json::from_str(include_str!(
+            "../contracts/calibration/v1/table-calibration-perspective.json"
+        ))
+        .unwrap();
+        let table = table.into_validated().unwrap();
+        let dimensions = table.playing_surface_dimensions_mm();
+        assert_ne!(dimensions, (PLAYING_AREA_WIDTH_MM, PLAYING_AREA_HEIGHT_MM));
+
+        let profile = LoadedBallLocalizationProfile::load_with_table(
+            BallLocalizationSettings::default(),
+            "camera-a",
+            ImageSpace::Raw,
+            3840,
+            2160,
+            0,
+            Some(&table),
+        )
+        .unwrap();
+
+        assert_eq!(
+            (
+                profile.settings.table_width_mm,
+                profile.settings.table_height_mm
+            ),
+            dimensions
+        );
+        // The live detector validates these resolved settings again at construction.
+        profile.settings.validate().unwrap();
     }
 
     #[test]

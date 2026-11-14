@@ -496,6 +496,20 @@ impl ValidatedTableCalibrationV1 {
         self.calibration.image_space
     }
 
+    pub fn playing_surface_dimensions_mm(&self) -> (f64, f64) {
+        (
+            self.calibration.table_width_mm,
+            self.calibration.table_height_mm,
+        )
+    }
+
+    /// Source-image pixels to center-origin playing-surface millimeters.
+    /// Published with its revision so clients can project table-space paths
+    /// through the exact homography used for production ball coordinates.
+    pub fn pixel_to_table_mm(&self) -> [[f64; 3]; 3] {
+        self.calibration.pixel_to_table_mm
+    }
+
     pub fn source_dimensions_px(&self) -> (u32, u32) {
         (
             self.calibration.source_width_px,

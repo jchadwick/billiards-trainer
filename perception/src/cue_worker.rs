@@ -724,10 +724,14 @@ mod tests {
         runtime: CaptureRuntimeCoordinator,
         receiver: crate::capture::CaptureFrameReceiver,
         requests: mpsc::Sender<()>,
+        _capture_serial: std::sync::MutexGuard<'static, ()>,
     }
 
     impl CaptureHarness {
         fn start() -> Self {
+            let capture_serial = crate::capture::CAPTURE_RUNTIME_TEST_LOCK
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             let frame_limit = CaptureFrameLimit::new(FRAME_BYTES).unwrap();
             // Match the crate-wide test runtime budget so these tests can run
             // alongside the capture module's coordinator tests in one process.
@@ -795,6 +799,7 @@ mod tests {
                             runtime,
                             receiver,
                             requests,
+                            _capture_serial: capture_serial,
                         };
                     }
                     Err(CaptureStartError::OwnerGate(

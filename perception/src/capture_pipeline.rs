@@ -744,6 +744,7 @@ impl<D: Rgb8FrameDetector> CaptureScenePipeline<D> {
         receiver_queue_wait_ns: Option<u64>,
         completed_inference: Option<(FrameInferenceOutput, Instant, Instant)>,
     ) -> Result<CapturePipelineOutcome> {
+        let is_completed_inference = completed_inference.is_some();
         let capture_timing = receiver_queue_wait_ns
             .map(|queue_wait_ns| {
                 let mut timing = frame.capture_timing();
@@ -775,7 +776,11 @@ impl<D: Rgb8FrameDetector> CaptureScenePipeline<D> {
                 return Err(error);
             }
         };
-        if age > self.config.maximum_frame_age {
+        // A frame queued for inference must still be recent enough to start
+        // work. A completed bounded-worker result is different: its capture
+        // time remains attached to the measurement, while admission below
+        // checks ordering and the live coordinator checks continuity/context.
+        if !is_completed_inference && age > self.config.maximum_frame_age {
             self.stats.stale_frames = self.stats.stale_frames.saturating_add(1);
             self.audit_skip(frame, None, CaptureSkipReason::StaleBeforeInference);
             return Ok(CapturePipelineOutcome::Skipped(
@@ -919,7 +924,7 @@ impl<D: Rgb8FrameDetector> CaptureScenePipeline<D> {
                 return Err(error);
             }
         };
-        if age > self.config.maximum_frame_age {
+        if !is_completed_inference && age > self.config.maximum_frame_age {
             self.stats.stale_frames = self.stats.stale_frames.saturating_add(1);
             self.audit_stale_after_inference(
                 frame,
@@ -991,11 +996,20 @@ impl<D: Rgb8FrameDetector> CaptureScenePipeline<D> {
             frame_span_id,
         );
         let mut candidate_tracker = self.tracker.clone();
-        let tracked_scene = match candidate_tracker.process_with_resolved_ball_measurements(
-            &batch,
-            published_at,
-            &resolved_ball_measurements,
-        ) {
+        let tracked_result = if is_completed_inference {
+            candidate_tracker.process_full_layout_with_resolved_ball_measurements(
+                &batch,
+                published_at,
+                &resolved_ball_measurements,
+            )
+        } else {
+            candidate_tracker.process_with_resolved_ball_measurements(
+                &batch,
+                published_at,
+                &resolved_ball_measurements,
+            )
+        };
+        let tracked_scene = match tracked_result {
             Ok(tracked_scene) => tracked_scene,
             Err(error) => {
                 self.stats.scene_processing_failures =
@@ -1049,7 +1063,7 @@ impl<D: Rgb8FrameDetector> CaptureScenePipeline<D> {
                 return Err(error);
             }
         };
-        if age > self.config.maximum_frame_age {
+        if !is_completed_inference && age > self.config.maximum_frame_age {
             self.stats.stale_frames = self.stats.stale_frames.saturating_add(1);
             self.audit_skip(
                 frame,
@@ -1172,10 +1186,13 @@ impl<D: Rgb8FrameDetector> CaptureScenePipeline<D> {
         let queue_submit_started = self.audit.as_ref().map(|_| Instant::now());
         let queue_submit_span =
             start_timing_child_span(timing_context.as_ref(), "scene_queue_submit", frame_span_id);
-        let freshness_deadline = frame
-            .host_read_completed_at()
+        // Bound only the writer's own queue residence. The source timestamp
+        // in the payload is deliberately left at capture time; inference age
+        // does not make an otherwise current stationary measurement new or
+        // unusable.
+        let freshness_deadline = Instant::now()
             .checked_add(self.config.maximum_frame_age)
-            .context("captured frame freshness deadline cannot be represented")?;
+            .context("publication queue deadline cannot be represented")?;
         let outgoing_sequence = public_delivery_sequence.unwrap_or(scene.transport_sequence);
         if let Err(error) = self.writer.submit_live_with_frame_id_and_deadline(
             outgoing_sequence,
@@ -1794,6 +1811,7 @@ fn initial_perception_state(schedule: &SchedulerConfig, event_sequence: u64) -> 
         decision_calibration_revision: None,
         decision_rectification_revision: None,
         table_visibility: None,
+        table_projection: None,
     }
 }
 
@@ -2064,6 +2082,7 @@ mod tests {
                 provenance: "capture pipeline unit test".to_owned(),
             }),
             calibration: None,
+            table_calibration: None,
             calibration_error: None,
         })
     }
@@ -3008,6 +3027,55 @@ mod tests {
         assert_eq!(calls.load(Ordering::SeqCst), 1);
         assert_eq!(pipeline.stats().stale_frames, 1);
         assert_eq!(pipeline.transport_stats().queued_snapshots, 0);
+        pipeline.shutdown();
+    }
+
+    #[test]
+    fn completed_worker_result_older_than_start_deadline_is_published_with_capture_time() {
+        let calls = Arc::new(AtomicU64::new(0));
+        let mut pipeline = pipeline(
+            detector(Arc::clone(&calls), false, vec![detection()]),
+            Duration::from_millis(5),
+            16 * 1024,
+        );
+        // Keep the capture after the pipeline's own monotonic clock origin;
+        // the frame's host read time is then deliberately older than its
+        // configured 5 ms inference-start threshold.
+        std::thread::sleep(Duration::from_millis(60));
+        let captured = frame(
+            "frame-slow-worker",
+            Some(251),
+            Instant::now() - Duration::from_millis(50),
+        );
+        let completed = Instant::now();
+        let inference = FrameInferenceOutput {
+            source_width_px: captured.source().width_px,
+            source_height_px: captured.source().height_px,
+            detections: vec![detection()],
+            timings: FrameInferenceTimings {
+                preprocess_ms: 1.0,
+                inference_ms: 20.0,
+                decode_and_nms_ms: 0.5,
+                engine_total_ms: 21.5,
+            },
+            ball_refinements: None,
+        };
+
+        let outcome = pipeline
+            .process_inference_result(
+                &captured,
+                inference,
+                completed - Duration::from_millis(20),
+                completed,
+            )
+            .unwrap();
+        let CapturePipelineOutcome::Published(result) = outcome else {
+            panic!("a completed bounded-worker result should be admitted");
+        };
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+        assert_eq!(result.scene.source.frame_id, "frame-slow-worker");
+        assert_eq!(result.scene.source.timestamp.ticks, "251");
+        assert_eq!(pipeline.transport_stats().queued_snapshots, 1);
         pipeline.shutdown();
     }
 

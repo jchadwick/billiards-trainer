@@ -305,11 +305,27 @@
                   "additionalProperties": false
                 },
                 "quiet_dwell_ms": { "type": "integer", "minimum": 1 },
-                "layout_consensus_count": { "type": "integer", "minimum": 1 },
-                "layout_position_tolerance_px": { "type": "number", "exclusiveMinimum": 0 },
+                "layout_consensus_count": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "default": 1,
+                  "deprecated": true,
+                  "description": "Compatibility field; clean settled scans replace the layout immediately and do not wait for consensus."
+                },
+                "layout_position_tolerance_px": {
+                  "type": "number",
+                  "exclusiveMinimum": 0,
+                  "deprecated": true,
+                  "description": "Compatibility field; scan-to-scan agreement is no longer required."
+                },
                 "motion_evidence_expiry_ms": { "type": "integer", "minimum": 1 },
                 "cue_evidence_expiry_ms": { "type": "integer", "minimum": 1 },
-                "layout_evidence_expiry_ms": { "type": "integer", "minimum": 1 }
+                "layout_evidence_expiry_ms": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "deprecated": true,
+                  "description": "Compatibility field retained for wire clients; trusted layout age is diagnostic and does not expire trust."
+                }
               },
               "required": [
                 "recovering",

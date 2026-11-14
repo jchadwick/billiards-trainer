@@ -39,7 +39,8 @@ use crate::phase_scheduler::{
     SchedulerConfig, SchedulerEvidence, TrustReason, WorkAvailability,
 };
 use crate::public_state_lifecycle::{
-    CueGeometryStateV1, PerceptionStateV1, TableVisibilityStateV1, TableVisibilityStatusV1,
+    CueGeometryStateV1, PerceptionStateV1, TableProjectionV1, TableVisibilityStateV1,
+    TableVisibilityStatusV1,
 };
 use crate::scene_transport::SceneTransportStats;
 use crate::table_visibility::{
@@ -96,10 +97,6 @@ pub struct LiveCaptureRuntime<D: Rgb8FrameDetector> {
     recovery_started_at: Option<Duration>,
     table_visibility_config: Option<TableVisibilityConfig>,
     table_visibility_reference: Option<TableVisibilityReference>,
-    visible_reacquisition_samples: usize,
-    /// True only after the most recent accepted ball layout supplied a table
-    /// position for every visible ball through the same refiner/calibration.
-    latest_precision_ready: bool,
     latest_visibility: Option<(String, TableVisibilityAssessment)>,
     latest_visibility_observed_at: Option<Duration>,
     decision_frame_id: Option<String>,
@@ -474,8 +471,6 @@ impl<D: Rgb8FrameDetector + Send + 'static> LiveCaptureRuntime<D> {
             recovery_started_at: None,
             table_visibility_config,
             table_visibility_reference,
-            visible_reacquisition_samples: 0,
-            latest_precision_ready: false,
             latest_visibility: None,
             latest_visibility_observed_at: None,
             decision_frame_id: None,
@@ -821,9 +816,15 @@ impl<D: Rgb8FrameDetector + Send + 'static> LiveCaptureRuntime<D> {
                 MotionClassification::Moving => MotionEvidence::Moving,
                 MotionClassification::OccludedOrUncertain => MotionEvidence::OccludedOrUncertain,
             };
-            if let Some(config) = self.table_visibility_config.as_ref() {
+            // A stored appearance reference can provide an explicit known
+            // occlusion signal, but its absence is not evidence of occlusion
+            // and must not block calibrated geometry plus current motion data.
+            if let (Some(config), Some(reference)) = (
+                self.table_visibility_config.as_ref(),
+                self.table_visibility_reference.as_ref(),
+            ) {
                 let visibility = assess_table_visibility(
-                    self.table_visibility_reference.as_ref(),
+                    Some(reference),
                     Some(VisibilityRgb8Frame {
                         width: frame.source().width_px,
                         height: frame.source().height_px,
@@ -832,14 +833,7 @@ impl<D: Rgb8FrameDetector + Send + 'static> LiveCaptureRuntime<D> {
                     config,
                 )
                 .context("calibrated-table visibility assessment failed")?;
-                if visibility.status == TableVisibilityStatus::Visible {
-                    self.visible_reacquisition_samples =
-                        self.visible_reacquisition_samples.saturating_add(1);
-                    if self.visible_reacquisition_samples < config.reacquisition_consensus_count {
-                        evidence = MotionEvidence::OccludedOrUncertain;
-                    }
-                } else {
-                    self.visible_reacquisition_samples = 0;
+                if visibility.status != TableVisibilityStatus::Visible {
                     evidence = MotionEvidence::OccludedOrUncertain;
                 }
                 self.latest_visibility = Some((frame.source().frame_id.clone(), visibility));
@@ -851,7 +845,9 @@ impl<D: Rgb8FrameDetector + Send + 'static> LiveCaptureRuntime<D> {
                 .observe_motion(now, evidence)
                 .context("phase scheduler rejected motion evidence")?;
             if evidence != MotionEvidence::Quiet {
-                self.latest_precision_ready = false;
+                self.cue_geometry = None;
+                self.cue_observed_at = None;
+                self.cue_observation_frame_id = None;
             }
             if evidence != MotionEvidence::Quiet {
                 self.recovery_started_at.get_or_insert(now);
@@ -1028,7 +1024,23 @@ impl<D: Rgb8FrameDetector + Send + 'static> LiveCaptureRuntime<D> {
             return Ok(false);
         }
 
-        let observation_age = completion.timing.observation_age_at_completion;
+        let observation_age = cue_observation_age_at_poll(
+            completion.timing.observation_age_at_completion,
+            completion.timing.processing_completed_at,
+            Instant::now(),
+        );
+        if observation_age
+            > self
+                .phase_scheduler
+                .as_ref()
+                .expect("scheduler was checked above")
+                .cue_evidence_expiry()
+        {
+            self.cue_geometry = None;
+            self.cue_observed_at = None;
+            self.cue_observation_frame_id = None;
+            return Ok(false);
+        }
         let observed_at = now.saturating_sub(observation_age);
         let frame_id = completion.tag.frame_id.clone();
         let dimensions = (
@@ -1103,7 +1115,17 @@ impl<D: Rgb8FrameDetector + Send + 'static> LiveCaptureRuntime<D> {
         } else {
             false
         };
-        if evidence_changed {
+        let cue_expired = self.cue_observed_at.is_some_and(|observed_at| {
+            self.phase_scheduler.as_ref().is_some_and(|scheduler| {
+                now.saturating_sub(observed_at) > scheduler.cue_evidence_expiry()
+            })
+        });
+        if cue_expired {
+            self.cue_geometry = None;
+            self.cue_observed_at = None;
+            self.cue_observation_frame_id = None;
+        }
+        if evidence_changed || cue_expired {
             self.publish_perception_status(now)?;
         }
         self.accumulate_trusted_time(now);
@@ -1130,7 +1152,23 @@ impl<D: Rgb8FrameDetector + Send + 'static> LiveCaptureRuntime<D> {
             || completion.tag.calibration_revision != self.settings.expected.calibration_revision()
             || completion.tag.motion_generation != evidence.motion_generation
         {
-            self.latest_precision_ready = false;
+            self.phase_stats.obsolete_results = self.phase_stats.obsolete_results.saturating_add(1);
+            return Ok(Some(CapturePipelineOutcome::Skipped(
+                CaptureSkipReason::ObsoleteInference,
+            )));
+        }
+
+        let capture_at = completion
+            .frame
+            .host_read_completed_at()
+            .checked_duration_since(self.session_clock_origin)
+            .unwrap_or_default();
+        if !self
+            .phase_scheduler
+            .as_ref()
+            .expect("scheduler was checked above")
+            .clean_layout_capture_is_current(capture_at, now)
+        {
             self.phase_stats.obsolete_results = self.phase_stats.obsolete_results.saturating_add(1);
             return Ok(Some(CapturePipelineOutcome::Skipped(
                 CaptureSkipReason::ObsoleteInference,
@@ -1145,7 +1183,6 @@ impl<D: Rgb8FrameDetector + Send + 'static> LiveCaptureRuntime<D> {
         let inference = match completion.result {
             Ok(inference) => inference,
             Err(_) => {
-                self.latest_precision_ready = false;
                 self.phase_stats.detector_failures =
                     self.phase_stats.detector_failures.saturating_add(1);
                 self.phase_scheduler
@@ -1180,23 +1217,11 @@ impl<D: Rgb8FrameDetector + Send + 'static> LiveCaptureRuntime<D> {
                         y: measurement.center_image_px[1],
                     })
                     .collect();
-                self.latest_precision_ready =
-                    result
-                        .resolved_ball_measurements
-                        .calibration_revision
-                        .is_some()
-                        && result.resolved_ball_measurements.measurements.iter().all(
-                            |measurement| {
-                                measurement.refinement_status
-                                    == Some(crate::ball_localization::RefinementStatus::Accepted)
-                                    && measurement.table_center_mm.is_some()
-                            },
-                        );
                 let was_trusted = evidence.map_trusted;
                 self.phase_scheduler
                     .as_mut()
                     .expect("scheduler was checked above")
-                    .observe_layout(now, LayoutObservation::Success(positions))
+                    .observe_layout_at(now, capture_at, LayoutObservation::Success(positions))
                     .context("phase scheduler rejected successful layout")?;
                 if !was_trusted
                     && self
@@ -1224,7 +1249,6 @@ impl<D: Rgb8FrameDetector + Send + 'static> LiveCaptureRuntime<D> {
                 Ok(Some(outcome))
             }
             Ok(outcome) => {
-                self.latest_precision_ready = false;
                 self.phase_scheduler
                     .as_mut()
                     .expect("scheduler was checked above")
@@ -1261,6 +1285,9 @@ impl<D: Rgb8FrameDetector + Send + 'static> LiveCaptureRuntime<D> {
 
     fn invalidate_phase_context(&mut self) {
         let now = self.session_elapsed();
+        self.cue_geometry = None;
+        self.cue_observed_at = None;
+        self.cue_observation_frame_id = None;
         if let Some(scheduler) = self.phase_scheduler.as_mut() {
             let _ = scheduler.invalidate_context(now);
         }
@@ -1312,10 +1339,6 @@ impl<D: Rgb8FrameDetector + Send + 'static> LiveCaptureRuntime<D> {
                 observation_frame_id: frame_id.clone(),
                 observation_age_ms: age_ms(self.latest_visibility_observed_at).unwrap_or(u64::MAX),
             });
-        let visibility_is_current = visibility.as_ref().is_some_and(|visibility| {
-            visibility.status == TableVisibilityStatusV1::Visible
-                && visibility.observation_age_ms <= millis(config.motion_evidence_expiry)
-        });
         let perception = PerceptionStateV1 {
             event_sequence: 0,
             image_width_px: self
@@ -1328,16 +1351,8 @@ impl<D: Rgb8FrameDetector + Send + 'static> LiveCaptureRuntime<D> {
             layout_revision: evidence.layout_revision,
             layout_trusted: evidence.map_trusted,
             empty_layout_verified: evidence.empty_layout_verified,
-            guidance_valid: evidence.guidance_valid
-                && visibility_is_current
-                && self.latest_precision_ready
-                && self.decision_frame_id.is_some()
-                && self.cue_observation_frame_id.as_deref() == self.decision_frame_id.as_deref(),
-            trust_reason: if evidence.guidance_valid && !self.latest_precision_ready {
-                "precise_ball_positions_unavailable".to_owned()
-            } else {
-                trust_reason_name(evidence.trust_reason).to_owned()
-            },
+            guidance_valid: evidence.guidance_valid && cue.is_some(),
+            trust_reason: trust_reason_name(evidence.trust_reason).to_owned(),
             last_ball_observation_age_ms: age_ms(evidence.layout_at),
             latest_motion_check_age_ms: age_ms(evidence.motion_at),
             cue_evidence_age_ms: age_ms(evidence.cue_at),
@@ -1349,10 +1364,47 @@ impl<D: Rgb8FrameDetector + Send + 'static> LiveCaptureRuntime<D> {
             decision_calibration_revision: Some(self.settings.expected.calibration_revision()),
             decision_rectification_revision: Some(self.settings.expected.rectification_revision()),
             table_visibility: visibility,
+            table_projection: self
+                .settings
+                .expected
+                .calibration()
+                .map(table_projection_from_calibration),
         };
         self.pipeline
             .publish_perception_state(&self.session_id, perception, Instant::now())?;
         Ok(())
+    }
+}
+
+fn cue_observation_age_at_poll(
+    observation_age_at_completion: Duration,
+    processing_completed_at: Instant,
+    polled_at: Instant,
+) -> Duration {
+    observation_age_at_completion
+        .saturating_add(polled_at.saturating_duration_since(processing_completed_at))
+}
+
+pub(crate) fn table_projection_from_calibration(
+    table: &ValidatedTableCalibrationV1,
+) -> TableProjectionV1 {
+    let (table_width_mm, table_height_mm) = table.playing_surface_dimensions_mm();
+    let (source_width_px, source_height_px) = table.source_dimensions_px();
+    TableProjectionV1 {
+        direction: "source_image_px_to_table_mm".to_owned(),
+        image_space: format!("{:?}", table.image_space()).to_lowercase(),
+        source_width_px,
+        source_height_px,
+        camera_profile_id: table.camera_profile_id().to_owned(),
+        calibration_revision: table.calibration_revision(),
+        rectification_revision: table.rectification_revision(),
+        table_width_mm,
+        table_height_mm,
+        unit: "millimeters".to_owned(),
+        origin: "playing_surface_center".to_owned(),
+        x_axis: "corner_0_to_1".to_owned(),
+        y_axis: "corner_0_to_3".to_owned(),
+        pixel_to_table_mm: table.pixel_to_table_mm(),
     }
 }
 
@@ -1547,6 +1599,46 @@ pub struct PhaseRuntimeDiagnostics {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cue_age_includes_time_waiting_after_worker_completion() {
+        let completed = Instant::now();
+        let polled_later = completed + Duration::from_millis(100);
+        assert_eq!(
+            cue_observation_age_at_poll(Duration::from_millis(200), completed, polled_later,),
+            Duration::from_millis(300),
+        );
+        assert!(
+            cue_observation_age_at_poll(Duration::from_millis(200), completed, polled_later,)
+                > Duration::from_millis(250)
+        );
+    }
+
+    #[test]
+    fn public_projection_metadata_is_the_active_revision_bound_homography() {
+        let calibration: crate::calibration::TableCalibrationV1 = serde_json::from_str(
+            include_str!("../contracts/calibration/v1/table-calibration-perspective.json"),
+        )
+        .unwrap();
+        let calibration = calibration.into_validated().unwrap();
+        let projection = table_projection_from_calibration(&calibration);
+        assert_eq!(projection.direction, "source_image_px_to_table_mm");
+        assert_eq!(projection.calibration_revision, 3);
+        assert_eq!(projection.rectification_revision, 2);
+        assert_eq!(
+            (projection.source_width_px, projection.source_height_px),
+            (1000, 500)
+        );
+        assert_eq!(
+            (projection.table_width_mm, projection.table_height_mm),
+            (2000.0, 1000.0)
+        );
+        assert_eq!(
+            projection.pixel_to_table_mm,
+            calibration.pixel_to_table_mm()
+        );
+        assert_eq!(projection.origin, "playing_surface_center");
+    }
 
     #[test]
     fn motion_diagnostic_record_includes_the_trigger_and_effective_thresholds() {

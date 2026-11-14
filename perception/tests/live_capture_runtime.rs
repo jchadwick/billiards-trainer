@@ -42,6 +42,7 @@ struct TestDetector {
     settings: InferenceSettings,
     calls: Arc<AtomicUsize>,
     first_call_release: Option<mpsc::Receiver<()>>,
+    blocked_call_release: Option<(usize, mpsc::Receiver<()>)>,
     shifting_cue_detection: bool,
 }
 
@@ -55,6 +56,11 @@ impl Rgb8FrameDetector for TestDetector {
         let call_index = self.calls.fetch_add(1, Ordering::SeqCst);
         if call_index == 0 {
             if let Some(release) = self.first_call_release.as_ref() {
+                release.recv().map_err(|error| anyhow::anyhow!(error))?;
+            }
+        }
+        if let Some((blocked_index, release)) = self.blocked_call_release.as_ref() {
+            if call_index == *blocked_index {
                 release.recv().map_err(|error| anyhow::anyhow!(error))?;
             }
         }
@@ -120,6 +126,7 @@ struct TestFactory {
     opens: Arc<AtomicUsize>,
     frame_count: usize,
     frame_interval: Duration,
+    motion_on_frame: Option<usize>,
 }
 
 impl CaptureSourceFactory for TestFactory {
@@ -136,6 +143,7 @@ impl CaptureSourceFactory for TestFactory {
             emitted: 0,
             frame_count: self.frame_count,
             frame_interval: self.frame_interval,
+            motion_on_frame: self.motion_on_frame,
         }))
     }
 }
@@ -147,6 +155,7 @@ struct TestSource {
     emitted: usize,
     frame_count: usize,
     frame_interval: Duration,
+    motion_on_frame: Option<usize>,
 }
 
 impl CaptureSource for TestSource {
@@ -181,6 +190,15 @@ impl CaptureSource for TestSource {
             .allocate_rgb8_buffer(width_px, height_px, frame_limit)
             .map_err(|error| error.to_string())?;
         pixels.as_mut_slice().fill(127);
+        if self
+            .motion_on_frame
+            .is_some_and(|frame| self.emitted >= frame)
+        {
+            for row in 0..height_px as usize {
+                let start = row * width_px as usize;
+                pixels.as_mut_slice()[start..start + width_px as usize / 2].fill(0);
+            }
+        }
         let frame = RgbFrameEnvelope::new(
             SourceFrame {
                 session_id: session_id.to_owned(),
@@ -228,6 +246,7 @@ impl CaptureSourceFactory for BlockingOpenFactory {
             emitted: 0,
             frame_count: 0,
             frame_interval: Duration::ZERO,
+            motion_on_frame: None,
         }))
     }
 }
@@ -290,6 +309,7 @@ fn model_and_calls() -> (TestDetector, Arc<AtomicUsize>) {
         },
         calls: Arc::clone(&calls),
         first_call_release: None,
+        blocked_call_release: None,
         shifting_cue_detection: false,
     };
     (detector, calls)
@@ -431,6 +451,7 @@ fn runtime_with_session_id(
         opens: Arc::clone(&opens),
         frame_count,
         frame_interval: Duration::ZERO,
+        motion_on_frame: None,
     };
     let track_settings = tracking(
         settings.expected.camera_profile_id(),
@@ -511,6 +532,35 @@ fn acknowledge_and_drain_live_session(listener: TcpListener) {
     while read_framed_message(&mut stream, MAXIMUM_MESSAGE_BYTES).is_ok() {}
 }
 
+fn acknowledge_and_collect_live_session(listener: TcpListener, sender: mpsc::Sender<Value>) {
+    let (mut stream, _) = listener.accept().unwrap();
+    stream
+        .set_read_timeout(Some(Duration::from_secs(3)))
+        .unwrap();
+    stream
+        .set_write_timeout(Some(Duration::from_secs(3)))
+        .unwrap();
+    let hello = read_message(&mut stream);
+    let acknowledgement = &hello["capture_session_ack"];
+    write_message(
+        &mut stream,
+        &json!({
+            "type": "ready",
+            "protocol_version": 3,
+            "configuration_revision": acknowledgement["configuration_revision"],
+            "request_sha256": acknowledgement["request_sha256"],
+            "last_transport_sequence": null
+        }),
+    );
+    while let Ok(bytes) = read_framed_message(&mut stream, MAXIMUM_MESSAGE_BYTES) {
+        if let Ok(message) = serde_json::from_slice::<Value>(&bytes) {
+            if sender.send(message).is_err() {
+                break;
+            }
+        }
+    }
+}
+
 fn phase_test_schedule(
     ball_hz: f64,
     motion_hz: f64,
@@ -574,6 +624,7 @@ fn phase_runtime(
             opens,
             frame_count,
             frame_interval,
+            motion_on_frame: None,
         },
     )
     .unwrap()
@@ -588,7 +639,7 @@ fn wait_for_detector_calls(calls: &AtomicUsize, minimum: usize) {
 }
 
 #[test]
-fn cue_detections_do_not_change_ball_layout_settlement_consensus() {
+fn cue_detections_do_not_block_a_clean_scan_with_legacy_consensus_settings() {
     let _guard = TEST_LOCK.lock().unwrap();
     let request = request_json();
     let listener = TcpListener::bind(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0)).unwrap();
@@ -632,7 +683,7 @@ fn cue_detections_do_not_change_ball_layout_settlement_consensus() {
     let evidence = runtime.scheduler_evidence().unwrap().unwrap();
     assert!(
         evidence.map_trusted,
-        "moving cue detections must not reset otherwise consistent ball consensus: {evidence:?}"
+        "fresh motion evidence and one clean settled full scan should trust the layout: {evidence:?}"
     );
     assert!(matches!(
         runtime.stop(Duration::from_secs(2)),
@@ -695,23 +746,142 @@ fn scheduled_cue_work_runs_on_a_single_flight_worker_and_reports_completion() {
 }
 
 #[test]
-fn ready_detector_completion_is_consumed_before_a_due_frame_dispatch() {
+fn slow_clean_worker_result_beyond_capture_deadline_reaches_live_state() {
     let _guard = TEST_LOCK.lock().unwrap();
-    let request = request_json();
+    let mut request: Value = serde_json::from_str(&request_json()).unwrap();
+    request["requested"]["maximum_frame_age_ms"] = json!(100);
+    let request = request.to_string();
+    let listener = TcpListener::bind(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0)).unwrap();
+    let address = listener.local_addr().unwrap();
+    let (delivery_tx, delivery_rx) = mpsc::channel();
+    let receiver =
+        thread::spawn(move || acknowledge_and_collect_live_session(listener, delivery_tx));
+    let (mut detector, calls) = model_and_calls();
+    let (release_tx, release_rx) = mpsc::channel();
+    detector.first_call_release = Some(release_rx);
+    let (slow_release_tx, slow_release_rx) = mpsc::channel();
+    detector.blocked_call_release = Some((1, slow_release_rx));
+    let mut runtime = phase_runtime(
+        &request,
+        address,
+        detector,
+        32,
+        Duration::from_millis(100),
+        phase_test_schedule(10.0, 20.0, Duration::from_millis(800), 3),
+    );
+    let session_id = runtime.session_id().to_owned();
+    assert_eq!(
+        runtime.wait_until_ready(Duration::from_secs(2)),
+        &LiveCaptureLifecycle::Ready { session_id }
+    );
+
+    // Keep servicing motion evidence while the initial scan is blocked. It
+    // was captured before settlement and must not become the trusted layout.
+    for _ in 0..11 {
+        assert!(matches!(
+            runtime.receive_one(Duration::from_secs(2)).unwrap(),
+            CaptureReceiveOutcome::Frame(Ok(_))
+        ));
+    }
+    wait_for_detector_calls(&calls, 1);
+    release_tx.send(()).unwrap();
+    let first_completion = runtime.receive_one(Duration::from_secs(2)).unwrap();
+    assert!(matches!(
+        first_completion,
+        CaptureReceiveOutcome::Frame(Ok(CapturePipelineOutcome::Skipped(_)))
+    ));
+    wait_for_detector_calls(&calls, 2);
+
+    // Let a second scan, captured after quiet settlement, remain blocked for
+    // more than the configured 100 ms age limit while fresh motion checks run.
+    for _ in 0..4 {
+        assert!(matches!(
+            runtime.receive_one(Duration::from_secs(2)).unwrap(),
+            CaptureReceiveOutcome::Frame(Ok(_))
+        ));
+    }
+    slow_release_tx.send(()).unwrap();
+    let mut published_scene = None;
+    for _ in 0..5 {
+        if let CaptureReceiveOutcome::Frame(Ok(CapturePipelineOutcome::Published(result))) =
+            runtime.receive_one(Duration::from_secs(2)).unwrap()
+        {
+            published_scene = Some(result.scene);
+            break;
+        }
+    }
+    let scene = published_scene.expect("slow settled scan should reach the live pipeline");
+    assert_eq!(scene.balls.len(), 1);
+    assert!(runtime
+        .scheduler_evidence()
+        .unwrap()
+        .is_some_and(|evidence| evidence.map_trusted));
+    assert_eq!(runtime.pipeline_stats().scenes_submitted, 1);
+
+    assert!(matches!(
+        runtime.stop(Duration::from_secs(2)),
+        billiards_perception::capture::CaptureRuntimeWait::Completed(_)
+    ));
+    receiver.join().unwrap();
+    let published_layout_ages = delivery_rx
+        .try_iter()
+        .filter_map(|message| {
+            message
+                .pointer("/perception/last_ball_observation_age_ms")
+                .and_then(Value::as_u64)
+        })
+        .collect::<Vec<_>>();
+    assert!(
+        published_layout_ages.iter().any(|age| *age >= 300),
+        "published state must report inference and completion-slot delay from capture: {published_layout_ages:?}"
+    );
+}
+
+#[test]
+fn motion_during_blocked_scan_rejects_late_result_and_quiet_does_not_retrust() {
+    let _guard = TEST_LOCK.lock().unwrap();
+    let mut request: Value = serde_json::from_str(&request_json()).unwrap();
+    request["requested"]["maximum_frame_age_ms"] = json!(100);
+    let request = request.to_string();
+    let settings = parse_capture_settings_json(&request).unwrap();
     let listener = TcpListener::bind(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0)).unwrap();
     let address = listener.local_addr().unwrap();
     let receiver = thread::spawn(move || acknowledge_and_drain_live_session(listener));
     let (mut detector, calls) = model_and_calls();
     let (release_tx, release_rx) = mpsc::channel();
-    detector.first_call_release = Some(release_rx);
-    let mut runtime = phase_runtime(
-        &request,
+    detector.blocked_call_release = Some((1, release_rx));
+    let interrupted = Arc::new(AtomicBool::new(false));
+    let mut config = pipeline_config(
         address,
-        detector,
-        3,
-        Duration::from_millis(120),
-        phase_test_schedule(10.0, 100.0, Duration::from_millis(800), 3),
+        settings.configuration_revision,
+        settings.expected.maximum_frame_age(),
     );
+    config.phase_schedule = Some(phase_test_schedule(
+        10.0,
+        20.0,
+        Duration::from_millis(800),
+        3,
+    ));
+    config.scene_transport.public_state_delivery_enabled = true;
+    let mut runtime = LiveCaptureRuntime::start(
+        &request,
+        detector,
+        tracking(
+            settings.expected.camera_profile_id(),
+            settings.expected.rectification_revision(),
+        ),
+        config,
+        TestFactory {
+            metadata: metadata(&settings.expected),
+            interrupted,
+            releases: Arc::new(AtomicUsize::new(0)),
+            opens: Arc::new(AtomicUsize::new(0)),
+            frame_count: 20,
+            frame_interval: Duration::from_millis(100),
+            motion_on_frame: Some(4),
+        },
+    )
+    .unwrap();
     let session_id = runtime.session_id().to_owned();
     assert_eq!(
         runtime.wait_until_ready(Duration::from_secs(2)),
@@ -720,19 +890,42 @@ fn ready_detector_completion_is_consumed_before_a_due_frame_dispatch() {
 
     assert!(matches!(
         runtime.receive_one(Duration::from_secs(2)).unwrap(),
-        CaptureReceiveOutcome::Frame(Ok(CapturePipelineOutcome::Skipped(_)))
+        CaptureReceiveOutcome::Frame(Ok(_))
     ));
-    wait_for_detector_calls(&calls, 1);
-    release_tx.send(()).unwrap();
-
-    // The source holds frame two for longer than the configured detector
-    // interval, making the first result ready before a full-layout slot is due.
     assert!(matches!(
         runtime.receive_one(Duration::from_secs(2)).unwrap(),
-        CaptureReceiveOutcome::Frame(Ok(CapturePipelineOutcome::Published(_)))
+        CaptureReceiveOutcome::Frame(Ok(_))
     ));
     wait_for_detector_calls(&calls, 2);
+    let before_motion = runtime.scheduler_evidence().unwrap().unwrap();
+    for _ in 0..4 {
+        assert!(matches!(
+            runtime.receive_one(Duration::from_secs(2)).unwrap(),
+            CaptureReceiveOutcome::Frame(Ok(_))
+        ));
+    }
+    let after_motion = runtime.scheduler_evidence().unwrap().unwrap();
+    assert!(after_motion.motion_generation > before_motion.motion_generation);
+    assert!(!after_motion.map_trusted);
 
+    release_tx.send(()).unwrap();
+    let late = runtime.receive_one(Duration::from_secs(2)).unwrap();
+    assert!(matches!(
+        late,
+        CaptureReceiveOutcome::Frame(Ok(CapturePipelineOutcome::Skipped(_)))
+    ));
+    for _ in 0..3 {
+        assert!(matches!(
+            runtime.receive_one(Duration::from_secs(2)).unwrap(),
+            CaptureReceiveOutcome::Frame(Ok(_))
+        ));
+    }
+    let after_quiet = runtime.scheduler_evidence().unwrap().unwrap();
+    assert!(
+        !after_quiet.map_trusted,
+        "quiet continuity requires a new clean scan"
+    );
+    assert_eq!(runtime.pipeline_stats().scenes_submitted, 0);
     assert!(matches!(
         runtime.stop(Duration::from_secs(2)),
         billiards_perception::capture::CaptureRuntimeWait::Completed(_)
@@ -867,6 +1060,7 @@ fn invalid_supervisor_session_identity_is_rejected_before_source_open() {
             opens: Arc::clone(&opens),
             frame_count: 1,
             frame_interval: Duration::ZERO,
+            motion_on_frame: None,
         },
     );
 
@@ -1058,6 +1252,7 @@ fn duplicate_pipeline_configuration_is_rejected_before_factory_open() {
             opens: Arc::clone(&opens),
             frame_count: 1,
             frame_interval: Duration::ZERO,
+            motion_on_frame: None,
         },
     );
     assert!(result.is_err());

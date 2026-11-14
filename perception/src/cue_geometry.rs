@@ -481,6 +481,10 @@ fn clip_region(proposal: CueProposal, width: u32, height: u32) -> Option<Region>
     })
 }
 
+// Keep geometry inputs explicit here: the caller shares one bounded point
+// visit counter across all candidate regions, while only proposal regions use
+// the detector-box seed path.
+#[allow(clippy::too_many_arguments)]
 fn fit_region(
     points: &[EdgePoint],
     inliers: &mut Vec<EdgePoint>,

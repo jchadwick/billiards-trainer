@@ -93,7 +93,7 @@ fn requires_explicit_identity_and_publishes_latest_fresh_state() {
 }
 
 #[test]
-fn stale_state_is_marked_cached_then_expired_without_old_coordinates() {
+fn stale_state_retains_last_known_markers_after_expiry() {
     let mut store = lifecycle();
     activate(&mut store);
     let observation = scene();
@@ -119,22 +119,16 @@ fn stale_state_is_marked_cached_then_expired_without_old_coordinates() {
     }));
 
     let expired = store.current(510).unwrap().unwrap();
-    assert_eq!(expired.freshness, StateFreshness::Expired);
-    assert!(expired.payload.balls.is_empty());
+    assert_eq!(expired.freshness, StateFreshness::Stale);
+    assert_eq!(expired.payload.balls.len(), 1);
     assert_eq!(
         expired.payload.observation_status["ball_positions_status"],
-        "unavailable"
+        "cached"
     );
-    assert!(expired.ball_age_ns.is_empty());
-    assert!(store
-        .current(600)
-        .unwrap()
-        .unwrap()
-        .payload
-        .balls
-        .is_empty());
+    assert_eq!(expired.ball_age_ns.values().next(), Some(&500));
+    assert_eq!(store.current(600).unwrap().unwrap().payload.balls.len(), 1);
     assert_eq!(store.stats().stale_transitions, 1);
-    assert_eq!(store.stats().expired_transitions, 1);
+    assert_eq!(store.stats().expired_transitions, 0);
 }
 
 #[test]
@@ -394,11 +388,8 @@ fn native_contour_is_available_only_while_the_source_observation_is_fresh() {
         .balls
         .iter()
         .all(|b| !b.is_observed && b.outline.is_none()));
-    assert!(store
-        .current(510)
-        .unwrap()
-        .unwrap()
-        .payload
-        .balls
-        .is_empty());
+    let stale = store.current(510).unwrap().unwrap();
+    assert_eq!(stale.freshness, StateFreshness::Stale);
+    assert_eq!(stale.payload.balls.len(), 1);
+    assert!(stale.payload.balls[0].outline.is_none());
 }

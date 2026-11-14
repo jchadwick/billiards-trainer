@@ -54,7 +54,10 @@ struct PhaseScheduleWire {
     aiming: PhaseCadenceWire,
     shot: PhaseCadenceWire,
     quiet_dwell_ms: u64,
+    /// Deprecated compatibility input. Successful clean scans now replace the
+    /// layout wholesale on the first evaluation, regardless of this value.
     layout_consensus_count: usize,
+    /// Deprecated compatibility input; scan-to-scan agreement is not required.
     layout_position_tolerance_px: f64,
     motion_evidence_expiry_ms: u64,
     cue_evidence_expiry_ms: u64,
@@ -386,18 +389,19 @@ pub fn run_live_application_with_audit<F: CaptureSourceFactory>(
         )
         .expect("validated expected camera profile has positive dimensions")
     });
-    let localization_profile = match LoadedBallLocalizationProfile::load_for_frame(
+    let localization_profile = match LoadedBallLocalizationProfile::load_with_table(
         settings.ball_localization.clone(),
         expected.camera_profile_id(),
         expected.image_space(),
         output_geometry.width_px(),
         output_geometry.height_px(),
         expected.rectification_revision(),
+        expected.calibration(),
     ) {
         Ok(profile) => {
             if let Some(error) = profile.calibration_error.as_deref() {
                 eprintln!(
-                    "ball-center calibration unavailable; native image centers remain available but precise table positions are suppressed: {error}"
+                    "optional precision asset unavailable; coarse centers and compatible table projection remain available: {error}"
                 );
             }
             Some(Arc::new(profile))
