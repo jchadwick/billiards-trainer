@@ -56,16 +56,24 @@ producer's current trusted table-plane layout.
 
 ## Live coaching
 
-Live coaching reuses the pure `suggestDirectPots` geometry from `/practice`.
-Choose the cue ball, target, and pocket on `/live`, or leave target and pocket
-on automatic suggestion. Advice requires a current trusted whole-table layout
+Live coaching is available at `/coach` through **Practice → Live Coach**, and
+inside `/live` diagnostics. See [the live coach guide](COACH.md) for the physical
+table workflow and configurable alignment tolerances. It reuses the pure
+`suggestDirectPots` geometry from `/practice`. Choose the cue ball, target, and
+pocket, or leave target and pocket on automatic suggestion. Advice requires a
+current trusted whole-table layout
 and compatible producer table projection. Positions use the producer's
 center-origin millimeters and are shifted to the sandbox's positive-origin
 coordinates for coaching; paths are projected back through the inverse of the
-same source-pixel-to-table homography. The desired ghost-ball cue path and
-object path are shown separately from an ephemeral current cue line. If cue
-direction is signed, a cyan current-aim travel estimate is shown; otherwise the
-interface reports that direction as unknown. Stale ball centers remain visible
+same source-pixel-to-table homography. The desired green ghost-ball cue path
+and orange object path are shown separately from the yellow detected shaft.
+A signed cue that approaches the selected ball through its center supports
+cyan current cue-ball travel and a pink initial struck-ball path. The coach
+reports angular alignment and lateral shaft offset. An unknown tip direction
+requires explicit player confirmation before predicting current aim. Measured
+paths end at their next contact or finite-radius cushion boundary; post-contact
+cue-ball roll, speed, spin, pocket capture, and rebounds are outside this model.
+Stale ball centers remain visible
 as possible blockers and never support an advice corridor. Missing compatible
 projection disables live aiming but leaves usable image-coordinate centers
 visible. A verified clean empty scan and an unscanned table have separate

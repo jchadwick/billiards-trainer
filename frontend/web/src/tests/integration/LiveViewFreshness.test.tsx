@@ -1,5 +1,5 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LiveView } from '../../components/video/LiveView';
 import type { GameStateData, TableProjection } from '../../types/api';
 import type { DisplayMjpegFrame } from '../../components/video/use-frame-aware-mjpeg';
@@ -79,11 +79,129 @@ function loadVideoImage() {
   fireEvent.load(image);
 }
 
+beforeEach(() => { vi.clearAllMocks(); });
+
 afterEach(() => {
   cleanup(); vi.useRealTimers(); vi.restoreAllMocks(); vi.mocked(useRootStore).mockReset();
 });
 
 describe('live producer layout and coach', () => {
+  function installStraightShot(signed = true) {
+    const state = makeState({ cue: true });
+    Object.assign(state.observation_status!.perception!.cue!, {
+      shaft_start_px: [500, 480], shaft_end_px: [500, 420], axis_unit: [0, -1],
+      signed_direction: signed ? 'toward_end' : null,
+    });
+    const store = installStore(state);
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(canvasContext);
+    const view = render(<LiveView autoConnect={false} />);
+    loadVideoImage();
+    fireEvent.change(screen.getByLabelText('Confirm cue ball'), { target: { value: 'cue-id' } });
+    fireEvent.change(screen.getByLabelText('Select pocket'), { target: { value: 'top-middle' } });
+    return { store, ...view };
+  }
+
+  it('draws current cue travel, contact, and the struck object path with an aligned assessment', () => {
+    installStraightShot();
+    expect(screen.getByTestId('live-alignment').getAttribute('data-alignment')).toBe('aligned');
+    expect(screen.getByTestId('live-alignment').textContent).toContain('within 2°');
+    expect(screen.getByTestId('live-contact-summary').textContent).toContain('hits ball target-id first');
+    expect(canvasContext.lineTo).toHaveBeenCalledWith(500, 270);
+    expect(canvasContext.lineTo).toHaveBeenCalledWith(500, 10);
+    expect(canvasContext.arc).toHaveBeenCalledWith(500, 270, 6, 0, Math.PI * 2);
+    expect(screen.getByTestId('live-detection-overlay').getAttribute('data-current-aim')).toBe('visible');
+  });
+
+  it('supports explicit manual direction confirmation and revokes it for a new layout', () => {
+    const { store, rerender } = installStraightShot(false);
+    expect(screen.getByTestId('live-alignment').getAttribute('data-alignment')).toBe('direction_unknown');
+    expect(screen.getByTestId('live-detection-overlay').getAttribute('data-current-aim')).toBe('hidden');
+    fireEvent.click(screen.getByRole('checkbox', { name: /I confirm the cue tip/ }));
+    expect(screen.getByTestId('live-alignment').getAttribute('data-alignment')).toBe('aligned');
+    expect(screen.getByTestId('live-alignment').textContent).toContain('your tip confirmation');
+    store.videoStore.latestGameState.observation_status!.perception!.layout_revision += 1;
+    vi.mocked(canvasContext.lineTo).mockClear();
+    rerender(<LiveView autoConnect={false} className="new-layout" />);
+    expect((screen.getByRole('checkbox', { name: /I confirm the cue tip/ }) as HTMLInputElement).checked).toBe(false);
+    expect(screen.getByTestId('live-detection-overlay').getAttribute('data-current-aim')).toBe('hidden');
+    expect(canvasContext.lineTo).not.toHaveBeenCalledWith(500, 10);
+  });
+
+  it('draws the object path only to its next ball contact, even without a clear pot suggestion', () => {
+    const { store, rerender } = installStraightShot();
+    store.videoStore.latestGameState.balls = [...store.videoStore.latestGameState.balls, {
+      id: 'next-ball', position: { x: 500, y: 100, scale: [3.84, 4.32] },
+      table_position: { x: 0, y: -150 }, table_radius_mm: 10, radius: 10, confidence: 0.9,
+    }];
+    vi.mocked(canvasContext.lineTo).mockClear();
+    rerender(<LiveView autoConnect={false} className="second-contact" />);
+    fireEvent.change(screen.getByLabelText('Select target ball'), { target: { value: 'target-id' } });
+    expect(screen.queryByTestId('live-suggestion')).toBeNull();
+    expect(canvasContext.lineTo).toHaveBeenCalledWith(500, 120);
+    expect(canvasContext.lineTo).not.toHaveBeenCalledWith(500, 10);
+    expect(screen.getByTestId('live-contact-summary').textContent).toContain('contact with ball next-ball');
+  });
+
+  it('does not retain manual direction confirmation after cue expiry', () => {
+    vi.useFakeTimers();
+    const { store, rerender } = installStraightShot(false);
+    fireEvent.click(screen.getByRole('checkbox', { name: /I confirm the cue tip/ }));
+    expect(screen.getByTestId('live-detection-overlay').getAttribute('data-current-aim')).toBe('visible');
+    act(() => { vi.advanceTimersByTime(200); });
+    expect(screen.getByTestId('live-detection-overlay').getAttribute('data-current-aim')).toBe('hidden');
+    const perception = store.videoStore.latestGameState.observation_status!.perception!;
+    perception.event_sequence += 1;
+    perception.cue!.source_frame_id = 'new-cue-observation';
+    perception.cue_evidence_age_ms = 0;
+    rerender(<LiveView autoConnect={false} className="fresh-cue" />);
+    act(() => { vi.advanceTimersByTime(100); });
+    expect((screen.getByRole('checkbox', { name: /I confirm the cue tip/ }) as HTMLInputElement).checked).toBe(false);
+    expect(screen.getByTestId('live-detection-overlay').getAttribute('data-current-aim')).toBe('hidden');
+  });
+
+  it.each(['parallel shaft', 'away direction', 'unknown direction'])('withholds current trajectories for %s while keeping desired guidance', (failure) => {
+    const { store, rerender } = installStraightShot();
+    const cue = store.videoStore.latestGameState.observation_status!.perception!.cue!;
+    if (failure === 'parallel shaft') {
+      cue.shaft_start_px = [520, 480]; cue.shaft_end_px = [520, 420];
+    } else cue.signed_direction = failure === 'away direction' ? 'toward_start' : null;
+    vi.mocked(canvasContext.lineTo).mockClear();
+    rerender(<LiveView autoConnect={false} className={failure} />);
+    expect(screen.getByTestId('live-suggestion')).toBeTruthy();
+    expect(screen.getByTestId('live-detection-overlay').getAttribute('data-current-aim')).toBe('hidden');
+    expect(canvasContext.lineTo).not.toHaveBeenCalledWith(500, 10);
+  });
+
+  it('expires measured trajectories independently while retaining trusted desired guidance', () => {
+    vi.useFakeTimers();
+    installStraightShot();
+    vi.mocked(canvasContext.lineTo).mockClear();
+    act(() => { vi.advanceTimersByTime(200); });
+    expect(screen.getByTestId('live-suggestion')).toBeTruthy();
+    expect(screen.getByTestId('live-detection-overlay').getAttribute('data-freshness')).toBe('current');
+    expect(screen.getByTestId('live-detection-overlay').getAttribute('data-current-aim')).toBe('hidden');
+    // The 100ms tick may still have drawn a fresh path. After expiry, a rerender
+    // must never restore it from the retained producer layout.
+    vi.mocked(canvasContext.lineTo).mockClear();
+    act(() => { vi.advanceTimersByTime(20); });
+    expect(canvasContext.lineTo).not.toHaveBeenCalledWith(500, 10);
+    expect(screen.queryByTestId('live-contact-summary')).toBeNull();
+  });
+
+  it('withholds measured paths during motion and after incompatible calibration', () => {
+    const { store, rerender } = installStraightShot();
+    store.videoStore.latestGameState.observation_status!.perception!.layout_trusted = false;
+    vi.mocked(canvasContext.lineTo).mockClear();
+    rerender(<LiveView autoConnect={false} className="moving" />);
+    expect(screen.getByTestId('live-detection-overlay').getAttribute('data-current-aim')).toBe('hidden');
+    expect(canvasContext.lineTo).not.toHaveBeenCalledWith(500, 10);
+    store.videoStore.latestGameState.observation_status!.perception!.layout_trusted = true;
+    store.videoStore.latestGameState.observation_status!.calibration_revision = 2;
+    rerender(<LiveView autoConnect={false} className="calibration-changed" />);
+    expect(screen.getByTestId('live-detection-overlay').getAttribute('data-current-aim')).toBe('hidden');
+    expect(screen.getByText(/projection does not match/)).toBeTruthy();
+  });
+
   it('draws center markers without frame IDs and does not expire a stationary layout by scan age', () => {
     installStore(makeState({ age: 8_000 }));
     vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(canvasContext);

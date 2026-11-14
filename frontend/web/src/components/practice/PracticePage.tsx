@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import type { MouseEvent } from 'react';
+import { TrainingTabs } from './TrainingTabs';
 import {
   PRACTICE_TABLE_DEFAULTS,
   standardPockets,
@@ -79,6 +80,7 @@ export function PracticePage() {
 
   return (
     <section className="practice-page" aria-labelledby="practice-title">
+      <TrainingTabs active="practice" />
       <header className="practice-heading">
         <div>
           <p className="practice-eyebrow">Practice sandbox · simulated</p>

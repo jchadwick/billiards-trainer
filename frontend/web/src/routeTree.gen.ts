@@ -10,12 +10,18 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as CoachRouteImport } from './routes/coach'
 import { Route as LiveRouteImport } from './routes/live'
 import { Route as PracticeRouteImport } from './routes/practice'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CoachRoute = CoachRouteImport.update({
+  id: '/coach',
+  path: '/coach',
   getParentRoute: () => rootRouteImport,
 } as any)
 const LiveRoute = LiveRouteImport.update({
@@ -32,30 +38,34 @@ const PracticeRoute = PracticeRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/coach': typeof CoachRoute
   '/live': typeof LiveRoute
   '/practice': typeof PracticeRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/coach': typeof CoachRoute
   '/live': typeof LiveRoute
   '/practice': typeof PracticeRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/coach': typeof CoachRoute
   '/live': typeof LiveRoute
   '/practice': typeof PracticeRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/live' | '/practice'
+  fullPaths: '/' | '/coach' | '/live' | '/practice'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/live' | '/practice'
-  id: '__root__' | '/' | '/live' | '/practice'
+  to: '/' | '/coach' | '/live' | '/practice'
+  id: '__root__' | '/' | '/coach' | '/live' | '/practice'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  CoachRoute: typeof CoachRoute
   LiveRoute: typeof LiveRoute
   PracticeRoute: typeof PracticeRoute
 }
@@ -67,6 +77,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/coach': {
+      id: '/coach'
+      path: '/coach'
+      fullPath: '/coach'
+      preLoaderRoute: typeof CoachRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/live': {
@@ -88,6 +105,7 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  CoachRoute: CoachRoute,
   LiveRoute: LiveRoute,
   PracticeRoute: PracticeRoute,
 }

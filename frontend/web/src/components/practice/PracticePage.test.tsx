@@ -1,20 +1,37 @@
 import { fireEvent, render, screen } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createRootRoute, createRoute, createRouter, createMemoryHistory, RouterProvider } from '@tanstack/react-router';
 import { PracticePage } from './PracticePage';
 
+async function renderPractice() {
+  const root = createRootRoute();
+  const practice = createRoute({ getParentRoute: () => root, path: '/practice', component: PracticePage });
+  const coach = createRoute({ getParentRoute: () => root, path: '/coach', component: () => <p>Live coach destination</p> });
+  const router = createRouter({ routeTree: root.addChildren([practice, coach]), history: createMemoryHistory({ initialEntries: ['/practice'] }) });
+  await router.load();
+  render(<RouterProvider router={router} />);
+}
+
+beforeEach(() => { vi.spyOn(window, 'scrollTo').mockImplementation(() => {}); });
+afterEach(() => { vi.restoreAllMocks(); });
+
 describe('PracticePage', () => {
-  it('labels the table as simulated and requires explicit cue-ball confirmation', () => {
-    render(<PracticePage />);
+  it('labels the table as simulated and requires explicit cue-ball confirmation', async () => {
+    await renderPractice();
+    expect(screen.getByRole('link', { name: 'Live Coach' }).getAttribute('href')).toBe('/coach');
+    expect(screen.getByRole('link', { name: 'Practice layout' }).getAttribute('aria-current')).toBe('page');
     expect(screen.getByText('SIMULATION · NOT LIVE DETECTION')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Confirm cue ball' })).toBeTruthy();
     expect(screen.getByRole('status').textContent).toContain('Confirm the cue ball');
     fireEvent.click(screen.getByRole('button', { name: 'Confirm cue ball' }));
     expect(screen.getByRole('button', { name: /Cue ball confirmed/ }).getAttribute('aria-pressed')).toBe('true');
     expect(screen.getByRole('status').textContent).toContain('Suggested direct pot');
+    fireEvent.click(screen.getByRole('link', { name: 'Live Coach' }));
+    expect(await screen.findByText('Live coach destination')).toBeTruthy();
   });
 
-  it('allows static object-ball editing, target selection, and pocket selection', () => {
-    render(<PracticePage />);
+  it('allows static object-ball editing, target selection, and pocket selection', async () => {
+    await renderPractice();
     fireEvent.click(screen.getByRole('button', { name: 'Add object ball' }));
     const table = screen.getByTestId('practice-table');
     // Simulate a scaled SVG with border/letterbox offsets in screen space.

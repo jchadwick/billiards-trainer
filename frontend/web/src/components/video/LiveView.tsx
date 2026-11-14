@@ -5,15 +5,18 @@ import { apiClient } from '../../api/client';
 import axiosClient from '../../api/axios-client';
 import { adaptLiveSurface, sourceConfigurationRevision } from './live-surface-adapter';
 import { getConfiguredLiveStreamUrl } from './live-stream-url';
-import { PRACTICE_TABLE_DEFAULTS, predictFirstContact, suggestDirectPots, type PracticeBall } from './shot-prediction';
+import { PRACTICE_TABLE_DEFAULTS, suggestDirectPots, type PracticeBall } from './shot-prediction';
+import { assessCenterBallAim, confirmTipNearestCueBall, getLiveAimPolicy, projectCueToTable } from './center-ball-coaching';
 import { advanceEvidenceAgeMs } from './freshness';
 import { canonicalToImagePoint, normalizeImageExtentToCanonical, normalizeImagePointToCanonical } from '../../utils/coordinates';
-import { centerToTable, imageToTableMm, tableMmToImage, tableProjectionIsCompatible, tableToCenter } from './live-coaching-geometry';
+import { centerToTable, tableMmToImage, tableProjectionIsCompatible, tableToCenter } from './live-coaching-geometry';
 import type { BallData, ObservationStatus, PerceptionState, TableProjection } from '../../types/api';
 import type { DisplayMjpegFrame } from './use-frame-aware-mjpeg';
+import './live-aim.css';
 
 interface LiveViewProps { className?: string; autoConnect?: boolean }
 const POCKET_IDS = ['top-left', 'top-middle', 'top-right', 'bottom-left', 'bottom-middle', 'bottom-right'];
+const LIVE_AIM_POLICY = getLiveAimPolicy();
 
 function asId(id: string | number): string { return String(id); }
 
@@ -88,6 +91,7 @@ export const LiveView: React.FC<LiveViewProps> = observer(({ className = '', aut
   const [cueBallId, setCueBallId] = useState('');
   const [targetId, setTargetId] = useState('');
   const [pocketId, setPocketId] = useState('');
+  const [tipConfirmationContext, setTipConfirmationContext] = useState<string | null>(null);
   const receiptRef = useRef<{ eventSequence: number; at: number; motionAge: number | null }>({ eventSequence: -1, at: 0, motionAge: null });
   const previousContextRef = useRef<string | null>(null);
   const cueEvidenceRef = useRef({ signature: '', reportedAge: 0, at: 0 });
@@ -224,6 +228,11 @@ export const LiveView: React.FC<LiveViewProps> = observer(({ className = '', aut
     }
     previousContextRef.current = sourceContext;
   }, [sourceContext]);
+  // A manual tip confirmation applies to one selected ball and settled layout,
+  // never to a new camera, calibration, or post-shot arrangement.
+  const manualTipContext = JSON.stringify([sourceContext, cueBallId, perception?.layout_revision]);
+  const confirmNearestTip = tipConfirmationContext === manualTipContext;
+  useEffect(() => { setTipConfirmationContext(null); }, [manualTipContext, layoutTrusted, cueCurrent]);
   // Detection labels never silently choose the live cue ball; the player confirms it here.
   const selectedCueId = cueBallId;
   const cueBall = selectedCueId ? compatibleBalls.get(selectedCueId) : undefined;
@@ -245,6 +254,25 @@ export const LiveView: React.FC<LiveViewProps> = observer(({ className = '', aut
     ...(targetId ? { targetId } : {}), ...(pocketId ? { pocketId } : {}),
   }) : [];
   const suggestion = candidates[0] ?? null;
+  const projectedCue = cueCurrent && projection && perception?.cue
+    ? projectCueToTable(perception.cue, projection, perception.image_width_px ?? 0, perception.image_height_px ?? 0)
+    : null;
+  const manualTipUsed = Boolean(confirmNearestTip && canAdvise && cueCurrent && projectedCue && !projectedCue.direction && coachCueBall);
+  const aim = assessCenterBallAim(
+    manualTipUsed ? confirmTipNearestCueBall(projectedCue!, coachCueBall!) : projectedCue,
+    canAdvise ? coachCueBall : null,
+    objectBalls, table, suggestion, LIVE_AIM_POLICY,
+  );
+  const measuredPath = aim.prediction;
+  const aimMessage = !canAdvise ? 'Alignment paused until a trusted layout and cue-ball selection are available.'
+    : !cueCurrent ? 'Bring your cue into view behind the selected cue ball. Waiting for a fresh cue line.'
+      : aim.state === 'direction_unknown' ? 'Cue direction unknown. Confirm the nearest end is your tip below to enable current-aim prediction.'
+        : aim.state === 'away' ? 'The cue points away from the selected cue ball. Check the cue-ball selection and tip direction.'
+          : aim.state === 'off_center' ? `Move the cue through the ball center: the detected shaft is ${aim.offsetMm!.toFixed(1)} mm off center.`
+            : aim.state === 'aligned' ? `Lined up within ${LIVE_AIM_POLICY.angleToleranceDegrees}° of the suggested aim (${aim.angleDegrees!.toFixed(1)}° difference).`
+              : aim.state === 'adjust' ? `${aim.angleDegrees!.toFixed(1)}° from the suggested aim.${aim.wrongTarget ? measuredPath?.target ? ` Current aim hits ball ${measuredPath.target.id} first.` : ' Current aim misses the object balls.' : ' Adjust toward the green line.'}`
+                : aim.state === 'ready' ? 'Current-aim prediction ready. Choose a supported target and pocket to compare alignment.'
+                  : 'Cannot assess this cue line. Move the tip closer to the selected ball and keep the shaft clearly visible.';
 
   useEffect(() => {
     const image = surface.nativeVideoElement;
@@ -375,38 +403,31 @@ export const LiveView: React.FC<LiveViewProps> = observer(({ className = '', aut
       context.beginPath(); context.moveTo(start.x * scaleX, start.y * scaleY); context.lineTo(end.x * scaleX, end.y * scaleY); context.stroke();
       context.restore();
     }
-    if (currentCue?.signed_direction && projection && table && canAdvise && cueBall) {
-      const cuePointInProjectionSpace = (point: [number, number]) => ({
-        x: point[0] * projection.source_width_px / (perception?.image_width_px ?? projection.source_width_px),
-        y: point[1] * projection.source_height_px / (perception?.image_height_px ?? projection.source_height_px),
-      });
-      const startMm = imageToTableMm(projection, cuePointInProjectionSpace(currentCue.shaft_start_px));
-      const endMm = imageToTableMm(projection, cuePointInProjectionSpace(currentCue.shaft_end_px));
-      if (startMm && endMm) {
-        const towardEnd = currentCue.signed_direction === 'toward_end';
-        const direction = towardEnd
-          ? { x: endMm.x - startMm.x, y: endMm.y - startMm.y }
-          : { x: startMm.x - endMm.x, y: startMm.y - endMm.y };
-        const cueMm = centerToTable(cueBall.table_position!, table.width, table.height);
-        const livePath = predictFirstContact(cueMm && {
-          x: cueMm.x, y: cueMm.y,
-          radius: cueBall.table_radius_mm && cueBall.table_radius_mm > 0 ? cueBall.table_radius_mm : table.ballRadius,
-        }, objectBalls, direction, table.width, table.height);
-        const pathEnd = livePath ? imagePointFromTableCoach(livePath.cuePathEnd) : null;
-        const pathStart = imagePointFromTableCoach(cueMm);
-        if (pathStart && pathEnd) {
-          context.save(); context.lineCap = 'round'; context.lineWidth = 3;
-          context.strokeStyle = '#38bdf8'; context.setLineDash([5, 5]);
-          context.beginPath(); context.moveTo(pathStart.x * scaleX, pathStart.y * scaleY);
-          context.lineTo(pathEnd.x * scaleX, pathEnd.y * scaleY); context.stroke();
-          context.restore();
+    if (measuredPath) {
+      const drawTravel = (start: { x: number; y: number }, end: { x: number; y: number }, color: string) => {
+        const from = imagePointFromTableCoach(start);
+        const to = imagePointFromTableCoach(end);
+        if (!from || !to) return;
+        context.strokeStyle = color;
+        context.beginPath(); context.moveTo(from.x * scaleX, from.y * scaleY);
+        context.lineTo(to.x * scaleX, to.y * scaleY); context.stroke();
+      };
+      context.save(); context.lineCap = 'round'; context.lineWidth = 4; context.setLineDash([5, 5]);
+      drawTravel(measuredPath.cueTravel.start, measuredPath.cueTravel.end, '#38bdf8');
+      if (measuredPath.objectTravel) {
+        drawTravel(measuredPath.objectTravel.start, measuredPath.objectTravel.end, '#e879f9');
+        const contact = imagePointFromTableCoach(measuredPath.cueTravel.end);
+        if (contact) {
+          context.setLineDash([]); context.strokeStyle = '#38bdf8';
+          context.beginPath(); context.arc(contact.x * scaleX, contact.y * scaleY, 6, 0, Math.PI * 2); context.stroke();
         }
       }
+      context.restore();
     }
     context.restore();
   // imagePointFromBall uses only current producer coordinates and current projection.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [balls, videoSize, projection, projectionMismatch, displayCompatible, table, layoutTrusted, suggestion, selectedCueId, cueCurrent, perception?.cue, ageTick]);
+  }, [balls, videoSize, projection, projectionMismatch, displayCompatible, table, layoutTrusted, suggestion, selectedCueId, cueCurrent, perception?.cue, measuredPath, ageTick]);
 
   const nativeVideo = autoConnect && videoStore.delivery?.mode === 'native';
   const imageUsable = Boolean(videoSize.width && videoSize.height);
@@ -455,7 +476,7 @@ export const LiveView: React.FC<LiveViewProps> = observer(({ className = '', aut
     </header>
     <section className="live-coach-controls" aria-label="Live shot coaching">
       <p role="status" aria-live="polite">{coachMessage}</p>
-      <p>Use the marker labels to select balls; these labels are not recognized ball numbers. Green shows suggested aim, orange the object-ball path, and yellow the current cue.</p>
+      <p>Use the marker labels to select balls; these labels are not recognized ball numbers. Green shows suggested aim, orange its intended object-ball path, and yellow the detected cue. Cyan shows current cue-ball travel; pink shows the first struck ball’s predicted direction.</p>
       <div className="practice-coordinate-entry">
         <label>Cue ball
           <select aria-label="Confirm cue ball" value={selectedCueId} onChange={(event) => setCueBallId(event.target.value)}>
@@ -476,13 +497,27 @@ export const LiveView: React.FC<LiveViewProps> = observer(({ className = '', aut
           </select>
         </label>
       </div>
+      <div className="live-alignment" role="status" aria-live="polite" data-testid="live-alignment" data-alignment={aim.state}>
+        <strong>{aimMessage}</strong>
+        {aim.offsetMm !== undefined && <span> Shaft offset {aim.offsetMm.toFixed(1)} mm.</span>}
+        {manualTipUsed && <span> Direction uses your tip confirmation.</span>}
+      </div>
+      {canAdvise && projectedCue && !projectedCue.direction && <label className="live-tip-confirmation">
+        <input type="checkbox" checked={confirmNearestTip} onChange={(event) => setTipConfirmationContext(event.target.checked ? manualTipContext : null)} />
+        I confirm the cue tip is the end nearest my selected cue ball
+      </label>}
+      {measuredPath && <p data-testid="live-contact-summary">{measuredPath.target
+        ? `Current aim hits ball ${measuredPath.target.id} first.${measuredPath.objectTravel?.hitBall ? ` Its path ends at contact with ball ${measuredPath.objectTravel.hitBall.id}; further collisions are not predicted.` : ' Its initial path is shown to the cushion boundary.'}`
+        : 'Current aim reaches a cushion without hitting an object ball.'}</p>}
+      <p className="live-ball-summary">Start with a level cue and a center-ball stroke, without English. Paths estimate initial direction up to the next contact, not speed or stopping position. Post-contact cue-ball roll, spin, throw, pocket capture, and rebounds are not predicted.</p>
       {suggestion && <p className="live-suggestion" data-testid="live-suggestion">
         Suggested direct pot: ball {suggestion.targetId} to {suggestion.pocket.label}; {Math.round(suggestion.cutAngleRadians * 180 / Math.PI)}° cut.
         {cueCurrent && perception?.cue?.signed_direction
           ? ' Current cue direction is signed and shown separately.'
-          : cueCurrent ? ' Current cue line is visible; its direction is unknown.' : ' No current cue line; manual advice is ready.'}
+          : manualTipUsed ? ' Current cue direction is confirmed by you and shown separately.'
+            : cueCurrent ? ' Current cue line is visible; its direction is unknown.' : ' No current cue line; manual advice is ready.'}
       </p>}
-      {cueCurrent && !suggestion && <p>Current cue detected; {perception?.cue?.signed_direction ? 'direction known.' : 'direction unknown.'} Cue age {Math.round(cueAge ?? 0)} ms.</p>}
+      {cueCurrent && !suggestion && <p>Current cue detected; {perception?.cue?.signed_direction ? 'direction known.' : manualTipUsed ? 'direction confirmed by you.' : 'direction unknown.'} Cue age {Math.round(cueAge ?? 0)} ms.</p>}
       {imageUsable && balls.length > 0 && renderableCount < balls.length && <p role="note">{balls.length - renderableCount} reported ball(s) have no compatible display coordinates or source context; their markers are withheld.</p>}
       {!imageUsable && balls.length > 0 && <p role="note">Waiting for a live video image before drawing reported ball markers.</p>}
       <p className="live-ball-summary" role="status">
@@ -504,6 +539,7 @@ export const LiveView: React.FC<LiveViewProps> = observer(({ className = '', aut
       <canvas ref={canvasRef} className="live-overlay" data-testid="live-detection-overlay"
         data-freshness={layoutTrusted ? 'current' : 'stale'} data-frame-pairing="independent"
         data-cue-overlay={cueCurrent ? 'visible' : 'hidden'}
+        data-current-aim={measuredPath ? 'visible' : 'hidden'}
         style={{ inset: 0, width: '100%', height: '100%', opacity: 1 }} aria-label="Ball and aiming overlays" />
       {!isConnected && <div className="connection-overlay"><div className="connection-overlay-message"><div className="connection-overlay-title">Connecting…</div><div className="connection-overlay-detail">The camera and producer state update independently.</div></div></div>}
     </div>

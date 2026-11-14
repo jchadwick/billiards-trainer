@@ -1,0 +1,10 @@
+.training-tabs { display: flex; gap: 8px; padding: 12px 20px; border-bottom: 1px solid #3a4349; }
+.training-tabs a { border: 1px solid #3a4349; border-radius: 6px; padding: 10px 16px; color: #d5dadd; text-decoration: none; }
+.training-tabs a[aria-current="page"] { background: #203548; border-color: #38bdf8; color: #e0f2fe; }
+.training-tabs a:focus-visible { outline: 2px solid #38bdf8; outline-offset: 3px; }
+.coach-introduction { padding: 16px 20px; line-height: 1.5; color: #d5dadd; }
+.live-alignment { margin: 12px 0; border: 1px solid #475569; border-radius: 8px; padding: 12px; font-size: 1rem; line-height: 1.5; background: #1e293b; }
+.live-alignment[data-alignment="aligned"] { color: #d9f99d; border-color: #a3e635; background: #253526; }
+.live-alignment[data-alignment="adjust"], .live-alignment[data-alignment="off_center"], .live-alignment[data-alignment="away"] { color: #fef3c7; border-color: #fbbf24; }
+.live-coach-controls .live-tip-confirmation { display: flex; align-items: center; gap: 8px; margin: 12px 0; font-size: .9rem; line-height: 1.5; color: #e9edf0; }
+.live-tip-confirmation input { width: 18px; height: 18px; flex: none; }
