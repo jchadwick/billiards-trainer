@@ -286,7 +286,7 @@ impl SceneTrackerV1 {
         validate_resolved_ball_measurements(batch, resolved, &self.config)?;
         let mut next = self.clone();
         let (snapshot, association_capacity_evictions) =
-            next.process_inner(batch, published_at, resolved, false)?;
+            next.process_inner(batch, published_at, resolved, false, true)?;
         *self = next;
         Ok(SceneTrackingResult {
             snapshot,
@@ -306,7 +306,27 @@ impl SceneTrackerV1 {
         validate_resolved_ball_measurements(batch, resolved, &self.config)?;
         let mut next = self.clone();
         let (snapshot, association_capacity_evictions) =
-            next.process_inner(batch, published_at, resolved, true)?;
+            next.process_inner(batch, published_at, resolved, true, false)?;
+        *self = next;
+        Ok(SceneTrackingResult {
+            snapshot,
+            association_capacity_evictions,
+        })
+    }
+
+    /// Merge an unverified scan without expiring remembered centers. Only a
+    /// clean full-layout replacement may remove absent balls; source/context
+    /// resets and the configured capacity bound still apply.
+    pub fn process_partial_layout_with_resolved_ball_measurements(
+        &mut self,
+        batch: &DetectionBatchV1,
+        published_at: Timestamp,
+        resolved: &ResolvedBallMeasurementBatch,
+    ) -> Result<SceneTrackingResult, TrackingError> {
+        validate_resolved_ball_measurements(batch, resolved, &self.config)?;
+        let mut next = self.clone();
+        let (snapshot, association_capacity_evictions) =
+            next.process_inner(batch, published_at, resolved, false, false)?;
         *self = next;
         Ok(SceneTrackingResult {
             snapshot,
@@ -320,6 +340,7 @@ impl SceneTrackerV1 {
         published_at: Timestamp,
         resolved: &ResolvedBallMeasurementBatch,
         replace_layout_wholesale: bool,
+        expire_tracks_by_age: bool,
     ) -> Result<(SceneSnapshotV1, usize), TrackingError> {
         batch
             .validate()
@@ -423,10 +444,10 @@ impl SceneTrackerV1 {
 
         let now_ns = source_timestamp_ns;
         let max_age_ns = self.config.maximum_track_age.as_nanos();
-        // Full-table scans may intentionally be much slower than the legacy
-        // tracking age. Let the clean scan associate first; wholesale layout
-        // replacement below removes every unmatched track transactionally.
-        if !replace_layout_wholesale {
+        // Phase-aware full and partial scans may be slower than the legacy
+        // tracking age. Preserve their IDs and remembered positions until a
+        // clean replacement; legacy stream callers retain age-based expiry.
+        if expire_tracks_by_age {
             self.tracks
                 .retain(|track| now_ns.saturating_sub(track.last_timestamp_ns) < max_age_ns);
         }

@@ -49,6 +49,7 @@ struct TestDetector {
     blocked_call_release: Option<(usize, mpsc::Receiver<()>)>,
     shifting_cue_detection: bool,
     empty_on_uniform_frame: bool,
+    shift_ball_on_uniform_frame: bool,
 }
 
 impl Rgb8FrameDetector for TestDetector {
@@ -70,12 +71,20 @@ impl Rgb8FrameDetector for TestDetector {
             }
         }
         anyhow::ensure!(pixels.len() == (width_px * height_px * 3) as usize);
+        let move_ball =
+            self.shift_ball_on_uniform_frame && pixels.iter().all(|value| *value == 127);
+        let (center_x, center_y) = if move_ball { (12.0, 12.0) } else { (6.0, 7.0) };
         let mut detections = vec![Detection {
             class_id: 1,
             class_name: "ball".to_owned(),
             confidence: 0.95,
-            bbox_xyxy_px: [3.0, 4.0, 9.0, 10.0],
-            center_xy_px: [6.0, 7.0],
+            bbox_xyxy_px: [
+                center_x - 3.0,
+                center_y - 3.0,
+                center_x + 3.0,
+                center_y + 3.0,
+            ],
+            center_xy_px: [center_x, center_y],
         }];
         if self.shifting_cue_detection {
             // The cue moves between completed inferences while the ball stays
@@ -330,6 +339,7 @@ fn model_and_calls() -> (TestDetector, Arc<AtomicUsize>) {
         blocked_call_release: None,
         shifting_cue_detection: false,
         empty_on_uniform_frame: false,
+        shift_ball_on_uniform_frame: false,
     };
     (detector, calls)
 }
@@ -361,11 +371,19 @@ fn pipeline_config(
 }
 
 fn tracking(camera_profile_id: &str, rectification_revision: u64) -> TrackingConfigV1 {
+    tracking_with_gate(camera_profile_id, rectification_revision, 40.0)
+}
+
+fn tracking_with_gate(
+    camera_profile_id: &str,
+    rectification_revision: u64,
+    association_gate_px: f64,
+) -> TrackingConfigV1 {
     TrackingConfigV1::new(
         1,
         Some(0),
         camera_profile_id,
-        40.0,
+        association_gate_px,
         Duration::from_millis(100),
         Duration::from_secs(1),
         Duration::from_secs(3),
@@ -723,6 +741,11 @@ fn covered_table_with_extreme_shift_cannot_trust_an_empty_scan_or_clear_prior_ba
     check_exposure_shift_publication(true);
 }
 
+#[test]
+fn nonempty_scan_from_unconfirmed_view_publishes_observation_without_trust() {
+    check_exposure_shift_publication_mode(true, true);
+}
+
 fn exposure_table_pixels(_frame: usize) -> Vec<u8> {
     let mut pixels = vec![0; SMALL_FRAME_BYTES];
     for y in 2..14 {
@@ -742,6 +765,10 @@ fn covered_after_acquisition(frame: usize) -> Vec<u8> {
 }
 
 fn check_exposure_shift_publication(covered: bool) {
+    check_exposure_shift_publication_mode(covered, false);
+}
+
+fn check_exposure_shift_publication_mode(covered: bool, nonempty_when_covered: bool) {
     let _guard = TEST_LOCK.lock().unwrap();
     let request = request_json();
     let listener = TcpListener::bind(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0)).unwrap();
@@ -774,7 +801,8 @@ fn check_exposure_shift_publication(covered: bool) {
     assert!(derived.validity.valid, "{:?}", derived.validity.reasons);
     let reference = derived.reference.unwrap();
     let (mut detector, calls) = model_and_calls();
-    detector.empty_on_uniform_frame = covered;
+    detector.empty_on_uniform_frame = covered && !nonempty_when_covered;
+    detector.shift_ball_on_uniform_frame = nonempty_when_covered;
     let mut config = pipeline_config(
         address,
         settings.configuration_revision,
@@ -787,9 +815,10 @@ fn check_exposure_shift_publication(covered: bool) {
         &request,
         "exposure-shift-live-session",
         detector,
-        tracking(
+        tracking_with_gate(
             settings.expected.camera_profile_id(),
             settings.expected.rectification_revision(),
+            if nonempty_when_covered { 5.0 } else { 40.0 },
         ),
         config,
         None,
@@ -838,7 +867,7 @@ fn check_exposure_shift_publication(covered: bool) {
     wait_for_detector_calls(&calls, 1);
     assert_eq!(
         runtime.scheduler_evidence().unwrap().unwrap().map_trusted,
-        !covered
+        !covered && !nonempty_when_covered
     );
     assert!(matches!(
         runtime.stop(Duration::from_secs(2)),
@@ -877,6 +906,26 @@ fn check_exposure_shift_publication(covered: bool) {
             }),
             "covered table must retain stale balls, never a trusted empty replacement"
         );
+        if nonempty_when_covered {
+            assert!(
+                blocked.iter().any(|delivery| {
+                    delivery["current_state"]["payload"]["balls"]
+                        .as_array()
+                        .is_some_and(|balls| {
+                            !balls.is_empty()
+                                && balls.iter().any(|ball| {
+                                    ball["tracking_status"] == "observed"
+                                        && ball["position_kind"] == "measured"
+                                })
+                                && balls.iter().any(|ball| {
+                                    ball["tracking_status"] == "occluded"
+                                        && ball["position_kind"] == "last_observed"
+                                })
+                        })
+                }),
+                "an uncertain non-empty scan should publish current detected centers while keeping the whole-table map untrusted: {deliveries:?}"
+            );
+        }
     }
 }
 

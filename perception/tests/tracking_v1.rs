@@ -216,6 +216,60 @@ fn clean_full_layout_replaces_absent_tracks_and_accepts_a_valid_empty_result() {
 }
 
 #[test]
+fn partial_layout_preserves_unmatched_centers_and_ids_beyond_legacy_expiry() {
+    let mut tracker = SceneTrackerV1::new(config());
+    let mut scan = |batch: &DetectionBatchV1, partial: bool| {
+        let resolved = ResolvedBallMeasurementBatch::from_detection_batch_midpoints(
+            batch,
+            1,
+            "camera-profile-test",
+            7,
+            3,
+        );
+        let published_at = Timestamp {
+            ticks: (9_000_000_000_u64 + batch.batch_sequence).to_string(),
+            unit: TimeUnit::Nanoseconds,
+            clock: ClockKind::Monotonic,
+            domain_id: "scene-writer-clock-a".to_owned(),
+            stage: TimestampStage::SnapshotPublication,
+        };
+        if partial {
+            tracker.process_partial_layout_with_resolved_ball_measurements(
+                batch,
+                published_at,
+                &resolved,
+            )
+        } else {
+            tracker.process_full_layout_with_resolved_ball_measurements(
+                batch,
+                published_at,
+                &resolved,
+            )
+        }
+        .unwrap()
+        .snapshot
+    };
+    let initial = scan(
+        &frame(1, 1_000_000_000, &[ball(20.0, 30.0), ball(80.0, 30.0)]),
+        false,
+    );
+    for (sequence, timestamp) in [(2, 2_100_000_000), (3, 5_000_000_000)] {
+        let partial = scan(&frame(sequence, timestamp, &[ball(21.0, 30.0)]), true);
+        assert_eq!(partial.balls.len(), 2);
+        assert_eq!(partial.balls[0].track_id, initial.balls[0].track_id);
+        assert_eq!(partial.balls[1].track_id, initial.balls[1].track_id);
+        assert_eq!(partial.balls[1].measurement, initial.balls[1].measurement);
+        assert_eq!(
+            partial.balls[1].last_observation,
+            initial.balls[1].last_observation
+        );
+    }
+    let clean = scan(&frame(4, 6_000_000_000, &[ball(22.0, 30.0)]), false);
+    assert_eq!(clean.balls.len(), 1);
+    assert_eq!(clean.balls[0].track_id, initial.balls[0].track_id);
+}
+
+#[test]
 fn global_assignment_preserves_both_tracks_when_greedy_matching_would_lose_one() {
     let mut tracker = SceneTrackerV1::new(config());
     let first = process(

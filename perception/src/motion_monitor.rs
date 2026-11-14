@@ -42,6 +42,11 @@ pub struct MotionMonitorConfig {
     /// for this long. This allows recovery after a ball has stopped at a new
     /// location without hiding slow movement.
     pub reference_settle_dwell: Duration,
+    /// Minimum changed neighbors in a 3-by-3 sample-grid neighborhood for a
+    /// reference-difference sample to participate in temporal drift tracking.
+    /// This suppresses isolated camera/compression noise while retaining
+    /// spatially coherent ball and occlusion boundaries.
+    pub reference_mask_minimum_neighbors: u8,
 }
 
 impl Default for MotionMonitorConfig {
@@ -56,6 +61,7 @@ impl Default for MotionMonitorConfig {
             broad_change_min_fraction: 0.04,
             maximum_global_brightness_shift: 96,
             reference_settle_dwell: Duration::from_millis(350),
+            reference_mask_minimum_neighbors: 2,
         }
     }
 }
@@ -76,6 +82,11 @@ impl MotionMonitorConfig {
         if self.luminance_difference_threshold == 0 {
             return Err(MotionMonitorError::InvalidConfig(
                 "luminance_difference_threshold must be positive".into(),
+            ));
+        }
+        if !(1..=9).contains(&self.reference_mask_minimum_neighbors) {
+            return Err(MotionMonitorError::InvalidConfig(
+                "reference_mask_minimum_neighbors must be between 1 and 9".into(),
             ));
         }
         for (name, value) in [
@@ -231,6 +242,7 @@ pub struct MotionMonitor {
     current: Vec<u8>,
     delta_scratch: Vec<i16>,
     reference_mask: Vec<u8>,
+    filtered_reference_mask: Vec<u8>,
     previous_reference_mask: Vec<u8>,
     last_observed_at: Option<Duration>,
     last_reference_drift_at: Option<Duration>,
@@ -252,6 +264,7 @@ impl MotionMonitor {
             current: Vec::new(),
             delta_scratch: Vec::new(),
             reference_mask: Vec::new(),
+            filtered_reference_mask: Vec::new(),
             previous_reference_mask: Vec::new(),
             last_observed_at: None,
             last_reference_drift_at: None,
@@ -347,9 +360,16 @@ impl MotionMonitor {
                 reference.brightness_shift,
                 &mut self.reference_mask,
             );
+            filter_reference_mask(
+                &self.reference_mask,
+                &mut self.filtered_reference_mask,
+                self.sample_width,
+                self.sample_height,
+                self.config.reference_mask_minimum_neighbors,
+            );
             let delta_fraction = if self.reference_mask_initialized {
                 let changed = self
-                    .reference_mask
+                    .filtered_reference_mask
                     .iter()
                     .zip(&self.previous_reference_mask)
                     .filter(|(current, previous)| current != previous)
@@ -359,7 +379,10 @@ impl MotionMonitor {
                 self.reference_mask_initialized = true;
                 None
             };
-            std::mem::swap(&mut self.reference_mask, &mut self.previous_reference_mask);
+            std::mem::swap(
+                &mut self.filtered_reference_mask,
+                &mut self.previous_reference_mask,
+            );
             (Some(reference), delta_fraction)
         } else {
             (None, None)
@@ -493,6 +516,7 @@ impl MotionMonitor {
         self.current.clear();
         self.delta_scratch.clear();
         self.reference_mask.clear();
+        self.filtered_reference_mask.clear();
         self.previous_reference_mask.clear();
         self.last_observed_at = None;
         self.last_reference_drift_at = None;
@@ -508,6 +532,7 @@ impl MotionMonitor {
             + self.current.capacity()
             + self.delta_scratch.capacity() * std::mem::size_of::<i16>()
             + self.reference_mask.capacity()
+            + self.filtered_reference_mask.capacity()
             + self.previous_reference_mask.capacity()
     }
 
@@ -555,6 +580,7 @@ impl MotionMonitor {
         self.current.resize(sample_count, 0);
         self.delta_scratch.resize(sample_count, 0);
         self.reference_mask.resize(sample_count, 0);
+        self.filtered_reference_mask.resize(sample_count, 0);
         self.previous_reference_mask.resize(sample_count, 0);
     }
 
@@ -673,6 +699,37 @@ fn fill_difference_mask(
         *mask = u8::from(
             (i16::from(*value) - i16::from(*reference) - brightness_shift).abs() >= threshold,
         );
+    }
+}
+
+/// Remove isolated reference-difference samples before comparing successive
+/// masks. Inter-frame comparisons remain unfiltered and continue to detect
+/// actual movement directly; this spatial consistency check only prevents
+/// sensor/compression speckles from resetting quiet continuity indefinitely.
+fn filter_reference_mask(
+    input: &[u8],
+    output: &mut [u8],
+    width: usize,
+    height: usize,
+    minimum_neighbors: u8,
+) {
+    debug_assert_eq!(input.len(), width * height);
+    debug_assert_eq!(output.len(), input.len());
+    for y in 0..height {
+        for x in 0..width {
+            let mut changed_neighbors = 0_u8;
+            let y_start = y.saturating_sub(1);
+            let y_end = (y + 1).min(height.saturating_sub(1));
+            let x_start = x.saturating_sub(1);
+            let x_end = (x + 1).min(width.saturating_sub(1));
+            for neighbor_y in y_start..=y_end {
+                let row_offset = neighbor_y * width;
+                for neighbor_x in x_start..=x_end {
+                    changed_neighbors += input[row_offset + neighbor_x];
+                }
+            }
+            output[y * width + x] = u8::from(changed_neighbors >= minimum_neighbors);
+        }
     }
 }
 

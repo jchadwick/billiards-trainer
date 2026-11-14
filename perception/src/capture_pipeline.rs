@@ -374,6 +374,9 @@ pub enum CaptureSkipReason {
     DetectorOverloaded,
     /// Motion or context changed before the detector result was consumed.
     ObsoleteInference,
+    /// The view was not confirmed visible, so an empty result cannot replace
+    /// the remembered whole-table layout.
+    UnverifiedEmptyLayout,
     /// The isolated detector returned an error or panicked for this frame.
     DetectorFailed,
 }
@@ -718,7 +721,7 @@ impl<D: Rgb8FrameDetector> CaptureScenePipeline<D> {
     /// after it validates and enters the bounded writer slot. The writer's
     /// queue replaces older pending scenes and never waits for socket I/O.
     pub fn process(&mut self, frame: &RgbFrameEnvelope) -> Result<CapturePipelineOutcome> {
-        self.process_with_receiver_queue_wait(frame, None, None)
+        self.process_with_receiver_queue_wait(frame, None, None, false)
     }
 
     /// Complete coordinator-owned publication for one inference result
@@ -735,7 +738,33 @@ impl<D: Rgb8FrameDetector> CaptureScenePipeline<D> {
             frame,
             None,
             Some((inference, inference_started, inference_completed)),
+            true,
         )
+    }
+
+    /// Publish usable detections from an uncertain view without treating the
+    /// detector output as a complete table replacement. This updates current
+    /// centers and preserves unmatched remembered tracks as stale.
+    pub fn process_partial_inference_result(
+        &mut self,
+        frame: &RgbFrameEnvelope,
+        inference: FrameInferenceOutput,
+        inference_started: Instant,
+        inference_completed: Instant,
+    ) -> Result<CapturePipelineOutcome> {
+        self.process_with_receiver_queue_wait(
+            frame,
+            None,
+            Some((inference, inference_started, inference_completed)),
+            false,
+        )
+    }
+
+    pub(crate) fn contains_ball_detection(&self, inference: &FrameInferenceOutput) -> bool {
+        inference
+            .detections
+            .iter()
+            .any(|detection| detection.class_id == self.tracking_ball_class_id as usize)
     }
 
     fn process_with_receiver_queue_wait(
@@ -743,6 +772,7 @@ impl<D: Rgb8FrameDetector> CaptureScenePipeline<D> {
         frame: &RgbFrameEnvelope,
         receiver_queue_wait_ns: Option<u64>,
         completed_inference: Option<(FrameInferenceOutput, Instant, Instant)>,
+        full_layout_inference: bool,
     ) -> Result<CapturePipelineOutcome> {
         let is_completed_inference = completed_inference.is_some();
         let capture_timing = receiver_queue_wait_ns
@@ -823,6 +853,7 @@ impl<D: Rgb8FrameDetector> CaptureScenePipeline<D> {
                 CaptureSkipReason::AnalysisNotScheduled
                 | CaptureSkipReason::DetectorOverloaded
                 | CaptureSkipReason::ObsoleteInference
+                | CaptureSkipReason::UnverifiedEmptyLayout
                 | CaptureSkipReason::DetectorFailed => {}
             }
             self.audit_skip(frame, None, reason);
@@ -996,8 +1027,14 @@ impl<D: Rgb8FrameDetector> CaptureScenePipeline<D> {
             frame_span_id,
         );
         let mut candidate_tracker = self.tracker.clone();
-        let tracked_result = if is_completed_inference {
+        let tracked_result = if is_completed_inference && full_layout_inference {
             candidate_tracker.process_full_layout_with_resolved_ball_measurements(
+                &batch,
+                published_at,
+                &resolved_ball_measurements,
+            )
+        } else if is_completed_inference {
+            candidate_tracker.process_partial_layout_with_resolved_ball_measurements(
                 &batch,
                 published_at,
                 &resolved_ball_measurements,
@@ -1343,7 +1380,7 @@ impl<D: Rgb8FrameDetector> CaptureScenePipeline<D> {
             timeout,
             measure_queue_wait,
             |frame, queue_wait_ns| {
-                self.process_with_receiver_queue_wait(frame, queue_wait_ns, None)
+                self.process_with_receiver_queue_wait(frame, queue_wait_ns, None, false)
             },
         )
     }
@@ -1472,6 +1509,9 @@ impl<D: Rgb8FrameDetector> CaptureScenePipeline<D> {
             CaptureSkipReason::AnalysisNotScheduled => ("phase_scheduler", "not_scheduled"),
             CaptureSkipReason::DetectorOverloaded => ("phase_scheduler", "detector_busy"),
             CaptureSkipReason::ObsoleteInference => ("phase_scheduler", "obsolete_result"),
+            CaptureSkipReason::UnverifiedEmptyLayout => {
+                ("table_visibility", "unverified_empty_layout")
+            }
             CaptureSkipReason::DetectorFailed => ("detector_worker", "inference_failed"),
         };
         self.audit_observation(frame, transport_sequence, "skipped", stage, reason);
@@ -2637,7 +2677,7 @@ mod tests {
 
         let captured = frame("audit-frame", Some(900_000), Instant::now());
         let outcome = pipeline
-            .process_with_receiver_queue_wait(&captured, Some(5_000_000), None)
+            .process_with_receiver_queue_wait(&captured, Some(5_000_000), None, false)
             .unwrap();
         assert!(matches!(outcome, CapturePipelineOutcome::Published(_)));
         let pipeline_counters = pipeline.stats();

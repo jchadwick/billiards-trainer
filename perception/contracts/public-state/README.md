@@ -36,6 +36,12 @@ state when a new producer epoch starts. Health records do not refresh ball
 locations. Stale state preserves last-known centers but does not claim current
 detector confidence. Only a clean settled full-table scan replaces the layout,
 including removing absent balls or publishing a valid empty table.
+When quiet motion evidence remains compatible but appearance conflicts with the
+stored reference, nonempty measured detections may update the untrusted layout.
+These partial scans retain unmatched last-known centers and stable IDs without
+legacy age expiry; an unverified empty scan cannot clear them. Existing source,
+ordering, context and configured capacity bounds still apply. Appearance
+assessment cannot masquerade as detected motion or reset quiet dwell.
 
 `public-state-delivery-v2.schema.json` adds the phase-aware live envelope. A
 delivery may carry a raw `source_snapshot` for a new localization, or omit it

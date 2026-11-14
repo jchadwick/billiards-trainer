@@ -17,6 +17,7 @@ fn test_config() -> MotionMonitorConfig {
         broad_change_min_fraction: 0.04,
         maximum_global_brightness_shift: 96,
         reference_settle_dwell: Duration::from_millis(300),
+        reference_mask_minimum_neighbors: 2,
     }
 }
 
@@ -208,8 +209,47 @@ fn sample_grid_and_retained_buffers_remain_bounded() {
     assert!(assessment.sample_width <= 96);
     assert!(assessment.sample_height <= 96);
     let maximum_grid = 96usize * 96;
-    // Three luminance grids, one i16 delta buffer, and two one-byte masks.
-    assert!(monitor.retained_buffer_bytes() <= maximum_grid * 7);
+    // Three luminance grids, one i16 delta buffer, and three one-byte masks.
+    assert!(monitor.retained_buffer_bytes() <= maximum_grid * 8);
+}
+
+#[test]
+fn isolated_reference_mask_flicker_does_not_prevent_quiet_recovery() {
+    let mut monitor = MotionMonitor::new(test_config()).unwrap();
+    let reference = gray_frame(64, 48, 100);
+    monitor
+        .observe_rgb8(Duration::ZERO, 64, 48, &reference)
+        .unwrap();
+
+    let mut latest = None;
+    for sample in 1..=6_u32 {
+        let mut frame = gray_frame(64, 48, 111);
+        // Each changed sample differs from the reference enough to toggle the
+        // reference mask, but by only two levels from the preceding frame.
+        // The sparse positions model low-level camera/compression flicker.
+        for y in (1..24_u32).step_by(3) {
+            for x in (1..32_u32).step_by(3) {
+                if (x / 3 + y / 3) % 2 == sample % 2 {
+                    let offset = (((y * 2 + 1) * 64 + (x * 2 + 1)) * 3) as usize;
+                    frame[offset..offset + 3].fill(113);
+                }
+            }
+        }
+        latest = Some(
+            monitor
+                .observe_rgb8(
+                    Duration::from_millis(u64::from(sample) * 100),
+                    64,
+                    48,
+                    &frame,
+                )
+                .unwrap(),
+        );
+    }
+
+    let settled = latest.unwrap();
+    assert_eq!(settled.consecutive_changed_fraction, 0.0);
+    assert_eq!(settled.classification, MotionClassification::Quiet);
 }
 
 #[test]

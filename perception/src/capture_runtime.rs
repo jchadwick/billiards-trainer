@@ -799,6 +799,7 @@ impl<D: Rgb8FrameDetector + Send + 'static> LiveCaptureRuntime<D> {
         let motion_check_ran = decision.run_motion;
 
         if decision.run_motion {
+            let mut appearance_conflicts_with_table = false;
             let assessment = self
                 .motion_monitor
                 .as_mut()
@@ -811,7 +812,7 @@ impl<D: Rgb8FrameDetector + Send + 'static> LiveCaptureRuntime<D> {
                 )
                 .context("lightweight motion assessment failed")?;
             self.phase_stats.motion_checks = self.phase_stats.motion_checks.saturating_add(1);
-            let mut evidence = match assessment.classification {
+            let evidence = match assessment.classification {
                 MotionClassification::Quiet => MotionEvidence::Quiet,
                 MotionClassification::Moving => MotionEvidence::Moving,
                 MotionClassification::OccludedOrUncertain => MotionEvidence::OccludedOrUncertain,
@@ -843,22 +844,12 @@ impl<D: Rgb8FrameDetector + Send + 'static> LiveCaptureRuntime<D> {
                     // that the table is absent.
                     visibility.status = TableVisibilityStatus::Unknown;
                 }
-                // An extreme global brightness or color shift means the
-                // appearance reference is inconclusive; it does not prove the
-                // calibrated table is absent. Keep the independent motion,
-                // context, and completed-scan checks authoritative in that
-                // case. Local cloth/rail conflicts and incompatible reference
-                // geometry still invalidate quiet continuity below.
-                let reference_confirms_table_absence = visibility.status
-                    == TableVisibilityStatus::NotVisible
-                    && !matches!(
-                        visibility.reason,
-                        TableVisibilityReason::ExtremeBrightnessShift
-                            | TableVisibilityReason::ExtremeColorShift
-                    );
-                if reference_confirms_table_absence {
-                    evidence = MotionEvidence::OccludedOrUncertain;
-                }
+                // Appearance describes whether a clean scan may replace and
+                // trust the whole-table layout. It is not motion evidence and
+                // must not erase quiet continuity or suppress useful current
+                // ball observations when a stored reference has drifted.
+                appearance_conflicts_with_table =
+                    visibility.status == TableVisibilityStatus::NotVisible;
                 self.latest_visibility = Some((frame.source().frame_id.clone(), visibility));
                 self.latest_visibility_observed_at = Some(now);
             }
@@ -867,6 +858,13 @@ impl<D: Rgb8FrameDetector + Send + 'static> LiveCaptureRuntime<D> {
                 .expect("scheduler was checked above")
                 .observe_motion(now, evidence)
                 .context("phase scheduler rejected motion evidence")?;
+            if appearance_conflicts_with_table {
+                self.phase_scheduler
+                    .as_mut()
+                    .expect("scheduler was checked above")
+                    .mark_layout_untrusted(now, TrustReason::OccludedOrUncertain)
+                    .context("phase scheduler rejected table-appearance evidence")?;
+            }
             if evidence != MotionEvidence::Quiet {
                 self.cue_geometry = None;
                 self.cue_observed_at = None;
@@ -1218,14 +1216,41 @@ impl<D: Rgb8FrameDetector + Send + 'static> LiveCaptureRuntime<D> {
                 )));
             }
         };
+        let appearance_conflicts_with_table = self
+            .latest_visibility
+            .as_ref()
+            .is_some_and(|(_, visibility)| visibility.status == TableVisibilityStatus::NotVisible);
+        let contains_ball_detection = self.pipeline.contains_ball_detection(&inference);
+        if appearance_conflicts_with_table && !contains_ball_detection {
+            // A clean empty result is authoritative only when the table was
+            // positively visible. Keeping this separate from motion evidence
+            // lets stable non-empty observations update remembered centers
+            // without allowing an uncertain view to erase them.
+            self.phase_stats.visibility_rejected_empty_scans = self
+                .phase_stats
+                .visibility_rejected_empty_scans
+                .saturating_add(1);
+            return Ok(Some(CapturePipelineOutcome::Skipped(
+                CaptureSkipReason::UnverifiedEmptyLayout,
+            )));
+        }
         self.cue_proposals =
             cue_proposals_from_inference(&inference, self.cue_config.max_proposals);
-        let outcome = self.pipeline.process_inference_result(
-            &completion.frame,
-            inference,
-            completion.inference_started,
-            completion.inference_completed,
-        );
+        let outcome = if appearance_conflicts_with_table {
+            self.pipeline.process_partial_inference_result(
+                &completion.frame,
+                inference,
+                completion.inference_started,
+                completion.inference_completed,
+            )
+        } else {
+            self.pipeline.process_inference_result(
+                &completion.frame,
+                inference,
+                completion.inference_started,
+                completion.inference_completed,
+            )
+        };
         match outcome {
             Ok(outcome @ CapturePipelineOutcome::Published(_)) => {
                 let CapturePipelineOutcome::Published(result) = &outcome else {
@@ -1241,11 +1266,13 @@ impl<D: Rgb8FrameDetector + Send + 'static> LiveCaptureRuntime<D> {
                     })
                     .collect();
                 let was_trusted = evidence.map_trusted;
-                self.phase_scheduler
-                    .as_mut()
-                    .expect("scheduler was checked above")
-                    .observe_layout_at(now, capture_at, LayoutObservation::Success(positions))
-                    .context("phase scheduler rejected successful layout")?;
+                if !appearance_conflicts_with_table {
+                    self.phase_scheduler
+                        .as_mut()
+                        .expect("scheduler was checked above")
+                        .observe_layout_at(now, capture_at, LayoutObservation::Success(positions))
+                        .context("phase scheduler rejected successful layout")?;
+                }
                 if !was_trusted
                     && self
                         .phase_scheduler
@@ -1604,6 +1631,7 @@ pub struct PhaseRuntimeStats {
     pub intentional_skips: u64,
     pub overload_skips: u64,
     pub obsolete_results: u64,
+    pub visibility_rejected_empty_scans: u64,
     pub trusted_layout_duration_ms: u64,
     pub last_recovery_delay_ms: Option<u64>,
 }

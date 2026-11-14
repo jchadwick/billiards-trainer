@@ -380,6 +380,27 @@ impl PhaseScheduler {
         Ok(())
     }
 
+    /// Mark the whole-table layout stale without pretending the camera saw
+    /// motion. Appearance evidence can invalidate an accepted layout while
+    /// current whole-table motion still provides useful scan cadence and
+    /// quiet-dwell information.
+    pub fn mark_layout_untrusted(
+        &mut self,
+        now: Duration,
+        reason: TrustReason,
+    ) -> Result<(), SchedulerError> {
+        self.check_time(now)?;
+        // A visibility transition after a trusted layout invalidates work that
+        // began under the old view, while leaving uninterrupted quiet motion
+        // evidence and its dwell intact for subsequent detections.
+        if self.trusted {
+            self.bump_motion_generation()?;
+        }
+        self.invalidate_layout(reason);
+        self.refresh_phase(now);
+        Ok(())
+    }
+
     pub fn observe_cue(
         &mut self,
         now: Duration,
@@ -766,6 +787,22 @@ mod tests {
             .unwrap();
         s.observe_layout(ms(810), layout(10.0)).unwrap();
         assert!(s.map_trusted());
+    }
+
+    #[test]
+    fn visibility_conflict_stales_layout_without_erasing_quiet_motion_dwell() {
+        let mut s = scheduler();
+        settle(&mut s, 0);
+        let before = s.evidence(ms(900)).unwrap();
+        assert!(before.map_trusted);
+        s.mark_layout_untrusted(ms(900), TrustReason::OccludedOrUncertain)
+            .unwrap();
+
+        let after = s.evidence(ms(900)).unwrap();
+        assert!(!after.map_trusted);
+        assert_eq!(after.motion, Some(MotionEvidence::Quiet));
+        assert_eq!(after.motion_generation, before.motion_generation + 1);
+        assert!(s.clean_layout_capture_is_current(ms(850), ms(900)));
     }
 
     #[test]
