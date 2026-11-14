@@ -2,8 +2,11 @@
 //!
 //! The reference retains only a bounded set of RGB8 samples from the playing
 //! surface and rail profiles. It never retains or needs to copy a full frame.
-//! Callers must treat every result except [`TableVisibilityStatus::Visible`]
-//! as ineligible for guidance.
+//! This is appearance evidence, not a second motion or layout authority. A
+//! strong local rail/cloth mismatch can prove the calibrated table is absent;
+//! an extreme global exposure/color shift is inconclusive and must be combined
+//! with the live motion and completed-scan evidence before deciding whether a
+//! layout is usable.
 
 use std::fmt;
 
@@ -620,6 +623,17 @@ pub fn assess_table_visibility(
         live_rail_contrast_profile_fraction: None,
     };
 
+    // Structural loss is independent of a global RGB offset. Evaluate it
+    // before an inconclusive exposure result so a covered/blank table cannot
+    // acquire trust merely because its pixels are also much brighter/darker.
+    let live_rail_contrast = rail_contrast_fraction(&live_rails, reference.feature_layout, config);
+    assessment.live_rail_contrast_profile_fraction = Some(live_rail_contrast);
+    if live_rail_contrast < config.minimum_live_rail_contrast_fraction {
+        assessment.status = TableVisibilityStatus::NotVisible;
+        assessment.reason = TableVisibilityReason::LostRailContrast;
+        return Ok(assessment);
+    }
+
     if luminance_shift.unsigned_abs() > u16::from(config.maximum_global_luminance_shift) {
         assessment.status = TableVisibilityStatus::NotVisible;
         assessment.reason = TableVisibilityReason::ExtremeBrightnessShift;
@@ -650,15 +664,9 @@ pub fn assess_table_visibility(
         channel_shift,
         config.maximum_rail_channel_difference,
     );
-    let live_rail_contrast = rail_contrast_fraction(&live_rails, reference.feature_layout, config);
     assessment.cloth_changed_fraction = Some(cloth_changed);
     assessment.rail_changed_fraction = Some(rail_changed);
-    assessment.live_rail_contrast_profile_fraction = Some(live_rail_contrast);
-
-    if live_rail_contrast < config.minimum_live_rail_contrast_fraction {
-        assessment.status = TableVisibilityStatus::NotVisible;
-        assessment.reason = TableVisibilityReason::LostRailContrast;
-    } else if cloth_changed > config.maximum_changed_cloth_fraction {
+    if cloth_changed > config.maximum_changed_cloth_fraction {
         assessment.status = TableVisibilityStatus::NotVisible;
         assessment.reason = TableVisibilityReason::ClothMismatch;
     } else if rail_changed > config.maximum_changed_rail_fraction {

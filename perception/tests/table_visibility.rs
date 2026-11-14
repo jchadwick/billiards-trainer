@@ -134,6 +134,33 @@ fn dark_or_covered_scene_fails_closed() {
 }
 
 #[test]
+fn extreme_exposure_does_not_hide_lost_rail_structure() {
+    let config = TableVisibilityConfig::default();
+    let (source, reference) = reference(&config);
+    let shifted: Vec<u8> = source
+        .iter()
+        .map(|value| value.saturating_add(100))
+        .collect();
+    let legible = assess(&reference, &shifted, &config);
+    assert_eq!(
+        legible.reason,
+        TableVisibilityReason::ExtremeBrightnessShift
+    );
+    assert!(
+        legible.live_rail_contrast_profile_fraction.unwrap()
+            >= config.minimum_live_rail_contrast_fraction
+    );
+
+    let covered = vec![200; source.len()];
+    let missing_structure = assess(&reference, &covered, &config);
+    assert_eq!(missing_structure.status, TableVisibilityStatus::NotVisible);
+    assert_eq!(
+        missing_structure.reason,
+        TableVisibilityReason::LostRailContrast
+    );
+}
+
+#[test]
 fn low_quality_reference_reports_dark_surface_and_missing_rail_contrast() {
     let config = TableVisibilityConfig::default();
     let dark = vec![8; WIDTH as usize * HEIGHT as usize * 3];

@@ -29,6 +29,10 @@ use billiards_perception::detection_batch::{
 use billiards_perception::framing::{read_framed_message, write_framed_message};
 use billiards_perception::inference::{Detection, FrameInferenceOutput, FrameInferenceTimings};
 use billiards_perception::phase_scheduler::{PhaseCadence, SchedulerConfig};
+use billiards_perception::table_visibility::{
+    derive_reference_from_confirmed_frame, NormalizedPoint, OperatorConfirmedFrame,
+    Rgb8Frame as VisibilityFrame, TableRegion, TableVisibilityConfig,
+};
 use billiards_perception::tracking::TrackingConfigV1;
 use billiards_perception::SceneTransportConfig;
 use serde_json::{json, Value};
@@ -44,6 +48,7 @@ struct TestDetector {
     first_call_release: Option<mpsc::Receiver<()>>,
     blocked_call_release: Option<(usize, mpsc::Receiver<()>)>,
     shifting_cue_detection: bool,
+    empty_on_uniform_frame: bool,
 }
 
 impl Rgb8FrameDetector for TestDetector {
@@ -88,6 +93,9 @@ impl Rgb8FrameDetector for TestDetector {
                 center_xy_px: [cue_center_x, 7.0],
             });
         }
+        if self.empty_on_uniform_frame && pixels.iter().all(|value| *value == 127) {
+            detections.clear();
+        }
         Ok(FrameInferenceOutput {
             source_width_px: width_px,
             source_height_px: height_px,
@@ -127,6 +135,7 @@ struct TestFactory {
     frame_count: usize,
     frame_interval: Duration,
     motion_on_frame: Option<usize>,
+    frame_pixels: Option<fn(usize) -> Vec<u8>>,
 }
 
 impl CaptureSourceFactory for TestFactory {
@@ -144,6 +153,7 @@ impl CaptureSourceFactory for TestFactory {
             frame_count: self.frame_count,
             frame_interval: self.frame_interval,
             motion_on_frame: self.motion_on_frame,
+            frame_pixels: self.frame_pixels,
         }))
     }
 }
@@ -156,6 +166,7 @@ struct TestSource {
     frame_count: usize,
     frame_interval: Duration,
     motion_on_frame: Option<usize>,
+    frame_pixels: Option<fn(usize) -> Vec<u8>>,
 }
 
 impl CaptureSource for TestSource {
@@ -189,7 +200,13 @@ impl CaptureSource for TestSource {
         let mut pixels = frame_budget
             .allocate_rgb8_buffer(width_px, height_px, frame_limit)
             .map_err(|error| error.to_string())?;
-        pixels.as_mut_slice().fill(127);
+        if let Some(render) = self.frame_pixels {
+            let rendered = render(self.emitted);
+            assert_eq!(rendered.len(), pixels.as_mut_slice().len());
+            pixels.as_mut_slice().copy_from_slice(&rendered);
+        } else {
+            pixels.as_mut_slice().fill(127);
+        }
         if self
             .motion_on_frame
             .is_some_and(|frame| self.emitted >= frame)
@@ -247,6 +264,7 @@ impl CaptureSourceFactory for BlockingOpenFactory {
             frame_count: 0,
             frame_interval: Duration::ZERO,
             motion_on_frame: None,
+            frame_pixels: None,
         }))
     }
 }
@@ -311,6 +329,7 @@ fn model_and_calls() -> (TestDetector, Arc<AtomicUsize>) {
         first_call_release: None,
         blocked_call_release: None,
         shifting_cue_detection: false,
+        empty_on_uniform_frame: false,
     };
     (detector, calls)
 }
@@ -452,6 +471,7 @@ fn runtime_with_session_id(
         frame_count,
         frame_interval: Duration::ZERO,
         motion_on_frame: None,
+        frame_pixels: None,
     };
     let track_settings = tracking(
         settings.expected.camera_profile_id(),
@@ -625,6 +645,7 @@ fn phase_runtime(
             frame_count,
             frame_interval,
             motion_on_frame: None,
+            frame_pixels: None,
         },
     )
     .unwrap()
@@ -690,6 +711,173 @@ fn cue_detections_do_not_block_a_clean_scan_with_legacy_consensus_settings() {
         billiards_perception::capture::CaptureRuntimeWait::Completed(_)
     ));
     receiver.join().unwrap();
+}
+
+#[test]
+fn exposure_shifted_visibility_reference_does_not_block_live_scan_publication() {
+    check_exposure_shift_publication(false);
+}
+
+#[test]
+fn covered_table_with_extreme_shift_cannot_trust_an_empty_scan_or_clear_prior_balls() {
+    check_exposure_shift_publication(true);
+}
+
+fn exposure_table_pixels(_frame: usize) -> Vec<u8> {
+    let mut pixels = vec![0; SMALL_FRAME_BYTES];
+    for y in 2..14 {
+        for x in 2..14 {
+            pixels[(y * 16 + x) * 3..(y * 16 + x) * 3 + 3].copy_from_slice(&[80, 120, 80]);
+        }
+    }
+    pixels
+}
+
+fn covered_after_acquisition(frame: usize) -> Vec<u8> {
+    if frame >= 8 {
+        vec![127; SMALL_FRAME_BYTES]
+    } else {
+        exposure_table_pixels(frame)
+    }
+}
+
+fn check_exposure_shift_publication(covered: bool) {
+    let _guard = TEST_LOCK.lock().unwrap();
+    let request = request_json();
+    let listener = TcpListener::bind(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0)).unwrap();
+    let address = listener.local_addr().unwrap();
+    let (sender, delivered) = mpsc::channel();
+    let receiver = thread::spawn(move || acknowledge_and_collect_live_session(listener, sender));
+    let settings = parse_capture_settings_json(&request).unwrap();
+    let visibility_config = TableVisibilityConfig::default();
+    // Preserve real rail structure while shifting every reference channel by
+    // 120, reproducing changed illumination without making a blank scene valid.
+    let source = exposure_table_pixels(0);
+    let bright_reference: Vec<u8> = source.iter().map(|value| value + 120).collect();
+    let derived = derive_reference_from_confirmed_frame(
+        OperatorConfirmedFrame::new(
+            VisibilityFrame {
+                width: 16,
+                height: 16,
+                pixels: &bright_reference,
+            },
+            TableRegion::new([
+                NormalizedPoint { x: 0.1, y: 0.1 },
+                NormalizedPoint { x: 0.9, y: 0.1 },
+                NormalizedPoint { x: 0.9, y: 0.9 },
+                NormalizedPoint { x: 0.1, y: 0.9 },
+            ]),
+        ),
+        &visibility_config,
+    )
+    .unwrap();
+    assert!(derived.validity.valid, "{:?}", derived.validity.reasons);
+    let reference = derived.reference.unwrap();
+    let (mut detector, calls) = model_and_calls();
+    detector.empty_on_uniform_frame = covered;
+    let mut config = pipeline_config(
+        address,
+        settings.configuration_revision,
+        settings.expected.maximum_frame_age(),
+    );
+    config.phase_schedule = Some(phase_test_schedule(10.0, 20.0, Duration::from_millis(1), 2));
+    config.scene_transport.public_state_delivery_enabled = true;
+    let interrupted = Arc::new(AtomicBool::new(false));
+    let mut runtime = LiveCaptureRuntime::start_with_session_id_audit_and_visibility(
+        &request,
+        "exposure-shift-live-session",
+        detector,
+        tracking(
+            settings.expected.camera_profile_id(),
+            settings.expected.rectification_revision(),
+        ),
+        config,
+        None,
+        visibility_config,
+        Some(reference),
+        TestFactory {
+            metadata: metadata(&settings.expected),
+            interrupted,
+            releases: Arc::new(AtomicUsize::new(0)),
+            opens: Arc::new(AtomicUsize::new(0)),
+            frame_count: 16,
+            frame_interval: Duration::from_millis(60),
+            motion_on_frame: None,
+            frame_pixels: Some(if covered {
+                covered_after_acquisition
+            } else {
+                exposure_table_pixels
+            }),
+        },
+    )
+    .unwrap();
+    let session_id = runtime.session_id().to_owned();
+    assert_eq!(
+        runtime.wait_until_ready(Duration::from_secs(2)),
+        &LiveCaptureLifecycle::Ready { session_id }
+    );
+
+    for _ in 0..16 {
+        match runtime.receive_one(Duration::from_secs(2)).unwrap() {
+            CaptureReceiveOutcome::Frame(Ok(_)) => {}
+            CaptureReceiveOutcome::TimedOut => {
+                panic!("scripted source did not emit its next frame")
+            }
+            CaptureReceiveOutcome::Closed => break,
+            other => panic!("unexpected live receive result: {other:?}"),
+        }
+        if !covered
+            && runtime
+                .scheduler_evidence()
+                .unwrap()
+                .is_some_and(|evidence| evidence.map_trusted)
+        {
+            break;
+        }
+    }
+    wait_for_detector_calls(&calls, 1);
+    assert_eq!(
+        runtime.scheduler_evidence().unwrap().unwrap().map_trusted,
+        !covered
+    );
+    assert!(matches!(
+        runtime.stop(Duration::from_secs(2)),
+        billiards_perception::capture::CaptureRuntimeWait::Completed(_)
+    ));
+    receiver.join().unwrap();
+    let deliveries = delivered.try_iter().collect::<Vec<_>>();
+    assert!(
+        deliveries.iter().any(|delivery| {
+            delivery["perception"]["layout_trusted"] == true
+                && delivery["current_state"]["payload"]["balls"]
+                    .as_array()
+                    .is_some_and(|balls| !balls.is_empty())
+        }),
+        "a trusted detected-ball state must be published over the live transport: {deliveries:?}"
+    );
+    assert!(deliveries.iter().any(|delivery| {
+        delivery["perception"]["table_visibility"]["status"] == "unknown"
+            && delivery["perception"]["table_visibility"]["reason"] == "extreme_brightness_shift"
+    }));
+    if covered {
+        let blocked: Vec<_> = deliveries
+            .iter()
+            .filter(|delivery| {
+                delivery["perception"]["table_visibility"]["reason"] == "lost_rail_contrast"
+            })
+            .collect();
+        assert!(!blocked.is_empty());
+        assert!(
+            blocked.iter().all(|delivery| {
+                delivery["perception"]["layout_trusted"] == false
+                    && delivery["perception"]["empty_layout_verified"] != true
+                    && delivery["current_state"]["payload"]["balls"]
+                        .as_array()
+                        .is_some_and(|balls| !balls.is_empty())
+            }),
+            "covered table must retain stale balls, never a trusted empty replacement"
+        );
+    }
 }
 
 #[test]
@@ -879,6 +1067,7 @@ fn motion_during_blocked_scan_rejects_late_result_and_quiet_does_not_retrust() {
             frame_count: 20,
             frame_interval: Duration::from_millis(100),
             motion_on_frame: Some(4),
+            frame_pixels: None,
         },
     )
     .unwrap();
@@ -1061,6 +1250,7 @@ fn invalid_supervisor_session_identity_is_rejected_before_source_open() {
             frame_count: 1,
             frame_interval: Duration::ZERO,
             motion_on_frame: None,
+            frame_pixels: None,
         },
     );
 
@@ -1253,6 +1443,7 @@ fn duplicate_pipeline_configuration_is_rejected_before_factory_open() {
             frame_count: 1,
             frame_interval: Duration::ZERO,
             motion_on_frame: None,
+            frame_pixels: None,
         },
     );
     assert!(result.is_err());

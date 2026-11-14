@@ -823,7 +823,7 @@ impl<D: Rgb8FrameDetector + Send + 'static> LiveCaptureRuntime<D> {
                 self.table_visibility_config.as_ref(),
                 self.table_visibility_reference.as_ref(),
             ) {
-                let visibility = assess_table_visibility(
+                let mut visibility = assess_table_visibility(
                     Some(reference),
                     Some(VisibilityRgb8Frame {
                         width: frame.source().width_px,
@@ -833,7 +833,30 @@ impl<D: Rgb8FrameDetector + Send + 'static> LiveCaptureRuntime<D> {
                     config,
                 )
                 .context("calibrated-table visibility assessment failed")?;
-                if visibility.status != TableVisibilityStatus::Visible {
+                if matches!(
+                    visibility.reason,
+                    TableVisibilityReason::ExtremeBrightnessShift
+                        | TableVisibilityReason::ExtremeColorShift
+                ) {
+                    // The frame is available, but an illumination mismatch
+                    // makes this reference inconclusive rather than proving
+                    // that the table is absent.
+                    visibility.status = TableVisibilityStatus::Unknown;
+                }
+                // An extreme global brightness or color shift means the
+                // appearance reference is inconclusive; it does not prove the
+                // calibrated table is absent. Keep the independent motion,
+                // context, and completed-scan checks authoritative in that
+                // case. Local cloth/rail conflicts and incompatible reference
+                // geometry still invalidate quiet continuity below.
+                let reference_confirms_table_absence = visibility.status
+                    == TableVisibilityStatus::NotVisible
+                    && !matches!(
+                        visibility.reason,
+                        TableVisibilityReason::ExtremeBrightnessShift
+                            | TableVisibilityReason::ExtremeColorShift
+                    );
+                if reference_confirms_table_absence {
                     evidence = MotionEvidence::OccludedOrUncertain;
                 }
                 self.latest_visibility = Some((frame.source().frame_id.clone(), visibility));
