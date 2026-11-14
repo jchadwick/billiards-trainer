@@ -56,6 +56,10 @@ export interface BallData {
   radius: number;
   radius_scale?: [number, number];
   radius_extent?: PositionWithScale;
+  /** Physical center in millimeters from the playing-surface center. */
+  table_position?: { x: number; y: number } | null;
+  /** Fixed physical radius used for table-plane coaching, when available. */
+  table_radius_mm?: number | null;
 }
 
 export interface CueData {
@@ -99,6 +103,7 @@ export interface PerceptionState {
   motion_evidence_max_age_ms: number;
   cue_evidence_max_age_ms: number;
   layout_verification_max_age_ms: number;
+  table_projection?: TableProjection | null;
   cue?: {
     shaft_start_px: [number, number];
     shaft_end_px: [number, number];
@@ -120,6 +125,23 @@ export interface PerceptionState {
   } | null;
 }
 
+export interface TableProjection {
+  direction: 'source_image_px_to_table_mm';
+  image_space: 'raw' | 'rectified';
+  source_width_px: number;
+  source_height_px: number;
+  camera_profile_id: string;
+  calibration_revision: number;
+  rectification_revision: number;
+  table_width_mm: number;
+  table_height_mm: number;
+  unit: 'millimeters';
+  origin: 'playing_surface_center';
+  x_axis: 'corner_0_to_1';
+  y_axis: 'corner_0_to_3';
+  pixel_to_table_mm: [[number, number, number], [number, number, number], [number, number, number]];
+}
+
 export interface ObservationStatus {
   observation_identity?: ObservationIdentity;
   engine_instance_id?: string;
@@ -137,6 +159,8 @@ export interface ObservationStatus {
   ball_detection_status?: 'observed' | 'degraded' | 'skipped' | 'failed';
   position_retention?: PositionRetentionStatus;
   perception?: PerceptionState;
+  table_projection?: TableProjection | null;
+  table_calibration_revision?: number | null;
   [key: string]: unknown;
 }
 

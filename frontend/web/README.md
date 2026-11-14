@@ -51,5 +51,22 @@ travel, then stable target/pocket identity. `suggestDirectPots` accepts alternat
 ranking priorities and a maximum cut angle. This estimates a direct pot only; it
 does not model spin, banks, combinations, or full post-contact physics. The route
 does not consume live camera or producer state, so simulated balls are never
-presented as detections. The same pure API is intended for later use with trusted
-live table-plane inputs.
+presented as detections. Live coaching reuses the same pure geometry with the
+producer's current trusted table-plane layout.
+
+## Live coaching
+
+Live coaching reuses the pure `suggestDirectPots` geometry from `/practice`.
+Choose the cue ball, target, and pocket on `/live`, or leave target and pocket
+on automatic suggestion. Advice requires a current trusted whole-table layout
+and compatible producer table projection. Positions use the producer's
+center-origin millimeters and are shifted to the sandbox's positive-origin
+coordinates for coaching; paths are projected back through the inverse of the
+same source-pixel-to-table homography. The desired ghost-ball cue path and
+object path are shown separately from an ephemeral current cue line. If cue
+direction is signed, a cyan current-aim travel estimate is shown; otherwise the
+interface reports that direction as unknown. Stale ball centers remain visible
+as possible blockers and never support an advice corridor. Missing compatible
+projection disables live aiming but leaves usable image-coordinate centers
+visible. A verified clean empty scan and an unscanned table have separate
+messages.

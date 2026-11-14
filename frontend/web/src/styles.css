@@ -372,3 +372,13 @@ button {
 .practice-no-shot { border-color: #876b45; }
 @media (max-width: 900px) { .practice-grid { grid-template-columns: 1fr; } .practice-table { max-height: none; } }
 @media (max-width: 600px) { .practice-page { padding: 20px 14px 36px; } .practice-heading { display: block; } .practice-simulation-badge { display: inline-block; margin-top: 14px; } .practice-dimensions > div { grid-template-columns: 1fr; } }
+
+/* Put the live coach controls before the video so aiming does not hide in diagnostics. */
+.live-coach-controls { padding: 16px 20px; background: #151a1d; color: #e9edf0; }
+.live-coach-controls > p:first-child { margin-bottom: 12px; color: #d5dadd; font-size: .9rem; line-height: 1.45; }
+.live-coach-controls .practice-coordinate-entry { gap: 12px; margin-bottom: 8px; }
+.live-coach-controls label { min-width: 150px; color: #a8b0b5; font-size: .76rem; font-weight: 650; }
+.live-coach-controls select { min-width: 155px; border: 1px solid #3a4349; border-radius: 6px; padding: 8px; background: #101315; color: #e9edf0; }
+.live-coach-controls .live-suggestion { display: block; margin: 10px 0; border-left: 3px solid #a3e635; padding: 8px 12px; background: #202a21; color: #eaffd1; font-weight: 650; }
+.live-coach-controls .live-ball-summary { margin-top: 8px; color: #a8b0b5; font-size: .8rem; }
+.live-view > .live-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; }

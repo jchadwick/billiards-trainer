@@ -35,10 +35,11 @@ export class ApiClient {
     return { success: false, error: message, timestamp: new Date().toISOString() };
   }
 
-  async getConfiguration(): Promise<ApiResponse<ConfigResponse>> {
+  async getConfiguration(signal?: AbortSignal): Promise<ApiResponse<ConfigResponse>> {
     try {
       const response = await axiosClient.get<ConfigResponse>('/api/v1/config', {
         params: { include_metadata: 'true' },
+        signal,
       });
       return this.handleResponse(response);
     } catch (error) {

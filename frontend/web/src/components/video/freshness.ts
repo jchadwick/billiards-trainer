@@ -35,6 +35,23 @@ export function currentObservationAgeSeconds(
   return Math.max(reportedAgeSeconds, ageAtReceipt + elapsedSeconds);
 }
 
+/** Advance one independently identified evidence age without rejuvenating repeats. */
+export function advanceEvidenceAgeMs(
+  reportedAgeMs: unknown,
+  ageAtLastUniqueEvidenceMs: number | null,
+  receivedAtMonotonicMs: number,
+  nowMonotonicMs: number,
+): number | null {
+  if (
+    typeof reportedAgeMs !== "number"
+    || !Number.isFinite(reportedAgeMs)
+    || reportedAgeMs < 0
+  ) return null;
+  const ageAtReceipt = ageAtLastUniqueEvidenceMs ?? reportedAgeMs;
+  const elapsedMs = Math.max(0, nowMonotonicMs - receivedAtMonotonicMs);
+  return Math.max(reportedAgeMs, ageAtReceipt + elapsedMs);
+}
+
 export function observationIsStale(
   ageSeconds: number | null,
   maximumAgeSeconds: number,

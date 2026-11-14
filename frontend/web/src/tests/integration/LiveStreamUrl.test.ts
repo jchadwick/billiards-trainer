@@ -16,3 +16,11 @@ describe('direct browser camera stream URL', () => {
     expect(getConfiguredLiveStreamUrl('')).toBeUndefined();
   });
 });
+
+it('rejects application API URLs and never supplies a gateway fallback', () => {
+  const apiOrigin = 'http://localhost:8000';
+  expect(getConfiguredLiveStreamUrl(null, apiOrigin)).toBeUndefined();
+  expect(getConfiguredLiveStreamUrl(apiOrigin + '/camera.mjpg', apiOrigin)).toBeUndefined();
+  expect(getConfiguredLiveStreamUrl('http://camera.local/stream', apiOrigin))
+    .toBe('http://camera.local/stream');
+});
