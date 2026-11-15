@@ -1,0 +1,797 @@
+{
+  "start_epoch": 1794700901.0122004,
+  "end_epoch": 1794700931.2860968,
+  "duration_seconds": 30.3,
+  "http_samples": [
+    {
+      "t": 1794700901.066,
+      "state_http": 200,
+      "frame_number": null,
+      "ball_count": 0,
+      "layout_trusted": null,
+      "state_status": null,
+      "readiness_http": 503,
+      "readiness_status": "not_ready",
+      "localization_available": false
+    },
+    {
+      "t": 1794700903.081,
+      "state_http": 200,
+      "frame_number": null,
+      "ball_count": 0,
+      "layout_trusted": null,
+      "state_status": null,
+      "readiness_http": 503,
+      "readiness_status": "not_ready",
+      "localization_available": false
+    },
+    {
+      "t": 1794700905.096,
+      "state_http": 200,
+      "frame_number": null,
+      "ball_count": 0,
+      "layout_trusted": null,
+      "state_status": null,
+      "readiness_http": 503,
+      "readiness_status": "not_ready",
+      "localization_available": false
+    },
+    {
+      "t": 1794700907.114,
+      "state_http": 200,
+      "frame_number": null,
+      "ball_count": 0,
+      "layout_trusted": null,
+      "state_status": null,
+      "readiness_http": 503,
+      "readiness_status": "not_ready",
+      "localization_available": false
+    },
+    {
+      "t": 1794700909.129,
+      "state_http": 200,
+      "frame_number": null,
+      "ball_count": 0,
+      "layout_trusted": null,
+      "state_status": null,
+      "readiness_http": 503,
+      "readiness_status": "not_ready",
+      "localization_available": false
+    },
+    {
+      "t": 1794700911.145,
+      "state_http": 200,
+      "frame_number": null,
+      "ball_count": 0,
+      "layout_trusted": null,
+      "state_status": null,
+      "readiness_http": 503,
+      "readiness_status": "not_ready",
+      "localization_available": false
+    },
+    {
+      "t": 1794700913.16,
+      "state_http": 200,
+      "frame_number": null,
+      "ball_count": 0,
+      "layout_trusted": null,
+      "state_status": null,
+      "readiness_http": 503,
+      "readiness_status": "not_ready",
+      "localization_available": false
+    },
+    {
+      "t": 1794700915.175,
+      "state_http": 200,
+      "frame_number": null,
+      "ball_count": 0,
+      "layout_trusted": null,
+      "state_status": null,
+      "readiness_http": 503,
+      "readiness_status": "not_ready",
+      "localization_available": false
+    },
+    {
+      "t": 1794700917.191,
+      "state_http": 200,
+      "frame_number": null,
+      "ball_count": 0,
+      "layout_trusted": null,
+      "state_status": null,
+      "readiness_http": 503,
+      "readiness_status": "not_ready",
+      "localization_available": false
+    },
+    {
+      "t": 1794700919.206,
+      "state_http": 200,
+      "frame_number": null,
+      "ball_count": 0,
+      "layout_trusted": null,
+      "state_status": null,
+      "readiness_http": 503,
+      "readiness_status": "not_ready",
+      "localization_available": false
+    },
+    {
+      "t": 1794700921.223,
+      "state_http": 200,
+      "frame_number": null,
+      "ball_count": 0,
+      "layout_trusted": null,
+      "state_status": null,
+      "readiness_http": 503,
+      "readiness_status": "not_ready",
+      "localization_available": false
+    },
+    {
+      "t": 1794700923.238,
+      "state_http": 200,
+      "frame_number": null,
+      "ball_count": 0,
+      "layout_trusted": null,
+      "state_status": null,
+      "readiness_http": 503,
+      "readiness_status": "not_ready",
+      "localization_available": false
+    },
+    {
+      "t": 1794700925.255,
+      "state_http": 200,
+      "frame_number": null,
+      "ball_count": 0,
+      "layout_trusted": null,
+      "state_status": null,
+      "readiness_http": 503,
+      "readiness_status": "not_ready",
+      "localization_available": false
+    },
+    {
+      "t": 1794700927.269,
+      "state_http": 200,
+      "frame_number": null,
+      "ball_count": 0,
+      "layout_trusted": null,
+      "state_status": null,
+      "readiness_http": 503,
+      "readiness_status": "not_ready",
+      "localization_available": false
+    },
+    {
+      "t": 1794700929.285,
+      "state_http": 200,
+      "frame_number": null,
+      "ball_count": 0,
+      "layout_trusted": null,
+      "state_status": null,
+      "readiness_http": 503,
+      "readiness_status": "not_ready",
+      "localization_available": false
+    }
+  ],
+  "websockets": {
+    "/api/v1/websocket/ws": {
+      "connected": true,
+      "messages": 564,
+      "parse_errors": 0,
+      "types": {
+        "state": 564
+      },
+      "examples": [
+        {
+          "data": {
+            "ball_count": 0,
+            "balls": [],
+            "cue": null,
+            "frame_number": null,
+            "game_type": null,
+            "observation_status": {
+              "ball_detection_status": "stale",
+              "ball_positions_status": "unavailable",
+              "engine_instance_id": "6f55a6be-c800-4f4e-8559-a4599a19b688",
+              "freshness_status": "stale",
+              "localization_age_ns": null,
+              "perception": {
+                "cue": null,
+                "cue_evidence_age_ms": 58,
+                "cue_evidence_max_age_ms": 250,
+                "decision_calibration_revision": 2,
+                "decision_frame_id": "832",
+                "decision_rectification_revision": 0,
+                "delivery_age_ms": 0,
+                "empty_layout_verified": false,
+                "event_sequence": 806,
+                "guidance_valid": false,
+                "image_height_px": 720,
+                "image_width_px": 1280,
+                "last_ball_observation_age_ms": null,
+                "latest_motion_check_age_ms": 1,
+                "layout_revision": 0,
+                "layout_trusted": false,
+                "layout_verification_max_age_ms": 10000,
+                "motion_evidence_max_age_ms": 3000,
+                "phase": "recovering",
+                "table_projection": {
+                  "calibration_revision": 2,
+                  "camera_profile_id": "camera-profile-v3:839269d668bf75df346ef9b01264df44b31d2ac3a798e4f7015932c2a697b035",
+                  "direction": "source_image_px_to_table_mm",
+                  "image_space": "raw",
+                  "origin": "playing_surface_center",
+                  "pixel_to_table_mm": [
+                    [
+                      1.9721200638880736,
+                      -0.010780105665535082,
+                      -1251.5763078778436
+                    ],
+                    [
+                      -0.00020282476368511116,
+                      1.9783042238781485,
+                      -719.5592431507973
+                    ],
+                    [
+                      3.565038796357144e-05,
+                      -1.821014220050126e-05,
+                      0.9834947437099261
+                    ]
+                  ],
+                  "rectification_revision": 0,
+                  "source_height_px": 720,
+                  "source_width_px": 1280,
+                  "table_height_mm": 1117.6,
+                  "table_width_mm": 2235.2,
+                  "unit": "millimeters",
+                  "x_axis": "corner_0_to_1",
+                  "y_axis": "corner_0_to_3"
+                },
+                "table_visibility": {
+                  "observation_age_ms": 1,
+                  "observation_frame_id": "832",
+                  "reason": "lost_rail_contrast",
+                  "status": "not_visible"
+                },
+                "trust_reason": "layout_verification_expired"
+              },
+              "phase": "rust_perception",
+              "source_session_id": "671bb4ec-cbb3-4639-8abd-cf465001a813"
+            },
+            "sequence": 799,
+            "table": null,
+            "timestamp": "2026-11-15T00:01:41.015Z"
+          },
+          "sequence": 799,
+          "timestamp": "2026-11-15T00:01:41.015Z",
+          "type": "state"
+        },
+        {
+          "data": {
+            "ball_count": 0,
+            "balls": [],
+            "cue": null,
+            "frame_number": null,
+            "game_type": null,
+            "observation_status": {
+              "ball_detection_status": "stale",
+              "ball_positions_status": "unavailable",
+              "engine_instance_id": "6f55a6be-c800-4f4e-8559-a4599a19b688",
+              "freshness_status": "stale",
+              "localization_age_ns": null,
+              "perception": {
+                "cue": null,
+                "cue_evidence_age_ms": 151,
+                "cue_evidence_max_age_ms": 250,
+                "decision_calibration_revision": 2,
+                "decision_frame_id": "834",
+                "decision_rectification_revision": 0,
+                "delivery_age_ms": 0,
+                "empty_layout_verified": false,
+                "event_sequence": 807,
+                "guidance_valid": false,
+                "image_height_px": 720,
+                "image_width_px": 1280,
+                "last_ball_observation_age_ms": null,
+                "latest_motion_check_age_ms": 1,
+                "layout_revision": 0,
+                "layout_trusted": false,
+                "layout_verification_max_age_ms": 10000,
+                "motion_evidence_max_age_ms": 3000,
+                "phase": "recovering",
+                "table_projection": {
+                  "calibration_revision": 2,
+                  "camera_profile_id": "camera-profile-v3:839269d668bf75df346ef9b01264df44b31d2ac3a798e4f7015932c2a697b035",
+                  "direction": "source_image_px_to_table_mm",
+                  "image_space": "raw",
+                  "origin": "playing_surface_center",
+                  "pixel_to_table_mm": [
+                    [
+                      1.9721200638880736,
+                      -0.010780105665535082,
+                      -1251.5763078778436
+                    ],
+                    [
+                      -0.00020282476368511116,
+                      1.9783042238781485,
+                      -719.5592431507973
+                    ],
+                    [
+                      3.565038796357144e-05,
+                      -1.821014220050126e-05,
+                      0.9834947437099261
+                    ]
+                  ],
+                  "rectification_revision": 0,
+                  "source_height_px": 720,
+                  "source_width_px": 1280,
+                  "table_height_mm": 1117.6,
+                  "table_width_mm": 2235.2,
+                  "unit": "millimeters",
+                  "x_axis": "corner_0_to_1",
+                  "y_axis": "corner_0_to_3"
+                },
+                "table_visibility": {
+                  "observation_age_ms": 1,
+                  "observation_frame_id": "834",
+                  "reason": "lost_rail_contrast",
+                  "status": "not_visible"
+                },
+                "trust_reason": "layout_verification_expired"
+              },
+              "phase": "rust_perception",
+              "source_session_id": "671bb4ec-cbb3-4639-8abd-cf465001a813"
+            },
+            "sequence": 800,
+            "table": null,
+            "timestamp": "2026-11-15T00:01:41.108Z"
+          },
+          "sequence": 800,
+          "timestamp": "2026-11-15T00:01:41.108Z",
+          "type": "state"
+        }
+      ],
+      "progress": {
+        "sequence": {
+          "first": 799,
+          "last": 1365,
+          "unique": 564
+        }
+      }
+    },
+    "/api/v1/diagnostics/ws": {
+      "connected": true,
+      "messages": 1859,
+      "parse_errors": 0,
+      "types": {
+        "?": 1859
+      },
+      "examples": [
+        {
+          "schema_version": 1,
+          "gateway": {
+            "instance_id": "f7d43feb-ee58-496c-939c-26617d256028",
+            "revision": 2841,
+            "assessed_at_utc": "2026-11-15T00:01:41.040Z",
+            "uptime_ms": 42785,
+            "build": {
+              "package_name": "billiards-perception",
+              "package_version": "0.1.0",
+              "git_revision": null,
+              "dirty": null
+            }
+          },
+          "producer": {
+            "state": "fresh",
+            "generation_id": "d7c7a962-9900-4e30-9203-a04b4d7e9a2d",
+            "report_sequence": 2468,
+            "report_age_ms": 0,
+            "expires_in_ms": 2999,
+            "metadata": {
+              "build": {
+                "package_name": "billiards-perception",
+                "package_version": "0.1.0",
+                "git_revision": null,
+                "dirty": null
+              },
+              "model_state": "active",
+              "model": {
+                "identity": {
+                  "artifact_sha256": "63acdbd2bf8952150d4178a3a095ff1914545d858553ce42ef2d7cda231a032b",
+                  "source_checkpoint_sha256": "f04470378b10f02d7467dad046ad26fb48eaeb1002e7866cfc37f501b478dc0e",
+                  "classes": [
+                    {
+                      "class_id": 0,
+                      "class_name": "cue"
+                    },
+                    {
+                      "class_id": 1,
+                      "class_name": "ball"
+                    }
+                  ]
+                },
+                "input_width_px": 1280,
+                "input_height_px": 1280,
+                "requested_provider": "openvino",
+                "execution_provider": "openvino",
+                "execution_device": "GPU.0",
+                "execution_proof": "compiled_model_execution_devices_gpu_only"
+              },
+              "engine_instance_id": "6f55a6be-c800-4f4e-8559-a4599a19b688",
+              "capture_session_id": "671bb4ec-cbb3-4639-8abd-cf465001a813",
+              "failure_code": null
+            },
+            "exit_reason": null,
+            "last_known": null
+          },
+          "stream": {
+            "heartbeat_interval_ms": 1000,
+            "stale_after_ms": 3000
+          },
+          "stages": [
+            {
+              "stage": "gateway_service",
+              "status": "healthy",
+              "reason_code": "gateway_running",
+              "source": "gateway_runtime",
+              "detail": null,
+              "last_progress_age_ms": 0,
+              "in_flight": false,
+              "work_started_age_ms": null,
+              "expected_jobs": null,
+              "completed_jobs": null,
+              "failed_jobs": null,
+              "scheduler_state": null,
+              "active_job_kind": null,
+              "last_completion_age_ms": null,
+              "last_failure_code": null,
+              "last_failure_age_ms": null,
+              "deadline_ms": null
+            },
+            {
+              "stage": "source_lifecycle",
+              "status": "healthy",
+              "reason_code": "capture_preflight_compatible",
+              "source": "producer_report",
+              "detail": "source reported compatible capture settings",
+              "last_progress_age_ms": 41634,
+              "in_flight": false,
+              "work_started_age_ms": null,
+              "expected_jobs": null,
+              "completed_jobs": null,
+              "failed_jobs": null,
+              "scheduler_state": null,
+              "active_job_kind": null,
+              "last_completion_age_ms": null,
+              "last_failure_code": null,
+              "last_failure_age_ms": null,
+              "deadline_ms": null
+            },
+            {
+              "stage": "capture_progress",
+              "status": "healthy",
+              "reason_code": "capture_frame_received",
+              "source": "producer_report",
+              "detail": null,
+              "last_progress_age_ms": 0,
+              "in_flight": false,
+              "work_started_age_ms": null,
+              "expected_jobs": null,
+              "completed_jobs": null,
+              "failed_jobs": null,
+              "scheduler_state": null,
+              "active_job_kind": null,
+              "last_completion_age_ms": null,
+              "last_failure_code": null,
+              "last_failure_age_ms": null,
+              "deadline_ms": null
+            },
+            {
+              "stage": "model_initialization",
+              "status": "healthy",
+              "reason_code": "model_loaded_and_warmed",
+              "source": "producer_report",
+              "detail": null,
+              "last_progress_age_ms": 41841,
+              "in_flight": false,
+              "work_started_age_ms": null,
+              "expected_jobs": null,
+              "completed_jobs": null,
+              "failed_jobs": null,
+              "scheduler_state": null,
+              "active_job_kind": null,
+              "last_completion_age_ms": null,
+              "last_failure_code": null,
+              "last_failure_age_ms": null,
+              "deadline_ms": null
+            },
+            {
+              "stage": "scheduled_perception_work",
+              "status": "idle",
+              "reason_code": "no_job_due",
+              "source": "producer_report",
+              "detail": null,
+              "last_progress_age_ms": 0,
+              "in_flight": false,
+              "work_started_age_ms": null,
+              "expected_jobs": 776,
+              "completed_jobs": 776,
+              "failed_jobs": 0,
+              "scheduler_state": "idle",
+              "active_job_kind": null,
+              "last_completion_age_ms": 0,
+              "last_failure_code": null,
+              "last_failure_age_ms": null,
+              "deadline_ms": null
+            },
+            {
+              "stage": "scene_delivery",
+              "status": "healthy",
+              "reason_code": "scene_delivery_recent",
+              "source": "scene_lifecycle",
+              "detail": null,
+              "last_progress_age_ms": 25,
+              "in_flight": false,
+              "work_started_age_ms": null,
+              "expected_jobs": null,
+              "completed_jobs": null,
+              "failed_jobs": null,
+              "scheduler_state": null,
+              "active_job_kind": null,
+              "last_completion_age_ms": null,
+              "last_failure_code": null,
+              "last_failure_age_ms": null,
+              "deadline_ms": null
+            },
+            {
+              "stage": "localization",
+              "status": "unknown",
+              "reason_code": "localization_not_received",
+              "source": "scene_lifecycle",
+              "detail": null,
+              "last_progress_age_ms": null,
+              "in_flight": false,
+              "work_started_age_ms": null,
+              "expected_jobs": null,
+              "completed_jobs": null,
+              "failed_jobs": null,
+              "scheduler_state": null,
+              "active_job_kind": null,
+              "last_completion_age_ms": null,
+              "last_failure_code": null,
+              "last_failure_age_ms": null,
+              "deadline_ms": null
+            }
+          ]
+        },
+        {
+          "schema_version": 1,
+          "gateway": {
+            "instance_id": "f7d43feb-ee58-496c-939c-26617d256028",
+            "revision": 2842,
+            "assessed_at_utc": "2026-11-15T00:01:41.086Z",
+            "uptime_ms": 42831,
+            "build": {
+              "package_name": "billiards-perception",
+              "package_version": "0.1.0",
+              "git_revision": null,
+              "dirty": null
+            }
+          },
+          "producer": {
+            "state": "fresh",
+            "generation_id": "d7c7a962-9900-4e30-9203-a04b4d7e9a2d",
+            "report_sequence": 2469,
+            "report_age_ms": 0,
+            "expires_in_ms": 2999,
+            "metadata": {
+              "build": {
+                "package_name": "billiards-perception",
+                "package_version": "0.1.0",
+                "git_revision": null,
+                "dirty": null
+              },
+              "model_state": "active",
+              "model": {
+                "identity": {
+                  "artifact_sha256": "63acdbd2bf8952150d4178a3a095ff1914545d858553ce42ef2d7cda231a032b",
+                  "source_checkpoint_sha256": "f04470378b10f02d7467dad046ad26fb48eaeb1002e7866cfc37f501b478dc0e",
+                  "classes": [
+                    {
+                      "class_id": 0,
+                      "class_name": "cue"
+                    },
+                    {
+                      "class_id": 1,
+                      "class_name": "ball"
+                    }
+                  ]
+                },
+                "input_width_px": 1280,
+                "input_height_px": 1280,
+                "requested_provider": "openvino",
+                "execution_provider": "openvino",
+                "execution_device": "GPU.0",
+                "execution_proof": "compiled_model_execution_devices_gpu_only"
+              },
+              "engine_instance_id": "6f55a6be-c800-4f4e-8559-a4599a19b688",
+              "capture_session_id": "671bb4ec-cbb3-4639-8abd-cf465001a813",
+              "failure_code": null
+            },
+            "exit_reason": null,
+            "last_known": null
+          },
+          "stream": {
+            "heartbeat_interval_ms": 1000,
+            "stale_after_ms": 3000
+          },
+          "stages": [
+            {
+              "stage": "gateway_service",
+              "status": "healthy",
+              "reason_code": "gateway_running",
+              "source": "gateway_runtime",
+              "detail": null,
+              "last_progress_age_ms": 0,
+              "in_flight": false,
+              "work_started_age_ms": null,
+              "expected_jobs": null,
+              "completed_jobs": null,
+              "failed_jobs": null,
+              "scheduler_state": null,
+              "active_job_kind": null,
+              "last_completion_age_ms": null,
+              "last_failure_code": null,
+              "last_failure_age_ms": null,
+              "deadline_ms": null
+            },
+            {
+              "stage": "source_lifecycle",
+              "status": "healthy",
+              "reason_code": "capture_preflight_compatible",
+              "source": "producer_report",
+              "detail": "source reported compatible capture settings",
+              "last_progress_age_ms": 41680,
+              "in_flight": false,
+              "work_started_age_ms": null,
+              "expected_jobs": null,
+              "completed_jobs": null,
+              "failed_jobs": null,
+              "scheduler_state": null,
+              "active_job_kind": null,
+              "last_completion_age_ms": null,
+              "last_failure_code": null,
+              "last_failure_age_ms": null,
+              "deadline_ms": null
+            },
+            {
+              "stage": "capture_progress",
+              "status": "idle",
+              "reason_code": "awaiting_next_capture_frame",
+              "source": "producer_report",
+              "detail": null,
+              "last_progress_age_ms": 25,
+              "in_flight": false,
+              "work_started_age_ms": null,
+              "expected_jobs": null,
+              "completed_jobs": null,
+              "failed_jobs": null,
+              "scheduler_state": null,
+              "active_job_kind": null,
+              "last_completion_age_ms": null,
+              "last_failure_code": null,
+              "last_failure_age_ms": null,
+              "deadline_ms": null
+            },
+            {
+              "stage": "model_initialization",
+              "status": "healthy",
+              "reason_code": "model_loaded_and_warmed",
+              "source": "producer_report",
+              "detail": null,
+              "last_progress_age_ms": 41887,
+              "in_flight": false,
+              "work_started_age_ms": null,
+              "expected_jobs": null,
+              "completed_jobs": null,
+              "failed_jobs": null,
+              "scheduler_state": null,
+              "active_job_kind": null,
+              "last_completion_age_ms": null,
+              "last_failure_code": null,
+              "last_failure_age_ms": null,
+              "deadline_ms": null
+            },
+            {
+              "stage": "scheduled_perception_work",
+              "status": "idle",
+              "reason_code": "no_job_due",
+              "source": "producer_report",
+              "detail": null,
+              "last_progress_age_ms": 46,
+              "in_flight": false,
+              "work_started_age_ms": null,
+              "expected_jobs": 776,
+              "completed_jobs": 776,
+              "failed_jobs": 0,
+              "scheduler_state": "idle",
+              "active_job_kind": null,
+              "last_completion_age_ms": 46,
+              "last_failure_code": null,
+              "last_failure_age_ms": null,
+              "deadline_ms": null
+            },
+            {
+              "stage": "scene_delivery",
+              "status": "healthy",
+              "reason_code": "scene_delivery_recent",
+              "source": "scene_lifecycle",
+              "detail": null,
+              "last_progress_age_ms": 71,
+              "in_flight": false,
+              "work_started_age_ms": null,
+              "expected_jobs": null,
+              "completed_jobs": null,
+              "failed_jobs": null,
+              "scheduler_state": null,
+              "active_job_kind": null,
+              "last_completion_age_ms": null,
+              "last_failure_code": null,
+              "last_failure_age_ms": null,
+              "deadline_ms": null
+            },
+            {
+              "stage": "localization",
+              "status": "unknown",
+              "reason_code": "localization_not_received",
+              "source": "scene_lifecycle",
+              "detail": null,
+              "last_progress_age_ms": null,
+              "in_flight": false,
+              "work_started_age_ms": null,
+              "expected_jobs": null,
+              "completed_jobs": null,
+              "failed_jobs": null,
+              "scheduler_state": null,
+              "active_job_kind": null,
+              "last_completion_age_ms": null,
+              "last_failure_code": null,
+              "last_failure_age_ms": null,
+              "deadline_ms": null
+            }
+          ]
+        }
+      ],
+      "progress": {}
+    }
+  },
+  "post_deployment_diagnostics_summary": {
+    "sampling_window_seconds": 10,
+    "diagnostics_websocket": "/api/v1/diagnostics/ws",
+    "samples": 617,
+    "gateway_revision_first": 8033,
+    "gateway_revision_last": 8697,
+    "unique_revisions": 617,
+    "producer_report_sequence_first": 7002,
+    "producer_report_sequence_last": 7595,
+    "unique_sequences": 472,
+    "capture_progress": {
+      "status": "healthy",
+      "reason": "capture_frame_received",
+      "last_progress_age_ms_first": 1,
+      "last_progress_age_ms_last": 0
+    },
+    "scheduled_perception_work": {
+      "status": "healthy",
+      "completed_jobs_first": 2213,
+      "completed_jobs_last": 2398,
+      "failed_jobs_first": 0,
+      "failed_jobs_last": 0
+    },
+    "scene_delivery": {
+      "status": "healthy",
+      "reason": "scene_delivery_recent"
+    },
+    "localization": {
+      "status": "unknown",
+      "reason": "localization_not_received"
+    },
+    "producer_state": "fresh"
+  }
+}

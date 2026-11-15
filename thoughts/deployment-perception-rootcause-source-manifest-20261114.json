@@ -1,0 +1,205 @@
+{
+  "schema_version": 1,
+  "target": "hp-prodesk",
+  "base_revision": "50236b6a3adc355d95f1f60518ef889e6e6f1c89",
+  "source_commit": "41212de72ede41be4e75317205f521aaebf1c75f",
+  "worktree_state": "the approved task hunks across nine paths are committed; the pre-existing dirty workspace is preserved. The retained source snapshot keeps its established dirty baseline, including the pre-existing capture_runtime diagnostics already present in the predecessor candidate; those unrelated hunks were not added to the task commit.",
+  "original_snapshot_manifest_sha256": "001380de120fa33af934da808ebbf94571381c792d9e9000127cb7f13572bbaa",
+  "source_snapshot_path": "/home/jchadwick/build/billiards-deploy-20261114/source",
+  "overlay_files": [
+    {
+      "path": "perception/src/capture_pipeline.rs",
+      "sha256": "b4b8cd6b3d6f22540f5906e81a14b1bb5fe5414d17d9fe54320f0822b1eebf49"
+    },
+    {
+      "path": "perception/src/capture_runtime.rs",
+      "sha256": "278fe1350d3ac8cbdc0387fa6d2147d3e1724ea6c656ca2b71e774b3280f9be6"
+    },
+    {
+      "path": "perception/src/motion_monitor.rs",
+      "sha256": "05c2ef03b5e53a5d173aa3a13c174b3086a92edb496cceb01d0f4d40c24a8ee6"
+    },
+    {
+      "path": "perception/src/phase_scheduler.rs",
+      "sha256": "e47f62b68194b6c7a656c685aeced87b4400e4a9b895f374be5c25dd2041e7b1"
+    },
+    {
+      "path": "perception/src/tracking.rs",
+      "sha256": "dc07b2bd08e2d9551e11a473a13dbba5bf415f0cac1d6aca8db0bb7c49399080"
+    },
+    {
+      "path": "perception/tests/motion_monitor.rs",
+      "sha256": "ed332d6f5c0eac9e500e2551177a1f463c5f58f2ea3bcb329c533dea11055ccb"
+    },
+    {
+      "path": "perception/tests/live_capture_runtime.rs",
+      "sha256": "3fd97ad2b4f461c9c105258bc2e67806f37a37711f1bf6e29aa816ae8556a955"
+    },
+    {
+      "path": "perception/tests/tracking_v1.rs",
+      "sha256": "18b3417f62d526a439274982592dbde6be7b612685a0c017de3f0949eeeb04b1"
+    },
+    {
+      "path": "perception/contracts/public-state/README.md",
+      "sha256": "d972e7fe60696ab29f194fad9824ca2a6274359c2c3ab03cbd6b5c3c24e8ff39"
+    }
+  ],
+  "native_build": {
+    "target": "Linux x86-64",
+    "feature": "camera-gstreamer-source",
+    "built_utc": "2026-11-14T23:47:21Z",
+    "build_log": "/home/jchadwick/build/billiards-deploy-20261114/retention-build.log",
+    "cargo_target_dir": "/home/jchadwick/build/billiards-deploy-20261114/cargo-target",
+    "staging_root": "/home/jchadwick/build/billiards-deploy-20261114/diagnose-perception-noise",
+    "artifact_directory": "/home/jchadwick/build/billiards-deploy-20261114/diagnose-perception-noise/bin",
+    "isolated_ports": {
+      "http": 18000,
+      "scene": 49341,
+      "frame_preview": 49342
+    },
+    "binaries": [
+      {
+        "name": "billiards-server",
+        "sha256": "6b7eee4dd01f877ab7d0694179333c4133f7f38dc320e23eec82214f42dca832"
+      },
+      {
+        "name": "billiards-perception-live",
+        "sha256": "093e25c5e19e3f5214a74d7712eb3572b9934dceee146435925bdc7365321451"
+      },
+      {
+        "name": "billiards-perception-gstreamer-probe",
+        "sha256": "0966a727aca9d0b5087a803db3c8aff7ea90ec35c7daadabf2dde2906f1f9234"
+      },
+      {
+        "name": "billiards-perception-camera-discovery",
+        "sha256": "1c981127dde7c1548cc020f13121683dbc6ce13479beb1d25745f2a7a83e2654"
+      }
+    ],
+    "unresolved_libraries": 0,
+    "frontend": {
+      "build_output": "/tmp/billiards-deploy-20261114-frontend-final",
+      "build_command": "npm run build -- --outDir /tmp/billiards-deploy-20261114-frontend-final",
+      "typescript_check": "passed (tsc --noEmit)",
+      "index_sha256": "0aafb8f060e1856a4d8ffba0056e99f1141a23c12e4eadc36029cc4abc7a6504",
+      "js": "assets/LiveView-D6dmYHzn.js",
+      "js_sha256": "973863957829d4ff8001cac866309a638f967651b811481ba23f31809b09a7f8",
+      "css": "assets/index-DbmMGAGN.css",
+      "css_sha256": "a7f3990152b0ff429b31f233804ba811757359d6a01dff4eab1284237d256443"
+    }
+  },
+  "staged_live_evidence": {
+    "path": "/home/jchadwick/build/billiards-deploy-20261114/diagnose-perception-noise/live-evidence-retention.json",
+    "duration_seconds": 60,
+    "http_samples": 30,
+    "readiness_200": 0,
+    "readiness_503": 30,
+    "game_state_200": 30,
+    "fresh_trusted_http_samples": 0,
+    "measured_observations_total": 0,
+    "visibility": "not_visible / lost_rail_contrast in 30/30 samples",
+    "websocket_messages": 1130,
+    "websocket_errors": 0,
+    "localized_source_frames": 0,
+    "camera_frame_observed": "source capture was advancing (decision/table observation frame 1517 during the run), but the scene remained too dark to establish rail contrast or ball measurements",
+    "camera_frame_sha256": "83d781150b4cf0331972e64fa5356ef05da61192f68b4d0d087447bbf97c7add",
+    "staging_stopped": true,
+    "isolated_ports_closed": true,
+    "promotion": "not performed; the actual camera view was nearly black and the staged candidate never localized balls",
+    "sampling_start_utc": "2026-11-14T23:49:42Z",
+    "sampling_end_utc": "2026-11-14T23:50:42Z"
+  },
+  "production_preservation": {
+    "trainer_service": "active",
+    "trainer_pid": 89232,
+    "trainer_restarts": 0,
+    "camera_service": "active",
+    "camera_pid": 1651,
+    "camera_restarts": 0,
+    "config_sha256_before_and_after": "178e221274ad2146bd64187f726634858a436099e07e7e8048f0b16392da8b8f",
+    "calibration_table_sha256_before_and_after": "58789941b1fd46e1b9215346c4e5dace4d5fe44136782ed97da1b2e66c9b507f",
+    "launcher_sha256": "7b552d9609269ad4a146b6bb60abbf9840a23f8305adf595e69ad6303430e144",
+    "immutable_rollback_location": "/home/jchadwick/apps/.billiards-trainer-rollback-20261114T191223Z",
+    "prepromotion_payload_backup": "/home/jchadwick/apps/.billiards-trainer-prepromote-20261115T000057Z",
+    "production_payload_changed": true,
+    "verified_utc": "2026-11-15T00:03:38Z",
+    "active_binary_sha256": {
+      "billiards-server": "6b7eee4dd01f877ab7d0694179333c4133f7f38dc320e23eec82214f42dca832",
+      "billiards-perception-live": "093e25c5e19e3f5214a74d7712eb3572b9934dceee146435925bdc7365321451",
+      "billiards-perception-gstreamer-probe": "0966a727aca9d0b5087a803db3c8aff7ea90ec35c7daadabf2dde2906f1f9234",
+      "billiards-perception-camera-discovery": "1c981127dde7c1548cc020f13121683dbc6ce13479beb1d25745f2a7a83e2654"
+    }
+  },
+  "local_verification": {
+    "runner": "/tmp/billiards-recovery-final-checks.json",
+    "complete": true,
+    "all_seven_commands_exit_zero": true,
+    "completed_utc": "2026-11-14T23:46:59Z"
+  },
+  "deployment_result": "deployed to hp-prodesk at 2026-11-15T00:00:58Z after explicit authorization; active binaries and fresh frontend verified. Camera-scene ball acceptance remains pending adequate illumination.",
+  "frontend_correction": {
+    "source_file": "frontend/web/src/components/video/LiveView.tsx",
+    "source_sha256": "9935d92554e0ea2180fd26ad1051e754a6bc8b83be6d7f1ee630d9b1df32f80b",
+    "reviewed_difference": "two status labels now explicitly identify manual cue-direction confirmation",
+    "built_asset": "assets/LiveView-D6dmYHzn.js",
+    "built_asset_sha256": "973863957829d4ff8001cac866309a638f967651b811481ba23f31809b09a7f8",
+    "served_asset_hashes": {
+      "index.html": "0aafb8f060e1856a4d8ffba0056e99f1141a23c12e4eadc36029cc4abc7a6504",
+      "assets/index-jTnOU5C4.js": "45b0e196fffac23a44cdc8a1c41b7f528be5999c0a99c327e4b96a900008cbc7",
+      "assets/live-tvUt-pVo.js": "eb88ce97ebdc08336b187b8d70f6bf6db9480a2e81d2c62a8ed4f972671681f3",
+      "assets/practice-uZlm42LG.js": "77b25fb68a56e2d21fff6307e7398635605240f5f8aac39a229e55170e134abb",
+      "assets/coach-DrOr5GTg.js": "09fa45aab85b1e887e49744c932532b2a3f45917be4677c458d09e0f2c8af5fc",
+      "assets/LiveView-D6dmYHzn.js": "973863957829d4ff8001cac866309a638f967651b811481ba23f31809b09a7f8",
+      "assets/index-DbmMGAGN.css": "a7f3990152b0ff429b31f233804ba811757359d6a01dff4eab1284237d256443"
+    }
+  },
+  "post_deployment_verification": {
+    "promoted_utc": "2026-11-15T00:00:58Z",
+    "http_routes": {
+      "/live": 200,
+      "/practice": 200,
+      "/coach": 200,
+      "/api/v1/health/live": 200,
+      "/api/v1/game/state": 200,
+      "/api/v1/health/ready": 503
+    },
+    "fresh_frontend_assets_returned_http_200_and_hash_matched": [
+      "index.html",
+      "assets/LiveView-D6dmYHzn.js",
+      "assets/index-DbmMGAGN.css"
+    ],
+    "bounded_http_sampling": {
+      "duration_seconds": 30.3,
+      "game_state_http_200": 15,
+      "readiness_http_503": 15,
+      "balls": 0,
+      "frame_number": null,
+      "layout_trusted": false
+    },
+    "state_websocket": {
+      "path": "/api/v1/websocket/ws",
+      "connected": true,
+      "messages": 564,
+      "parse_errors": 0,
+      "sequence_first": 799,
+      "sequence_last": 1365,
+      "unique_sequences": 564
+    },
+    "diagnostics_websocket": {
+      "path": "/api/v1/diagnostics/ws",
+      "connected": true,
+      "bounded_followup_samples": 617,
+      "gateway_revision_first": 8033,
+      "gateway_revision_last": 8697,
+      "producer_report_sequence_first": 7002,
+      "producer_report_sequence_last": 7595,
+      "capture_progress": "healthy / capture_frame_received; last progress age 0 ms at final sample",
+      "scheduled_perception_work": "healthy; completed jobs increased 2213 to 2398; failed jobs remained 0",
+      "scene_delivery": "healthy / scene_delivery_recent",
+      "localization": "unknown / localization_not_received because no trusted scene measurements were available"
+    },
+    "evidence_file": "/home/jchadwick/build/billiards-deploy-20261114/production-postpromote-20261115T000058Z.json",
+    "camera_scene": "black; no balls and null frame expected; readiness 503 is not a deployment regression",
+    "lighted_scene_ball_acceptance": "not verified after deployment; requires lights",
+    "evidence_file_local": "thoughts/deployment-production-evidence-20261115.json"
+  }
+}

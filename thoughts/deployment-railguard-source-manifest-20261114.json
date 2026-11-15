@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "target": "hp-prodesk",
+  "base_revision": "50236b6a3adc355d95f1f60518ef889e6e6f1c89",
+  "worktree_state": "dirty, validated existing source snapshot; deployment notes and unrelated working changes were not staged",
+  "original_snapshot_manifest_sha256": "001380de120fa33af934da808ebbf94571381c792d9e9000127cb7f13572bbaa",
+  "git_status_porcelain_sha256_before_deployment_record_edits": "363dbb549c9649adfa54be6092d4992c6ffb496fcad5279af0a31c3dc26d6e1c",
+  "overlay_files": [
+    {
+      "path": "perception/src/capture_runtime.rs",
+      "sha256": "5cf5001d851a959f62ef92fb9327ba03491e9965666bdadd85e2630140df45b0"
+    },
+    {
+      "path": "perception/src/table_visibility.rs",
+      "sha256": "47e4caeb6d7ee8fd84aba1468004afb2ebc89bc994a171840744e48d034c0981"
+    },
+    {
+      "path": "perception/tests/live_capture_runtime.rs",
+      "sha256": "6a567d47c71223b1dcf4b10e3e8b0f0cc2b4d40b123904dfa450173332f72462"
+    },
+    {
+      "path": "perception/tests/table_visibility.rs",
+      "sha256": "e6535712d0683694efdd9bfed99af31554dcd11bec987af6cf5613801f1e2dea"
+    }
+  ],
+  "notes": "Final build source is the retained validated snapshot with these four exact local files overlaid. Runtime config, calibration, data, models, and frontend were not changed by this source overlay."
+}
