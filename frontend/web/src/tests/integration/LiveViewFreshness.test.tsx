@@ -112,6 +112,25 @@ describe('live producer layout and coach', () => {
     expect(screen.getByTestId('live-detection-overlay').getAttribute('data-current-aim')).toBe('visible');
   });
 
+  it('renders the diagnostics camera without coach controls and keeps unpaired ghost centers', () => {
+    installStore(makeState({ trusted: false }));
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(canvasContext);
+    vi.spyOn(HTMLImageElement.prototype, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, 1000, 500));
+
+    render(<LiveView autoConnect={false} presentation="diagnostics" />);
+    loadVideoImage();
+
+    expect(screen.getByRole('region', { name: 'Diagnostic camera' })).toBeTruthy();
+    expect(screen.getByTestId('live-video-pane')).toBeTruthy();
+    expect(screen.getByTestId('live-detection-overlay').getAttribute('data-frame-pairing')).toBe('independent');
+    expect(screen.getByTestId('live-detection-overlay').getAttribute('data-freshness')).toBe('stale');
+    expect(screen.queryByRole('region', { name: 'Live shot coaching' })).toBeNull();
+    expect(screen.queryByLabelText('Confirm cue ball')).toBeNull();
+    expect(screen.queryByRole('list', { name: 'Latest producer ball layout' })).toBeNull();
+    expect(canvasContext.ellipse).toHaveBeenCalledTimes(2);
+    expect(canvasContext.setLineDash).toHaveBeenCalledWith([6, 5]);
+  });
+
   it('supports explicit manual direction confirmation and revokes it for a new layout', () => {
     const { store, rerender } = installStraightShot(false);
     expect(screen.getByTestId('live-alignment').getAttribute('data-alignment')).toBe('direction_unknown');

@@ -14,7 +14,12 @@ import type { BallData, ObservationStatus, PerceptionState, TableProjection } fr
 import type { DisplayMjpegFrame } from './use-frame-aware-mjpeg';
 import './live-aim.css';
 
-interface LiveViewProps { className?: string; autoConnect?: boolean }
+interface LiveViewProps {
+  className?: string;
+  autoConnect?: boolean;
+  /** Diagnostics embeds the shared camera surface without the coach interface. */
+  presentation?: 'coach' | 'diagnostics';
+}
 const POCKET_IDS = ['top-left', 'top-middle', 'top-right', 'bottom-left', 'bottom-middle', 'bottom-right'];
 const LIVE_AIM_POLICY = getLiveAimPolicy();
 
@@ -77,7 +82,7 @@ function ballMatchesContext(ball: BallData, status: ObservationStatus | undefine
   });
 }
 
-export const LiveView: React.FC<LiveViewProps> = observer(({ className = '', autoConnect = true }) => {
+export const LiveView: React.FC<LiveViewProps> = observer(({ className = '', autoConnect = true, presentation = 'coach' }) => {
   const store = useRootStore();
   const surface = adaptLiveSurface(store);
   const { videoStore } = surface;
@@ -152,6 +157,7 @@ export const LiveView: React.FC<LiveViewProps> = observer(({ className = '', aut
     ballRadius: PRACTICE_TABLE_DEFAULTS.ballRadius,
   } : null, [projection]);
   const uniqueBalls = useMemo(() => uniqueIdBalls(balls), [balls]);
+  const showCoachInterface = presentation === 'coach';
   const ids = useMemo(() => new Set(uniqueBalls.keys()), [uniqueBalls]);
   const compatibleBalls = useMemo(() => new Map([...uniqueBalls].filter(([, ball]) => ballMatchesContext(ball, status))), [uniqueBalls, status]);
 
@@ -467,7 +473,8 @@ export const LiveView: React.FC<LiveViewProps> = observer(({ className = '', aut
     return () => controller.abort();
   }, [autoConnect, hasSharedReceiver]);
 
-  return <section className={`live-view ${className}`} aria-label="Live billiards coach">
+  return <section className={`live-view ${className}`} aria-label={showCoachInterface ? 'Live billiards coach' : 'Diagnostic camera'}>
+    {showCoachInterface && <>
     <header className="live-header">
       <div><p className="practice-eyebrow">Live camera · estimated positions</p><h1 className="live-title">Live coach</h1></div>
       <span className={`status-badge ${layoutTrusted ? 'status-badge-positive' : 'status-badge-muted'}`} role="status">
@@ -526,6 +533,7 @@ export const LiveView: React.FC<LiveViewProps> = observer(({ className = '', aut
           ? ` · scan ${Math.round(perception.last_ball_observation_age_ms / 1000)}s ago, quiet evidence current` : ''}
       </p>
     </section>
+    </>}
     <div data-testid="live-video-pane" className="video-pane" style={{ aspectRatio: imageUsable ? `${videoSize.width} / ${videoSize.height}` : '16 / 9' }}>
       {nativeVideo ? <div ref={imageSlotRef} className="native-video-image-slot" />
         : hasSharedReceiver && videoStore.delivery?.configured === false ? (
@@ -543,13 +551,13 @@ export const LiveView: React.FC<LiveViewProps> = observer(({ className = '', aut
         style={{ inset: 0, width: '100%', height: '100%', opacity: 1 }} aria-label="Ball and aiming overlays" />
       {!isConnected && <div className="connection-overlay"><div className="connection-overlay-message"><div className="connection-overlay-title">Connecting…</div><div className="connection-overlay-detail">The camera and producer state update independently.</div></div></div>}
     </div>
-    <section className="ball-panel" aria-label="Latest producer ball layout">
+    {showCoachInterface && <section className="ball-panel" aria-label="Latest producer ball layout">
       <div className="ball-panel-header"><h2 className="ball-panel-title">Latest table layout</h2><span role="status">{balls.length ? `${balls.length} balls ${layoutTrusted ? 'trusted' : 'last known'}` : emptyMessage}</span></div>
       <div className="ball-grid" role="list">{balls.map((ball, index) => <div key={`${asId(ball.id)}-${index}`} role="listitem" className={`ball-slot ${layoutTrusted ? 'ball-slot-observed' : 'ball-slot-stale'}`}>
         <span className="ball-slot-label">{ball.is_cue_ball || ball.type === 'cue' ? 'Cue ball' : `Ball ${ball.id}`}</span>
         <span>{!ballMatchesContext(ball, status) ? 'source context mismatch · marker withheld' : validPoint(ball.table_position) ? `${Math.round(ball.table_position.x)}, ${Math.round(ball.table_position.y)} mm from center` : validPoint(ball.position) ? 'image coordinates' : 'coordinates unavailable'}</span>
       </div>)}</div>
-    </section>
+    </section>}
   </section>;
 });
 

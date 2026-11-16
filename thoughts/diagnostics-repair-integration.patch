@@ -1,0 +1,68 @@
+--- a/frontend/web/src/components/Diagnostics.tsx
++++ b/frontend/web/src/components/Diagnostics.tsx
+@@ -211,7 +211,7 @@
+             className={`diagnostics-preview ${!overlays ? "overlays-hidden" : ""}`}
+             ref={preview}
+           >
+-            <LiveView />
++            <LiveView presentation="diagnostics" />
+             {frozen && (
+               <img
+                 className="frozen-preview"
+@@ -225,15 +225,13 @@
+               <input
+                 type="checkbox"
+                 checked={overlays}
+-                disabled={!!frozen || directCamera}
++                disabled={!!frozen}
+                 onChange={(event) => setOverlays(event.target.checked)}
+               />
+               Detection overlays
+             </label>
+             <span className="text-muted-foreground">
+-              {directCamera
+-                ? "Direct camera video has no frame identifiers. See detections below."
+-                : "Only matching frame evidence is drawn."}
++              Ball centers show trusted or last-known table positions.
+             </span>
+           </div>
+         </Card>
+--- a/frontend/web/src/components/Diagnostics.test.tsx
++++ b/frontend/web/src/components/Diagnostics.test.tsx
+@@ -11,11 +11,11 @@
+     </div>
+   ),
+ }));
+-const fixture = vi.hoisted(() => ({ current: null as any }));
++const fixture = vi.hoisted(() => ({ current: null as any, mode: "native" }));
+ vi.mock("../stores/context", () => ({
+   useRootStore: () => ({
+     system: { status: { isConnected: true } },
+-    videoStore: { latestGameState: fixture.current },
++    videoStore: { latestGameState: fixture.current, delivery: { mode: fixture.mode } },
+   }),
+ }));
+ afterEach(() => {
+@@ -28,6 +28,9 @@
+     expect(screen.getByTestId("diagnostics-camera").getAttribute("data-presentation")).toBe("diagnostics");
+     expect(screen.getByText("No ball observations available.")).toBeTruthy();
+     const overlays = screen.getByRole("checkbox", { name: "Detection overlays" }) as HTMLInputElement;
++    expect(overlays.disabled).toBe(false);
++    fireEvent.click(overlays);
++    expect(overlays.checked).toBe(false);
+     expect(screen.getByText("Ball centers show trusted or last-known table positions.")).toBeTruthy();
+     expect(
+       screen.getByText("84 ms · 420 ms · 980 ms · 1.84 s").className,
+--- a/frontend/web/src/styles.css
++++ b/frontend/web/src/styles.css
+@@ -537,10 +537,6 @@
+ }
+ .diagnostics-preview .live-view {
+   min-height: 0;
+-}
+-.diagnostics-preview .live-header,
+-.diagnostics-preview .ball-panel {
+-  display: none;
+ }
+ .diagnostics-preview .video-pane {
+   min-height: 300px;
