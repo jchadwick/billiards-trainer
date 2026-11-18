@@ -327,7 +327,8 @@ button {
 .practice-heading h1 { margin: 4px 0 8px; font-size: clamp(1.5rem, 3vw, 2rem); }
 .practice-heading p:last-child, .practice-muted { color: #a8b0b5; font-size: .9rem; line-height: 1.5; }
 .practice-eyebrow, .practice-result-label { color: #78a6ff; font-size: .75rem; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; }
-.practice-simulation-badge { flex: none; border: 1px solid #b9853e; border-radius: 999px; padding: 8px 12px; color: #f0c47d; font-size: .7rem; font-weight: 700; letter-spacing: .05em; }
+.practice-readiness-badge { flex: none; border: 1px solid #b9853e; border-radius: 999px; padding: 8px 12px; color: #f0c47d; font-size: .7rem; font-weight: 700; letter-spacing: .05em; }
+.practice-readiness-badge.is-ready { border-color: #34d399; color: #6ee7b7; }
 .practice-grid { display: grid; grid-template-columns: minmax(0, 1.75fr) minmax(280px, .8fr); align-items: start; gap: 20px; }
 .practice-table-card, .practice-coach-card { border: 1px solid #30373c; border-radius: 12px; padding: 18px; background: #171b1e; }
 .practice-table-tools, .practice-ball-list { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -338,21 +339,35 @@ button {
 .practice-coordinate-entry label { display: grid; gap: 4px; color: #a8b0b5; font-size: .72rem; }
 .practice-coordinate-entry input { width: 112px; border: 1px solid #3a4349; border-radius: 6px; padding: 7px; background: #101315; color: #e9edf0; }
 .practice-coordinate-entry button { border: 1px solid #3a4349; border-radius: 6px; padding: 8px 10px; background: #20262a; color: #e9edf0; font-size: .78rem; }
-.practice-table { display: block; width: 100%; max-height: 66vh; border: 10px solid #59422c; border-radius: 18px; background: #14533f; cursor: crosshair; touch-action: manipulation; }
-.practice-cloth { fill: #176348; stroke: #27785b; stroke-width: 7; }
-.practice-pocket { fill: #0c1715; stroke: #80613d; stroke-width: 7; }
-.practice-cue-path { stroke: #a9c8ff; stroke-width: 5; stroke-dasharray: 12 9; }
-.practice-object-path { stroke: #6de0b8; stroke-width: 6; stroke-dasharray: 12 9; }
-.practice-ghost-ball { fill: #a9c8ff; fill-opacity: .18; stroke: #a9c8ff; stroke-width: 5; stroke-dasharray: 12 8; }
-.practice-contact-point { fill: #fff; stroke: #123d31; stroke-width: 3; }
-.practice-ball { fill: #e7b34f; stroke: #fff3cf; stroke-width: 4; }
-.practice-ball.target { stroke: #ff7979; stroke-width: 9; }
-.practice-ball-label, .practice-cue-label { fill: #202020; font-size: 25px; font-weight: 800; text-anchor: middle; dominant-baseline: central; pointer-events: none; }
-.practice-cue-ball { fill: #f5f4eb; stroke: #fff; stroke-width: 4; }
+.practice-camera-figure { margin: 0; }
+.practice-camera-stage { position: relative; width: 100%; overflow: hidden; border: 1px solid #424b51; border-radius: 10px; background: #050708; }
+.practice-camera-image-slot { z-index: 0; }
+.practice-camera-overlay { position: absolute; z-index: 1; inset: 0; display: block; width: 100%; height: 100%; cursor: crosshair; touch-action: manipulation; }
+.practice-camera-empty { position: absolute; inset: 0; z-index: 1; display: grid; place-items: center; padding: 24px; color: #d5dadd; text-align: center; background: linear-gradient(135deg, #101619, #080a0b); }
+.practice-camera-state { position: absolute; z-index: 2; top: 12px; left: 12px; display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; max-width: calc(100% - 24px); border: 1px solid #b9853e; border-radius: 7px; padding: 8px 11px; color: #ffe0a3; background: rgb(10 14 14 / 88%); font-size: .76rem; line-height: 1.35; }
+.practice-camera-state strong { color: #f0c47d; text-transform: uppercase; letter-spacing: .05em; }
+.practice-camera-state.is-ready { border-color: #34d399; color: #d1fae5; }
+.practice-camera-state.is-ready strong { color: #6ee7b7; }
+.practice-target-tolerance { fill: #fbbf24; fill-opacity: .035; stroke: #fbbf24; stroke-width: 1.5; stroke-dasharray: 7 5; vector-effect: non-scaling-stroke; }
+.practice-target-tolerance.is-placed { fill: #34d399; fill-opacity: .06; stroke: #34d399; }
+.practice-target-marker { fill: #fbbf24; fill-opacity: .13; stroke: #fbbf24; stroke-width: 3; vector-effect: non-scaling-stroke; }
+.practice-target-marker.is-placed { fill: #34d399; fill-opacity: .25; stroke: #34d399; }
+.practice-overlay-label { fill: white; paint-order: stroke; stroke: #111827; stroke-width: 4px; stroke-linejoin: round; font-size: 15px; font-weight: 700; text-anchor: middle; pointer-events: none; }
+.practice-detected-marker { fill: #38bdf8; fill-opacity: .08; stroke: #bae6fd; stroke-width: 3; vector-effect: non-scaling-stroke; pointer-events: none; }
+.practice-detected-marker.is-matched { fill: #34d399; fill-opacity: .16; stroke: #6ee7b7; }
+.practice-detected-marker.is-extrapolated { opacity: .35; stroke-dasharray: 7 5; }
+.practice-shot-cue-line, .practice-shot-object-line { fill: none; vector-effect: non-scaling-stroke; stroke-width: 3; }
+.practice-shot-cue-line { stroke: #a3e635; }
+.practice-shot-object-line { stroke: #fb923c; stroke-dasharray: 8 6; }
+.practice-shot-ghost { fill: #a3e635; fill-opacity: .16; stroke: #a3e635; stroke-width: 2; stroke-dasharray: 6 4; vector-effect: non-scaling-stroke; }
+.practice-shot-contact { fill: #fff; stroke: #0f172a; stroke-width: 2; vector-effect: non-scaling-stroke; }
+.practice-placement-caption { margin-top: 9px; color: #f0c47d; font-size: .82rem; line-height: 1.45; }
+.practice-placement-caption.is-ready { color: #6ee7b7; font-weight: 700; }
 .practice-ball-list { margin-top: 12px; }
 .practice-ball-row { display: inline-flex; gap: 4px; }
 .practice-ball-list .practice-remove-ball { color: #f2a1a1; }
 .practice-ball-list > p { color: #a8b0b5; font-size: .85rem; }
+.practice-extra-centers { flex-basis: 100%; color: #a8b0b5; font-size: .78rem; }
 .practice-dimensions { margin-top: 18px; color: #d5dadd; font-size: .82rem; }
 .practice-dimensions summary { padding: 8px 0; font-weight: 600; }
 .practice-dimensions > div { display: grid; grid-template-columns: repeat(3, minmax(100px, 1fr)); gap: 10px; margin: 8px 0; }
@@ -366,12 +381,15 @@ button {
 .practice-cue-confirmation { color: #a8b0b5; font-weight: 400; }
 .practice-confirm { width: 100%; border: 0; border-radius: 7px; padding: 10px; background: #78a6ff; color: #111820; font-weight: 700; }
 .practice-confirm:disabled { opacity: .5; }
+.practice-readiness { display: grid; gap: 4px; margin: 12px 0 18px; border: 1px solid #876b45; border-radius: 8px; padding: 12px; color: #f0c47d; background: #1d1a15; font-size: .82rem; line-height: 1.45; }
+.practice-readiness strong { text-transform: uppercase; letter-spacing: .05em; }
+.practice-readiness.is-ready { border-color: #268463; color: #a7f3d0; background: #10221b; }
 .practice-coach-result { margin-top: 20px; border: 1px solid #38454e; border-radius: 8px; padding: 14px; background: #121719; font-size: .86rem; line-height: 1.5; }
 .practice-coach-result > * + * { margin-top: 8px; }
 .practice-coach-result strong { display: block; font-size: 1rem; }
 .practice-no-shot { border-color: #876b45; }
-@media (max-width: 900px) { .practice-grid { grid-template-columns: 1fr; } .practice-table { max-height: none; } }
-@media (max-width: 600px) { .practice-page { padding: 20px 14px 36px; } .practice-heading { display: block; } .practice-simulation-badge { display: inline-block; margin-top: 14px; } .practice-dimensions > div { grid-template-columns: 1fr; } }
+@media (max-width: 900px) { .practice-grid { grid-template-columns: 1fr; } }
+@media (max-width: 600px) { .practice-page { padding: 20px 14px 36px; } .practice-heading { display: block; } .practice-readiness-badge { display: inline-block; margin-top: 14px; } .practice-dimensions > div { grid-template-columns: 1fr; } .practice-camera-state { top: 7px; left: 7px; max-width: calc(100% - 14px); padding: 6px 8px; font-size: .68rem; } }
 
 /* Put the live coach controls before the video so aiming does not hide in diagnostics. */
 .live-coach-controls { padding: 16px 20px; background: #151a1d; color: #e9edf0; }
