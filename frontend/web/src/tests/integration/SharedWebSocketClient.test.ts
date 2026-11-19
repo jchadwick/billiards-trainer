@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { WebSocketClient } from '../../services/websocket-client';
 import { RootStore } from '../../stores/RootStore';
+import { createNoopDiagnosticsTransport } from '../diagnostics-test-helpers';
 
 class MockWebSocket {
   static readonly CONNECTING = 0;
@@ -87,7 +88,7 @@ describe('live WebSocket connectivity', () => {
       url: 'ws://localhost:8000/api/v1/websocket/ws',
       heartbeatInterval: 60_000,
     });
-    const store = new RootStore(client);
+    const store = new RootStore(client, undefined, createNoopDiagnosticsTransport());
 
     try {
       expect(MockWebSocket.instances).toHaveLength(1);
@@ -137,7 +138,7 @@ describe('live WebSocket connectivity', () => {
       url: 'ws://localhost:8000/api/v1/websocket/ws',
       heartbeatInterval: 60_000,
     });
-    const store = new RootStore(client);
+    const store = new RootStore(client, undefined, createNoopDiagnosticsTransport());
 
     try {
       const socket = MockWebSocket.instances[0];

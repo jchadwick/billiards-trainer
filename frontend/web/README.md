@@ -1,45 +1,10 @@
-# Billiards Trainer Live View
+# Billiards Trainer administration workspace
 
-The browser application is intentionally limited to the live table at `/live`.
-It remains a React, HTML, JavaScript, and CSS client. The Rust gateway serves
-the built assets and the state WebSocket; the camera image is loaded directly
-from the configured browser-reachable MJPEG URL.
-
-## Development
-
-```sh
-npm ci
-npm run dev
-```
-
-Vite serves the client on port 3000. Set `VITE_API_BASE_URL` when the API is on
-a different origin. When unset, HTTP and WebSocket traffic use the origin that
-serves the page. The live page requests `/api/v1/config` to read
-`api.stream.viewer_url` and `perception.freshness.maximum_observation_age_seconds`.
-The camera URL must be reachable by the browser. If it is absent or invalid,
-the page reports that the direct stream is unavailable; it does not proxy video
-through the API.
-
-## Checks
-
-```sh
-npm test
-npm run typecheck
-npm run build
-```
-
-The production build writes assets to `../../backend/static`, as expected by the
-Rust gateway. To build into a temporary directory instead, pass Vite an output
-directory, for example `npm run build -- --outDir /tmp/billiards-web-build`.
-
-The live client subscribes only to the latest `state` WebSocket stream. It
-ignores out-of-order snapshots when the producer session provides ordering
-identity, shows the most recent ball state in a fixed 16-slot layout, and marks
-locations stale when their source observation ages past the configured limit.
-Identity classification, trajectory prediction, calibration controls,
-monitoring dashboards, and diagnostics are outside this browser surface.
-
-## Practice coaching sandbox
+React, TypeScript and Vite serve Practice at `/practice`, Live Diagnostics at `/live`,
+Configuration at `/configuration`, System Health at `/health`, and Events & Debugging
+at `/events`. Tailwind CSS and shadcn-style Radix primitives share semantic
+color tokens in `src/styles.css`; the graphite palette follows the prototype.
+Operational tabs share the same shell, state WebSocket, and app-owned video receiver.
 
 The standalone `/practice` route is a simulated table-space sandbox. Players can
 place balls with the pointer or physical-coordinate inputs, explicitly confirm a
@@ -54,7 +19,37 @@ does not consume live camera or producer state, so simulated balls are never
 presented as detections. Live coaching reuses the same pure geometry with the
 producer's current trusted table-plane layout.
 
-## Live coaching
+## Development and verification
+
+```sh
+npm ci
+npm run dev
+npm test
+npm run typecheck
+npm run build -- --outDir /tmp/billiards-web-build
+```
+
+Without an output override, production assets are written to `../../backend/static`
+for the Rust gateway. Set `VITE_API_BASE_URL` for a separately hosted API; otherwise
+HTTP and WebSocket requests use the serving origin. The Vite dev server proxies
+`/api` to the local gateway on port 8001 by default. Set `VITE_DEV_PROXY_TARGET`
+to use a different gateway.
+
+On first launch, Configuration lets you choose a discovered local camera or enter
+a network camera's MJPEG URL. Freeze a frame of the empty table, mark the four
+playing-surface corners, and confirm its dimensions to calibrate the table.
+Ordinary corner calibration supplies the table-space aiming map. Optional
+precision assets can improve center refinement; they are not required to start.
+See [Configuration](../../docs/CONFIG.md).
+The JSON editor is available under Advanced configuration.
+
+The root shell opens one native MJPEG image directly from
+`api.stream.viewer_url` and shares it across routes. The header and Health
+report whether the browser loaded the image. State arrives separately over
+WebSocket. `/live` always displays the newest video; compatible producer ball
+centers and fresh positive cue evidence do not require frame IDs. Trusted balls
+draw solid markers, while last-known producer balls draw dim dashed markers.
+The browser does not retain or reconstruct a second ball layout.
 
 Live coaching is available at `/coach` through **Practice → Live Coach**, and
 inside `/live` diagnostics. See [the live coach guide](COACH.md) for the physical
@@ -78,3 +73,79 @@ as possible blockers and never support an advice corridor. Missing compatible
 projection disables live aiming but leaves usable image-coordinate centers
 visible. A verified clean empty scan and an unscanned table have separate
 messages.
+
+Reconnect backoff is configured by `VITE_VIDEO_RECONNECT_INITIAL_MS` and
+`VITE_VIDEO_RECONNECT_MAX_MS`.
+
+The state WebSocket remains unchanged.
+State updates arrive through the `state` subscription on `/api/v1/websocket/ws`;
+there is no HTTP polling fallback. Camera frames arrive over one continuous MJPEG
+response. Local display timers advance evidence ages even when the producer is
+silent; they never request new data. WebSocket heartbeats and reconnect backoff
+only maintain the pushed connection.
+
+The app root also owns one reconnecting raw-snapshot WebSocket at
+`/api/v1/diagnostics/ws`. Every message is runtime-validated against the v1
+snapshot shape, including its seven named stages. The browser accepts increasing
+revisions per gateway instance and starts revision ordering over when the
+instance ID changes. Silence beyond the snapshot's `stale_after_ms`, an invalid
+message, or a disconnected stream marks evidence stale or unknown; it does not
+claim the gateway has stopped. Diagnostics do not open another state or video
+connection and do not poll HTTP. Reconnect delays use
+`VITE_DIAGNOSTICS_RECONNECT_INITIAL_MS` (default 1000, accepted range
+100–30000) and `VITE_DIAGNOSTICS_RECONNECT_MAX_MS` (default 30000, accepted
+range 1000–120000); invalid values use those defaults.
+
+Health and the header combine backend stage assessments with the shared browser
+state and video evidence. Active model/build details are shown only from a fresh
+producer report. Expired report data is labeled inactive and last known. Events
+detail and evidence export use the same latest diagnostics snapshot; they do not
+pretend it was captured at an earlier event time. Health's liveness/readiness
+checks remain initial and explicit-refresh HTTP snapshots.
+Coordinates in operational diagnostics are displayed as reported, without
+assuming physical units. Pausing inspection captures the displayed image and
+diagnostic snapshot locally while the streams continue; a camera that disallows
+browser capture reports a clear error and leaves inspection live. Optional
+developer contours retain their source-frame provenance checks; production
+center markers use compatible geometry and the newest video frame.
+
+Configuration loads the existing `/api/v1/config` and `/api/v1/config/schema`
+contracts once on initial load and on explicit reload/apply workflows, without
+background polling. Monaco and its JSON validation workers are bundled locally. The editor
+supports draft validation, difference review, applying, reload, and local import /
+export. Drafts survive route navigation in this browser tab; reload discards them.
+Apply uses the existing merge contract and reloads canonical values after success.
+Read-only fields are excluded from update payloads. Server validation remains the
+authority, and restart requirements are shown after saving.
+
+Unsupported prototype data and actions carry `.highlight-issue` for inventory.
+The mapping and exceptions are documented in `thoughts/frontend-prototype-mapping.md`
+and `thoughts/configuration-prototype-mapping.md`. Prototype values do not masquerade
+as observations or cause new API endpoints to be added.
+
+
+System Health combines pushed state evidence with initial/explicit liveness and
+readiness HTTP snapshots. It never polls. Events & Debugging retains real browser
+connection transitions, accepted state changes, freshness/video transitions, and
+confirmed configuration actions in memory. `VITE_EVENT_HISTORY_LIMIT` defaults to
+200 and accepts values from 1 to 10000; invalid values use the default. Routine state
+frames are not server logs. Search/filter/detail/selection and reviewed evidence downloads operate locally;
+health and optional active-configuration reads happen only on explicit collection.
+Prototype-only event rows remain separate and highlighted, excluded from downloads.
+See `thoughts/system-health-prototype-mapping.md` and
+`thoughts/events-prototype-mapping.md` for the supported fields and remaining gaps.
+
+System Health rate charts count well-formed state messages received by the existing
+state WebSocket and distinct accepted engine/session/frame identities separately.
+They are browser-session observations, not producer or camera FPS. Ball, cue and
+motion evidence ages are sampled independently from the API's reported ages; repeated
+publications do not reset unchanged evidence. Disconnected, suspended and missing
+identity periods remain gaps. Samples are held in memory only, with no network polling.
+
+The browser metrics policy is validated centrally. `VITE_HEALTH_RATE_WINDOW_MS`
+defaults to 10000 (accepted range 1000–60000), `VITE_HEALTH_SAMPLE_INTERVAL_MS`
+defaults to 1000 (accepted range 250–5000 and capped at the rate window),
+`VITE_HEALTH_SAMPLE_RETENTION_BUCKETS` defaults to 900 (accepted range 1–3600), and
+`VITE_HEALTH_MAX_RATE_EVENTS` defaults to 50000 (accepted range 100–100000). Invalid
+values use the documented defaults. The sampler aggregates existing socket receipts
+locally and performs no requests.

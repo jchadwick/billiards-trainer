@@ -11,6 +11,9 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as CoachRouteImport } from './routes/coach'
+import { Route as ConfigurationRouteImport } from './routes/configuration'
+import { Route as EventsRouteImport } from './routes/events'
+import { Route as HealthRouteImport } from './routes/health'
 import { Route as LiveRouteImport } from './routes/live'
 import { Route as PracticeRouteImport } from './routes/practice'
 
@@ -24,12 +27,26 @@ const CoachRoute = CoachRouteImport.update({
   path: '/coach',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ConfigurationRoute = ConfigurationRouteImport.update({
+  id: '/configuration',
+  path: '/configuration',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const EventsRoute = EventsRouteImport.update({
+  id: '/events',
+  path: '/events',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const HealthRoute = HealthRouteImport.update({
+  id: '/health',
+  path: '/health',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const LiveRoute = LiveRouteImport.update({
   id: '/live',
   path: '/live',
   getParentRoute: () => rootRouteImport,
 } as any)
-
 const PracticeRoute = PracticeRouteImport.update({
   id: '/practice',
   path: '/practice',
@@ -39,12 +56,18 @@ const PracticeRoute = PracticeRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/coach': typeof CoachRoute
+  '/configuration': typeof ConfigurationRoute
+  '/events': typeof EventsRoute
+  '/health': typeof HealthRoute
   '/live': typeof LiveRoute
   '/practice': typeof PracticeRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/coach': typeof CoachRoute
+  '/configuration': typeof ConfigurationRoute
+  '/events': typeof EventsRoute
+  '/health': typeof HealthRoute
   '/live': typeof LiveRoute
   '/practice': typeof PracticeRoute
 }
@@ -52,20 +75,48 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/coach': typeof CoachRoute
+  '/configuration': typeof ConfigurationRoute
+  '/events': typeof EventsRoute
+  '/health': typeof HealthRoute
   '/live': typeof LiveRoute
   '/practice': typeof PracticeRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/coach' | '/live' | '/practice'
+  fullPaths:
+    | '/'
+    | '/coach'
+    | '/configuration'
+    | '/events'
+    | '/health'
+    | '/live'
+    | '/practice'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/coach' | '/live' | '/practice'
-  id: '__root__' | '/' | '/coach' | '/live' | '/practice'
+  to:
+    | '/'
+    | '/coach'
+    | '/configuration'
+    | '/events'
+    | '/health'
+    | '/live'
+    | '/practice'
+  id:
+    | '__root__'
+    | '/'
+    | '/coach'
+    | '/configuration'
+    | '/events'
+    | '/health'
+    | '/live'
+    | '/practice'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   CoachRoute: typeof CoachRoute
+  ConfigurationRoute: typeof ConfigurationRoute
+  EventsRoute: typeof EventsRoute
+  HealthRoute: typeof HealthRoute
   LiveRoute: typeof LiveRoute
   PracticeRoute: typeof PracticeRoute
 }
@@ -84,6 +135,27 @@ declare module '@tanstack/react-router' {
       path: '/coach'
       fullPath: '/coach'
       preLoaderRoute: typeof CoachRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/configuration': {
+      id: '/configuration'
+      path: '/configuration'
+      fullPath: '/configuration'
+      preLoaderRoute: typeof ConfigurationRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/events': {
+      id: '/events'
+      path: '/events'
+      fullPath: '/events'
+      preLoaderRoute: typeof EventsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/health': {
+      id: '/health'
+      path: '/health'
+      fullPath: '/health'
+      preLoaderRoute: typeof HealthRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/live': {
@@ -106,6 +178,9 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   CoachRoute: CoachRoute,
+  ConfigurationRoute: ConfigurationRoute,
+  EventsRoute: EventsRoute,
+  HealthRoute: HealthRoute,
   LiveRoute: LiveRoute,
   PracticeRoute: PracticeRoute,
 }

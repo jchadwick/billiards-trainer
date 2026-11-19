@@ -55,6 +55,8 @@ export function useFrameAwareMjpeg(
   url: string | undefined,
   policy: FrameAwareStreamPolicy,
   expected: FramePairingIdentity | null,
+  restartNonce = 0,
+  shutdownSignal?: AbortSignal,
 ): FrameAwareStreamState {
   const [state, setState] = useState<FrameAwareStreamState>(EMPTY_STATE);
   const [ring, setRing] = useState<DisplayMjpegFrame[]>([]);
@@ -91,6 +93,9 @@ export function useFrameAwareMjpeg(
     if (!url) return undefined;
 
     const controller = new AbortController();
+    const abortForShutdown = () => controller.abort();
+    if (shutdownSignal?.aborted) controller.abort();
+    else shutdownSignal?.addEventListener('abort', abortForShutdown, { once: true });
     let disposed = false;
     const revoke = (imageUrl: string) => {
       if (!ownedUrlsRef.current.delete(imageUrl)) return;
@@ -174,6 +179,7 @@ export function useFrameAwareMjpeg(
     void consume();
     return () => {
       disposed = true;
+      shutdownSignal?.removeEventListener('abort', abortForShutdown);
       controller.abort();
       for (const imageUrl of ownedUrlsRef.current) URL.revokeObjectURL(imageUrl);
       ownedUrlsRef.current.clear();
@@ -182,9 +188,11 @@ export function useFrameAwareMjpeg(
     };
   }, [
     url,
+    restartNonce,
     policy.maximumFrameBytes,
     policy.maximumPartHeaderBytes,
     policy.bufferedFrameCount,
+    shutdownSignal,
   ]);
 
   // `ring` intentionally participates so a state event that arrives after its

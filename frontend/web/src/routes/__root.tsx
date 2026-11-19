@@ -1,11 +1,10 @@
-import { Outlet, createRootRoute } from '@tanstack/react-router';
-
-/** Keep the active browser surface deliberately small: the live table view. */
+import { createRootRoute, Link } from "@tanstack/react-router";
+import { AppLayout } from "../components/AppLayout";
 export const Route = createRootRoute({
-  component: () => <Outlet />,
+  component: AppLayout,
   notFoundComponent: () => (
-    <main className="not-found">
-      <p>This build currently provides the live table view at <a className="not-found-link" href="/live">/live</a>.</p>
-    </main>
+    <p>
+      Page unavailable. <Link to="/live">Open Live Diagnostics</Link>
+    </p>
   ),
 });
