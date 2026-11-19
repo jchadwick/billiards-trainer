@@ -1,0 +1,1562 @@
+{
+  "schema_version": 1,
+  "approach": "approach_features.py",
+  "manifest_sha256": "71b9cc6b65290b915a2712775cb7879d2f6c3cb13a8787ad728de4eb43608573",
+  "proposal_sha256": "390efbac9a85b1d882727e345723eb8df87d6f272c5342aaef36ddab51eb9386",
+  "approach_sha256": "05f4677ef7cb01bef5d72d1a54ffebbf4d832618321e10d103b4fa7134b799df",
+  "config_path": "/Users/jchadwick/.codex/worktrees/ball-id-features/billiards-trainer/thoughts/ball-identification/approach_features_config.json",
+  "config_sha256": "1a61e1114c9c47dae10a05b3931e3dba8ff7dca6a9585caf476b4f374b05f8d2",
+  "seed": 20261030,
+  "resources": {
+    "platform": "darwin",
+    "cpu_seconds_fit_and_model_load": 0.591288,
+    "cpu_seconds_postfit_evaluation": 2.9004700000000003,
+    "peak_rss_bytes_before_fit": 581206016,
+    "peak_rss_bytes_after_fit": 588087296,
+    "peak_rss_bytes_after_evaluation": 662454272,
+    "peak_rss_increase_over_pre_fit_bytes": 81248256
+  },
+  "approach_training_metadata": {
+    "oof_summary": {
+      "samples": 129,
+      "accepted": 51,
+      "errors": 0,
+      "coverage": 0.3953488372093023,
+      "threshold": 0.8219865571329282,
+      "training_samples": 129,
+      "unscored_training_samples": 0,
+      "coverage_of_all_training_samples": 0.3953488372093023,
+      "calibration": "maximal zero-error coverage among leave-one-capture-group-out training predictions",
+      "fold_details": [
+        {
+          "capture_group": "framing-pair",
+          "held_samples": 6,
+          "training_samples": 123,
+          "missing_color_classes": [],
+          "missing_pattern_classes": [],
+          "status": "scored"
+        },
+        {
+          "capture_group": "grid-pair",
+          "held_samples": 30,
+          "training_samples": 99,
+          "missing_color_classes": [],
+          "missing_pattern_classes": [],
+          "status": "scored"
+        },
+        {
+          "capture_group": "small-checkerboard-session",
+          "held_samples": 93,
+          "training_samples": 36,
+          "missing_color_classes": [],
+          "missing_pattern_classes": [],
+          "status": "scored"
+        }
+      ],
+      "limitation": "Capture groups are the independent units; the small number of still-image groups limits calibration precision.",
+      "calibration_group_field": "capture_group",
+      "capture_groups": [
+        "framing-pair",
+        "grid-pair",
+        "small-checkerboard-session"
+      ],
+      "folds_skipped_for_incomplete_class_support": 0
+    },
+    "confidence_threshold": 0.8219865571329282,
+    "minimum_boundary_quality": 0.9667139291763306,
+    "train_scene_count": 13,
+    "train_sample_count": 129
+  },
+  "training": {
+    "samples": 129,
+    "scenes": [
+      "alternate-grid-720",
+      "framing-after-4k",
+      "framing-before-720",
+      "measured-grid-720",
+      "small-checkerboard-001",
+      "small-checkerboard-002",
+      "small-checkerboard-003",
+      "small-checkerboard-004",
+      "small-checkerboard-005",
+      "small-checkerboard-006",
+      "small-checkerboard-007",
+      "small-checkerboard-008",
+      "small-checkerboard-009"
+    ],
+    "fit_seconds": 0.5914989169687033,
+    "train_diagnostic": {
+      "observations": 129,
+      "accepted": 40,
+      "correct_accepted": 40,
+      "wrong_accepted": 0,
+      "coverage": 0.31007751937984496,
+      "selective_accuracy": 1.0,
+      "by_identity": {
+        "6": {
+          "truth": 6,
+          "n": 3,
+          "accepted": 0,
+          "correct": 0,
+          "errors": 0
+        },
+        "5": {
+          "truth": 5,
+          "n": 13,
+          "accepted": 11,
+          "correct": 11,
+          "errors": 0
+        },
+        "13": {
+          "truth": 13,
+          "n": 13,
+          "accepted": 0,
+          "correct": 0,
+          "errors": 0
+        },
+        "11": {
+          "truth": 11,
+          "n": 13,
+          "accepted": 0,
+          "correct": 0,
+          "errors": 0
+        },
+        "cue": {
+          "truth": "cue",
+          "n": 3,
+          "accepted": 0,
+          "correct": 0,
+          "errors": 0
+        },
+        "9": {
+          "truth": 9,
+          "n": 10,
+          "accepted": 0,
+          "correct": 0,
+          "errors": 0
+        },
+        "12": {
+          "truth": 12,
+          "n": 10,
+          "accepted": 6,
+          "correct": 6,
+          "errors": 0
+        },
+        "15": {
+          "truth": 15,
+          "n": 9,
+          "accepted": 0,
+          "correct": 0,
+          "errors": 0
+        },
+        "14": {
+          "truth": 14,
+          "n": 10,
+          "accepted": 5,
+          "correct": 5,
+          "errors": 0
+        },
+        "4": {
+          "truth": 4,
+          "n": 9,
+          "accepted": 9,
+          "correct": 9,
+          "errors": 0
+        },
+        "3": {
+          "truth": 3,
+          "n": 3,
+          "accepted": 0,
+          "correct": 0,
+          "errors": 0
+        },
+        "8": {
+          "truth": 8,
+          "n": 10,
+          "accepted": 0,
+          "correct": 0,
+          "errors": 0
+        },
+        "7": {
+          "truth": 7,
+          "n": 10,
+          "accepted": 0,
+          "correct": 0,
+          "errors": 0
+        },
+        "1": {
+          "truth": 1,
+          "n": 10,
+          "accepted": 8,
+          "correct": 8,
+          "errors": 0
+        },
+        "2": {
+          "truth": 2,
+          "n": 3,
+          "accepted": 1,
+          "correct": 1,
+          "errors": 0
+        }
+      },
+      "confusion_pairs": {}
+    },
+    "timing": {
+      "batch_elapsed_ms": 94.14583398029208,
+      "crops": 129,
+      "batch_amortized_ms_per_crop": 0.7298126665138921,
+      "reported_per_crop_p50_ms": 0.0,
+      "reported_per_crop_p95_ms": 0.0
+    }
+  },
+  "heldout_manual_regions": {
+    "observations": 32,
+    "accepted": 6,
+    "correct_accepted": 5,
+    "wrong_accepted": 1,
+    "coverage": 0.1875,
+    "selective_accuracy": 0.8333333333333334,
+    "by_identity": {
+      "1": {
+        "truth": 1,
+        "n": 2,
+        "accepted": 0,
+        "correct": 0,
+        "errors": 0
+      },
+      "2": {
+        "truth": 2,
+        "n": 2,
+        "accepted": 1,
+        "correct": 0,
+        "errors": 1
+      },
+      "3": {
+        "truth": 3,
+        "n": 2,
+        "accepted": 0,
+        "correct": 0,
+        "errors": 0
+      },
+      "4": {
+        "truth": 4,
+        "n": 2,
+        "accepted": 2,
+        "correct": 2,
+        "errors": 0
+      },
+      "5": {
+        "truth": 5,
+        "n": 2,
+        "accepted": 1,
+        "correct": 1,
+        "errors": 0
+      },
+      "6": {
+        "truth": 6,
+        "n": 2,
+        "accepted": 0,
+        "correct": 0,
+        "errors": 0
+      },
+      "7": {
+        "truth": 7,
+        "n": 2,
+        "accepted": 0,
+        "correct": 0,
+        "errors": 0
+      },
+      "8": {
+        "truth": 8,
+        "n": 2,
+        "accepted": 1,
+        "correct": 1,
+        "errors": 0
+      },
+      "9": {
+        "truth": 9,
+        "n": 2,
+        "accepted": 0,
+        "correct": 0,
+        "errors": 0
+      },
+      "10": {
+        "truth": 10,
+        "n": 2,
+        "accepted": 0,
+        "correct": 0,
+        "errors": 0
+      },
+      "11": {
+        "truth": 11,
+        "n": 2,
+        "accepted": 0,
+        "correct": 0,
+        "errors": 0
+      },
+      "12": {
+        "truth": 12,
+        "n": 2,
+        "accepted": 1,
+        "correct": 1,
+        "errors": 0
+      },
+      "13": {
+        "truth": 13,
+        "n": 2,
+        "accepted": 0,
+        "correct": 0,
+        "errors": 0
+      },
+      "14": {
+        "truth": 14,
+        "n": 2,
+        "accepted": 0,
+        "correct": 0,
+        "errors": 0
+      },
+      "15": {
+        "truth": 15,
+        "n": 2,
+        "accepted": 0,
+        "correct": 0,
+        "errors": 0
+      },
+      "cue": {
+        "truth": "cue",
+        "n": 2,
+        "accepted": 0,
+        "correct": 0,
+        "errors": 0
+      }
+    },
+    "confusion_pairs": {
+      "2->4": 1
+    },
+    "scene_scope": "two frames from one video, correlated; provisional only",
+    "timing": {
+      "batch_elapsed_ms": 44.81979226693511,
+      "crops": 32,
+      "batch_amortized_ms_per_crop": 1.4006185083417222,
+      "reported_per_crop_p50_ms": 0.0,
+      "reported_per_crop_p95_ms": 0.0
+    }
+  },
+  "training_actual_detection_regions_diagnostic": {
+    "observations": 125,
+    "accepted": 35,
+    "correct_accepted": 32,
+    "wrong_accepted": 3,
+    "coverage": 0.28,
+    "selective_accuracy": 0.9142857142857143,
+    "by_identity": {
+      "4": {
+        "truth": 4,
+        "n": 9,
+        "accepted": 9,
+        "correct": 9,
+        "errors": 0
+      },
+      "15": {
+        "truth": 15,
+        "n": 9,
+        "accepted": 0,
+        "correct": 0,
+        "errors": 0
+      },
+      "8": {
+        "truth": 8,
+        "n": 6,
+        "accepted": 0,
+        "correct": 0,
+        "errors": 0
+      },
+      "1": {
+        "truth": 1,
+        "n": 10,
+        "accepted": 8,
+        "correct": 8,
+        "errors": 0
+      },
+      "11": {
+        "truth": 11,
+        "n": 13,
+        "accepted": 0,
+        "correct": 0,
+        "errors": 0
+      },
+      "9": {
+        "truth": 9,
+        "n": 10,
+        "accepted": 0,
+        "correct": 0,
+        "errors": 0
+      },
+      "5": {
+        "truth": 5,
+        "n": 13,
+        "accepted": 13,
+        "correct": 13,
+        "errors": 0
+      },
+      "12": {
+        "truth": 12,
+        "n": 10,
+        "accepted": 2,
+        "correct": 2,
+        "errors": 0
+      },
+      "14": {
+        "truth": 14,
+        "n": 10,
+        "accepted": 0,
+        "correct": 0,
+        "errors": 0
+      },
+      "3": {
+        "truth": 3,
+        "n": 3,
+        "accepted": 0,
+        "correct": 0,
+        "errors": 0
+      },
+      "7": {
+        "truth": 7,
+        "n": 10,
+        "accepted": 0,
+        "correct": 0,
+        "errors": 0
+      },
+      "cue": {
+        "truth": "cue",
+        "n": 3,
+        "accepted": 0,
+        "correct": 0,
+        "errors": 0
+      },
+      "13": {
+        "truth": 13,
+        "n": 13,
+        "accepted": 0,
+        "correct": 0,
+        "errors": 0
+      },
+      "2": {
+        "truth": 2,
+        "n": 3,
+        "accepted": 3,
+        "correct": 0,
+        "errors": 3
+      },
+      "6": {
+        "truth": 6,
+        "n": 3,
+        "accepted": 0,
+        "correct": 0,
+        "errors": 0
+      }
+    },
+    "confusion_pairs": {
+      "2->4": 3
+    },
+    "matched_regions": 125,
+    "timing": {
+      "batch_elapsed_ms": 85.44520800933242,
+      "crops": 125,
+      "batch_amortized_ms_per_crop": 0.6835616640746593,
+      "reported_per_crop_p50_ms": 0.0,
+      "reported_per_crop_p95_ms": 0.0
+    }
+  },
+  "heldout_actual_detection_regions": {
+    "observations": 29,
+    "accepted": 6,
+    "correct_accepted": 5,
+    "wrong_accepted": 1,
+    "coverage": 0.20689655172413793,
+    "selective_accuracy": 0.8333333333333334,
+    "by_identity": {
+      "cue": {
+        "truth": "cue",
+        "n": 2,
+        "accepted": 0,
+        "correct": 0,
+        "errors": 0
+      },
+      "15": {
+        "truth": 15,
+        "n": 2,
+        "accepted": 0,
+        "correct": 0,
+        "errors": 0
+      },
+      "6": {
+        "truth": 6,
+        "n": 2,
+        "accepted": 0,
+        "correct": 0,
+        "errors": 0
+      },
+      "3": {
+        "truth": 3,
+        "n": 2,
+        "accepted": 0,
+        "correct": 0,
+        "errors": 0
+      },
+      "1": {
+        "truth": 1,
+        "n": 2,
+        "accepted": 0,
+        "correct": 0,
+        "errors": 0
+      },
+      "9": {
+        "truth": 9,
+        "n": 2,
+        "accepted": 0,
+        "correct": 0,
+        "errors": 0
+      },
+      "14": {
+        "truth": 14,
+        "n": 2,
+        "accepted": 0,
+        "correct": 0,
+        "errors": 0
+      },
+      "10": {
+        "truth": 10,
+        "n": 1,
+        "accepted": 0,
+        "correct": 0,
+        "errors": 0
+      },
+      "7": {
+        "truth": 7,
+        "n": 2,
+        "accepted": 0,
+        "correct": 0,
+        "errors": 0
+      },
+      "5": {
+        "truth": 5,
+        "n": 2,
+        "accepted": 1,
+        "correct": 1,
+        "errors": 0
+      },
+      "13": {
+        "truth": 13,
+        "n": 2,
+        "accepted": 0,
+        "correct": 0,
+        "errors": 0
+      },
+      "4": {
+        "truth": 4,
+        "n": 2,
+        "accepted": 2,
+        "correct": 2,
+        "errors": 0
+      },
+      "12": {
+        "truth": 12,
+        "n": 2,
+        "accepted": 1,
+        "correct": 1,
+        "errors": 0
+      },
+      "2": {
+        "truth": 2,
+        "n": 2,
+        "accepted": 1,
+        "correct": 0,
+        "errors": 1
+      },
+      "8": {
+        "truth": 8,
+        "n": 1,
+        "accepted": 1,
+        "correct": 1,
+        "errors": 0
+      },
+      "11": {
+        "truth": 11,
+        "n": 1,
+        "accepted": 0,
+        "correct": 0,
+        "errors": 0
+      }
+    },
+    "confusion_pairs": {
+      "2->4": 1
+    },
+    "matched_regions": 29,
+    "timing": {
+      "batch_elapsed_ms": 40.38204113021493,
+      "crops": 29,
+      "batch_amortized_ms_per_crop": 1.392484176903963,
+      "reported_per_crop_p50_ms": 0.0,
+      "reported_per_crop_p95_ms": 0.0
+    }
+  },
+  "unmatched_detection_crops": {
+    "regions": 45,
+    "predicted_identity_count": 7,
+    "by_scene": {
+      "demo3-rack-frame-000": 0,
+      "demo3-scattered-frame-900": 0,
+      "framing-after-4k": 0,
+      "framing-before-720": 0,
+      "large-checkerboard-001": 0,
+      "large-checkerboard-002": 0,
+      "large-checkerboard-003": 1,
+      "large-checkerboard-004": 1,
+      "large-checkerboard-005": 0,
+      "large-checkerboard-006": 0,
+      "large-checkerboard-007": 0,
+      "large-checkerboard-008": 0,
+      "small-checkerboard-001": 0,
+      "small-checkerboard-002": 0,
+      "small-checkerboard-003": 0,
+      "small-checkerboard-004": 0,
+      "small-checkerboard-005": 0,
+      "small-checkerboard-006": 2,
+      "small-checkerboard-007": 1,
+      "small-checkerboard-008": 1,
+      "small-checkerboard-009": 1
+    },
+    "timing": {
+      "batch_elapsed_ms": 99.02170905843377,
+      "crops": 45,
+      "batch_amortized_ms_per_crop": 2.2004824235207505,
+      "reported_per_crop_p50_ms": 0.0,
+      "reported_per_crop_p95_ms": 0.0
+    }
+  },
+  "detector_coverage": {
+    "all_labeled_positive_scenes": {
+      "measured-grid-720": {
+        "ground_truth": 15,
+        "detections": 15,
+        "matched": 15,
+        "missed_ground_truth": 0,
+        "extra_detections": 0
+      },
+      "alternate-grid-720": {
+        "ground_truth": 15,
+        "detections": 15,
+        "matched": 15,
+        "missed_ground_truth": 0,
+        "extra_detections": 0
+      },
+      "small-checkerboard-001": {
+        "ground_truth": 15,
+        "detections": 16,
+        "matched": 15,
+        "missed_ground_truth": 0,
+        "extra_detections": 1
+      },
+      "small-checkerboard-002": {
+        "ground_truth": 11,
+        "detections": 14,
+        "matched": 11,
+        "missed_ground_truth": 0,
+        "extra_detections": 3
+      },
+      "small-checkerboard-003": {
+        "ground_truth": 11,
+        "detections": 13,
+        "matched": 11,
+        "missed_ground_truth": 0,
+        "extra_detections": 2
+      },
+      "small-checkerboard-004": {
+        "ground_truth": 11,
+        "detections": 13,
+        "matched": 11,
+        "missed_ground_truth": 0,
+        "extra_detections": 2
+      },
+      "small-checkerboard-005": {
+        "ground_truth": 11,
+        "detections": 11,
+        "matched": 10,
+        "missed_ground_truth": 1,
+        "extra_detections": 1
+      },
+      "small-checkerboard-006": {
+        "ground_truth": 10,
+        "detections": 11,
+        "matched": 9,
+        "missed_ground_truth": 1,
+        "extra_detections": 2
+      },
+      "small-checkerboard-007": {
+        "ground_truth": 11,
+        "detections": 11,
+        "matched": 10,
+        "missed_ground_truth": 1,
+        "extra_detections": 1
+      },
+      "small-checkerboard-008": {
+        "ground_truth": 10,
+        "detections": 13,
+        "matched": 9,
+        "missed_ground_truth": 1,
+        "extra_detections": 4
+      },
+      "small-checkerboard-009": {
+        "ground_truth": 3,
+        "detections": 4,
+        "matched": 3,
+        "missed_ground_truth": 0,
+        "extra_detections": 1
+      },
+      "framing-before-720": {
+        "ground_truth": 3,
+        "detections": 4,
+        "matched": 3,
+        "missed_ground_truth": 0,
+        "extra_detections": 1
+      },
+      "framing-after-4k": {
+        "ground_truth": 3,
+        "detections": 5,
+        "matched": 3,
+        "missed_ground_truth": 0,
+        "extra_detections": 2
+      },
+      "large-checkerboard-001": {
+        "ground_truth": 0,
+        "detections": 3,
+        "matched": 0,
+        "missed_ground_truth": 0,
+        "extra_detections": 3
+      },
+      "large-checkerboard-002": {
+        "ground_truth": 0,
+        "detections": 2,
+        "matched": 0,
+        "missed_ground_truth": 0,
+        "extra_detections": 2
+      },
+      "large-checkerboard-003": {
+        "ground_truth": 0,
+        "detections": 3,
+        "matched": 0,
+        "missed_ground_truth": 0,
+        "extra_detections": 3
+      },
+      "large-checkerboard-004": {
+        "ground_truth": 0,
+        "detections": 2,
+        "matched": 0,
+        "missed_ground_truth": 0,
+        "extra_detections": 2
+      },
+      "large-checkerboard-005": {
+        "ground_truth": 0,
+        "detections": 4,
+        "matched": 0,
+        "missed_ground_truth": 0,
+        "extra_detections": 4
+      },
+      "large-checkerboard-006": {
+        "ground_truth": 0,
+        "detections": 2,
+        "matched": 0,
+        "missed_ground_truth": 0,
+        "extra_detections": 2
+      },
+      "large-checkerboard-007": {
+        "ground_truth": 0,
+        "detections": 3,
+        "matched": 0,
+        "missed_ground_truth": 0,
+        "extra_detections": 3
+      },
+      "large-checkerboard-008": {
+        "ground_truth": 0,
+        "detections": 4,
+        "matched": 0,
+        "missed_ground_truth": 0,
+        "extra_detections": 4
+      },
+      "demo3-rack-frame-000": {
+        "ground_truth": 16,
+        "detections": 15,
+        "matched": 14,
+        "missed_ground_truth": 2,
+        "extra_detections": 1
+      },
+      "demo3-scattered-frame-900": {
+        "ground_truth": 16,
+        "detections": 16,
+        "matched": 15,
+        "missed_ground_truth": 1,
+        "extra_detections": 1
+      }
+    },
+    "heldout_video_frames": {
+      "demo3-rack-frame-000": {
+        "ground_truth": 16,
+        "detections": 15,
+        "matched": 14,
+        "missed_ground_truth": 2,
+        "extra_detections": 1
+      },
+      "demo3-scattered-frame-900": {
+        "ground_truth": 16,
+        "detections": 16,
+        "matched": 15,
+        "missed_ground_truth": 1,
+        "extra_detections": 1
+      }
+    }
+  },
+  "candidate_outputs": [
+    {
+      "scene_id": "demo3-rack-frame-000",
+      "truth": 1,
+      "prediction": null,
+      "confidence": 0.785825732317867,
+      "evidence": {
+        "color": "yellow",
+        "pattern": "solid",
+        "color_confidence": 0.9406616806124889,
+        "pattern_confidence": 0.785825732317867,
+        "confidence_threshold": 0.8219865571329282,
+        "accepted_by_oof_cutoff": false,
+        "color_support_distance": 1.1428309070326816,
+        "color_support_limit": 2.428825531548079,
+        "pattern_support_distance": 1.225329810528481,
+        "pattern_support_limit": 2.489447251916752,
+        "boundary_supported": true,
+        "estimated_radius_fraction": 0.4267088449918307,
+        "boundary_quality": 1.0,
+        "pigment_chroma_median": 83.30064392089844,
+        "white_spatial_score": 0.26939836144447327
+      }
+    },
+    {
+      "scene_id": "demo3-rack-frame-000",
+      "truth": 2,
+      "prediction": null,
+      "confidence": 0.6970211632258061,
+      "evidence": {
+        "color": "blue",
+        "pattern": "stripe",
+        "color_confidence": 0.6970211632258061,
+        "pattern_confidence": 0.9230953654127564,
+        "confidence_threshold": 0.8219865571329282,
+        "accepted_by_oof_cutoff": false,
+        "color_support_distance": 0.8318892898739645,
+        "color_support_limit": 1.25,
+        "pattern_support_distance": 1.8880479599234357,
+        "pattern_support_limit": 3.7911698775825577,
+        "boundary_supported": true,
+        "estimated_radius_fraction": 0.2165822799389179,
+        "boundary_quality": 1.0,
+        "pigment_chroma_median": 26.362791061401367,
+        "white_spatial_score": 0.30356648564338684
+      }
+    },
+    {
+      "scene_id": "demo3-rack-frame-000",
+      "truth": 3,
+      "prediction": null,
+      "confidence": 0.6115357146809759,
+      "evidence": {
+        "color": "red",
+        "pattern": "solid",
+        "color_confidence": 0.6115357146809759,
+        "pattern_confidence": 0.8941340635269887,
+        "confidence_threshold": 0.8219865571329282,
+        "accepted_by_oof_cutoff": false,
+        "color_support_distance": 0.612356826919603,
+        "color_support_limit": 2.015857741197372,
+        "pattern_support_distance": 1.1545697253405722,
+        "pattern_support_limit": 2.489447251916752,
+        "boundary_supported": true,
+        "estimated_radius_fraction": 0.44246834975022536,
+        "boundary_quality": 1.0,
+        "pigment_chroma_median": 72.91776275634766,
+        "white_spatial_score": 0.3246496915817261
+      }
+    },
+    {
+      "scene_id": "demo3-rack-frame-000",
+      "truth": 4,
+      "prediction": 4,
+      "confidence": 0.8745993061382644,
+      "evidence": {
+        "color": "purple",
+        "pattern": "solid",
+        "color_confidence": 0.8745993061382644,
+        "pattern_confidence": 0.9099947306871475,
+        "confidence_threshold": 0.8219865571329282,
+        "accepted_by_oof_cutoff": true,
+        "color_support_distance": 1.2676237645926451,
+        "color_support_limit": 4.59332720420304,
+        "pattern_support_distance": 0.8929205025886887,
+        "pattern_support_limit": 2.489447251916752,
+        "boundary_supported": true,
+        "estimated_radius_fraction": 0.44246834975022536,
+        "boundary_quality": 1.0,
+        "pigment_chroma_median": 58.898216247558594,
+        "white_spatial_score": 0.2480943650007248
+      }
+    },
+    {
+      "scene_id": "demo3-rack-frame-000",
+      "truth": 5,
+      "prediction": null,
+      "confidence": 0.40530561976368223,
+      "evidence": {
+        "color": "orange",
+        "pattern": "solid",
+        "color_confidence": 0.42975318497103226,
+        "pattern_confidence": 0.40530561976368223,
+        "confidence_threshold": 0.8219865571329282,
+        "accepted_by_oof_cutoff": false,
+        "color_support_distance": 0.49286394343030354,
+        "color_support_limit": 1.4329732711947747,
+        "pattern_support_distance": 1.2232181968196665,
+        "pattern_support_limit": 2.489447251916752,
+        "boundary_supported": true,
+        "estimated_radius_fraction": 0.44772151800302357,
+        "boundary_quality": 1.0,
+        "pigment_chroma_median": 69.58448028564453,
+        "white_spatial_score": 0.29187488555908203
+      }
+    },
+    {
+      "scene_id": "demo3-rack-frame-000",
+      "truth": 6,
+      "prediction": null,
+      "confidence": 0.7480670556096859,
+      "evidence": {
+        "color": "black",
+        "pattern": "solid",
+        "color_confidence": 0.7480670556096859,
+        "pattern_confidence": 0.877416691270269,
+        "confidence_threshold": 0.8219865571329282,
+        "accepted_by_oof_cutoff": false,
+        "color_support_distance": 1.2102133763657834,
+        "color_support_limit": 3.324152261237053,
+        "pattern_support_distance": 0.9959025313216161,
+        "pattern_support_limit": 2.489447251916752,
+        "boundary_supported": true,
+        "estimated_radius_fraction": 0.489746827345628,
+        "boundary_quality": 1.0,
+        "pigment_chroma_median": 39.293766021728516,
+        "white_spatial_score": 0.2434156984090805
+      }
+    },
+    {
+      "scene_id": "demo3-rack-frame-000",
+      "truth": 7,
+      "prediction": null,
+      "confidence": 0.43904204823750215,
+      "evidence": {
+        "color": "maroon",
+        "pattern": "solid",
+        "color_confidence": 0.43904204823750215,
+        "pattern_confidence": 0.9347109922620475,
+        "confidence_threshold": 0.8219865571329282,
+        "accepted_by_oof_cutoff": false,
+        "color_support_distance": 0.3809828205045357,
+        "color_support_limit": 3.2530955891229425,
+        "pattern_support_distance": 1.448564357849545,
+        "pattern_support_limit": 2.489447251916752,
+        "boundary_supported": true,
+        "estimated_radius_fraction": 0.3321518898010254,
+        "boundary_quality": 1.0,
+        "pigment_chroma_median": 65.0,
+        "white_spatial_score": 0.25171682238578796
+      }
+    },
+    {
+      "scene_id": "demo3-rack-frame-000",
+      "truth": 8,
+      "prediction": null,
+      "confidence": 0.4285845795254572,
+      "evidence": {
+        "color": "green",
+        "pattern": "solid",
+        "color_confidence": 0.4285845795254572,
+        "pattern_confidence": 0.8227801442394536,
+        "confidence_threshold": 0.8219865571329282,
+        "accepted_by_oof_cutoff": false,
+        "color_support_distance": 1.404334279958339,
+        "color_support_limit": 2.8331640234041497,
+        "pattern_support_distance": 1.143366711486449,
+        "pattern_support_limit": 2.489447251916752,
+        "boundary_supported": true,
+        "estimated_radius_fraction": 0.3951898721548227,
+        "boundary_quality": 1.0,
+        "pigment_chroma_median": 10.630146026611328,
+        "white_spatial_score": 0.24311506748199463
+      }
+    },
+    {
+      "scene_id": "demo3-rack-frame-000",
+      "truth": 9,
+      "prediction": null,
+      "confidence": 0.539358936816157,
+      "evidence": {
+        "color": "purple",
+        "pattern": "stripe",
+        "color_confidence": 0.539358936816157,
+        "pattern_confidence": 0.5661701813892253,
+        "confidence_threshold": 0.8219865571329282,
+        "accepted_by_oof_cutoff": false,
+        "color_support_distance": 2.0706284369902184,
+        "color_support_limit": 4.59332720420304,
+        "pattern_support_distance": 1.6924018474965898,
+        "pattern_support_limit": 3.7911698775825577,
+        "boundary_supported": true,
+        "estimated_radius_fraction": 0.4083227744469276,
+        "boundary_quality": 1.0,
+        "pigment_chroma_median": 12.083045959472656,
+        "white_spatial_score": 0.26703697443008423
+      }
+    },
+    {
+      "scene_id": "demo3-rack-frame-000",
+      "truth": 10,
+      "prediction": null,
+      "confidence": 0.468245794005048,
+      "evidence": {
+        "color": "purple",
+        "pattern": "stripe",
+        "color_confidence": 0.468245794005048,
+        "pattern_confidence": 0.9898000062256107,
+        "confidence_threshold": 0.8219865571329282,
+        "accepted_by_oof_cutoff": false,
+        "color_support_distance": 2.4468962207409817,
+        "color_support_limit": 4.59332720420304,
+        "pattern_support_distance": 1.4000956390951218,
+        "pattern_support_limit": 3.7911698775825577,
+        "boundary_supported": true,
+        "estimated_radius_fraction": 0.219208864065317,
+        "boundary_quality": 1.0,
+        "pigment_chroma_median": 26.0,
+        "white_spatial_score": 0.3131182789802551
+      }
+    },
+    {
+      "scene_id": "demo3-rack-frame-000",
+      "truth": 11,
+      "prediction": null,
+      "confidence": 0.4475496797180142,
+      "evidence": {
+        "color": "red",
+        "pattern": "stripe",
+        "color_confidence": 0.4475496797180142,
+        "pattern_confidence": 0.8044149325731234,
+        "confidence_threshold": 0.8219865571329282,
+        "accepted_by_oof_cutoff": false,
+        "color_support_distance": 0.4580929253097712,
+        "color_support_limit": 2.015857741197372,
+        "pattern_support_distance": 0.9059221249898506,
+        "pattern_support_limit": 3.7911698775825577,
+        "boundary_supported": true,
+        "estimated_radius_fraction": 0.290126580458421,
+        "boundary_quality": 1.0,
+        "pigment_chroma_median": 63.14665222167969,
+        "white_spatial_score": 0.3316871225833893
+      }
+    },
+    {
+      "scene_id": "demo3-rack-frame-000",
+      "truth": 12,
+      "prediction": 12,
+      "confidence": 0.9484579636515468,
+      "evidence": {
+        "color": "purple",
+        "pattern": "stripe",
+        "color_confidence": 0.9484579636515468,
+        "pattern_confidence": 0.9841320092323025,
+        "confidence_threshold": 0.8219865571329282,
+        "accepted_by_oof_cutoff": true,
+        "color_support_distance": 1.3617898597009626,
+        "color_support_limit": 4.59332720420304,
+        "pattern_support_distance": 0.9255821424446825,
+        "pattern_support_limit": 3.7911698775825577,
+        "boundary_supported": true,
+        "estimated_radius_fraction": 0.2691139257871188,
+        "boundary_quality": 1.0,
+        "pigment_chroma_median": 32.24903106689453,
+        "white_spatial_score": 0.2958269417285919
+      }
+    },
+    {
+      "scene_id": "demo3-rack-frame-000",
+      "truth": 13,
+      "prediction": null,
+      "confidence": 0.4411577617289149,
+      "evidence": {
+        "color": "orange",
+        "pattern": "solid",
+        "color_confidence": 0.4411577617289149,
+        "pattern_confidence": 0.5518525004626076,
+        "confidence_threshold": 0.8219865571329282,
+        "accepted_by_oof_cutoff": false,
+        "color_support_distance": 0.45168478979130233,
+        "color_support_limit": 1.4329732711947747,
+        "pattern_support_distance": 1.2674309854712658,
+        "pattern_support_limit": 2.489447251916752,
+        "boundary_supported": true,
+        "estimated_radius_fraction": 0.2953797487112192,
+        "boundary_quality": 1.0,
+        "pigment_chroma_median": 72.02777099609375,
+        "white_spatial_score": 0.26967501640319824
+      }
+    },
+    {
+      "scene_id": "demo3-rack-frame-000",
+      "truth": 14,
+      "prediction": null,
+      "confidence": 0.31645692423390187,
+      "evidence": {
+        "color": "green",
+        "pattern": "stripe",
+        "color_confidence": 0.31645692423390187,
+        "pattern_confidence": 0.9891530766844315,
+        "confidence_threshold": 0.8219865571329282,
+        "accepted_by_oof_cutoff": false,
+        "color_support_distance": 1.5105481962357432,
+        "color_support_limit": 2.8331640234041497,
+        "pattern_support_distance": 1.1582637362755592,
+        "pattern_support_limit": 3.7911698775825577,
+        "boundary_supported": true,
+        "estimated_radius_fraction": 0.3111392534696139,
+        "boundary_quality": 1.0,
+        "pigment_chroma_median": 18.027755737304688,
+        "white_spatial_score": 0.31332454085350037
+      }
+    },
+    {
+      "scene_id": "demo3-rack-frame-000",
+      "truth": 15,
+      "prediction": null,
+      "confidence": 0.5058956526623104,
+      "evidence": {
+        "color": "maroon",
+        "pattern": "stripe",
+        "color_confidence": 0.5902987343930949,
+        "pattern_confidence": 0.5058956526623104,
+        "confidence_threshold": 0.8219865571329282,
+        "accepted_by_oof_cutoff": false,
+        "color_support_distance": 0.48226534860996234,
+        "color_support_limit": 3.2530955891229425,
+        "pattern_support_distance": 1.1832559085835164,
+        "pattern_support_limit": 3.7911698775825577,
+        "boundary_supported": true,
+        "estimated_radius_fraction": 0.34528482877291167,
+        "boundary_quality": 1.0,
+        "pigment_chroma_median": 62.7694206237793,
+        "white_spatial_score": 0.3171718418598175
+      }
+    },
+    {
+      "scene_id": "demo3-rack-frame-000",
+      "truth": "cue",
+      "prediction": null,
+      "confidence": 0.6956738106496846,
+      "evidence": {
+        "color": "green",
+        "pattern": "cue",
+        "color_confidence": 0.7919761689391618,
+        "pattern_confidence": 0.6956738106496846,
+        "confidence_threshold": 0.8219865571329282,
+        "accepted_by_oof_cutoff": false,
+        "color_support_distance": 1.358981125650836,
+        "color_support_limit": 2.8331640234041497,
+        "pattern_support_distance": 1.014841781679381,
+        "pattern_support_limit": 1.25,
+        "boundary_supported": true,
+        "estimated_radius_fraction": 0.42408227920532227,
+        "boundary_quality": 1.0,
+        "pigment_chroma_median": 5.830951690673828,
+        "white_spatial_score": 0.24494367837905884
+      }
+    },
+    {
+      "scene_id": "demo3-scattered-frame-900",
+      "truth": 6,
+      "prediction": null,
+      "confidence": 0.506999661947205,
+      "evidence": {
+        "color": "black",
+        "pattern": "solid",
+        "color_confidence": 0.506999661947205,
+        "pattern_confidence": 0.9853178366179052,
+        "confidence_threshold": 0.8219865571329282,
+        "accepted_by_oof_cutoff": false,
+        "color_support_distance": 0.9355789660924126,
+        "color_support_limit": 3.324152261237053,
+        "pattern_support_distance": 0.9551633226400243,
+        "pattern_support_limit": 2.489447251916752,
+        "boundary_supported": true,
+        "estimated_radius_fraction": 0.4372151814974271,
+        "boundary_quality": 1.0,
+        "pigment_chroma_median": 33.241539001464844,
+        "white_spatial_score": 0.2353188842535019
+      }
+    },
+    {
+      "scene_id": "demo3-scattered-frame-900",
+      "truth": 14,
+      "prediction": null,
+      "confidence": 0.4756814048414552,
+      "evidence": {
+        "color": "purple",
+        "pattern": "stripe",
+        "color_confidence": 0.4756814048414552,
+        "pattern_confidence": 0.6290416425610772,
+        "confidence_threshold": 0.8219865571329282,
+        "accepted_by_oof_cutoff": false,
+        "color_support_distance": 2.065482101164227,
+        "color_support_limit": 4.59332720420304,
+        "pattern_support_distance": 1.6345339142389543,
+        "pattern_support_limit": 3.7911698775825577,
+        "boundary_supported": true,
+        "estimated_radius_fraction": 0.3374050580538236,
+        "boundary_quality": 1.0,
+        "pigment_chroma_median": 23.25940704345703,
+        "white_spatial_score": 0.2940458357334137
+      }
+    },
+    {
+      "scene_id": "demo3-scattered-frame-900",
+      "truth": 5,
+      "prediction": 5,
+      "confidence": 0.8505532706590712,
+      "evidence": {
+        "color": "orange",
+        "pattern": "solid",
+        "color_confidence": 0.8505532706590712,
+        "pattern_confidence": 0.9857724443877106,
+        "confidence_threshold": 0.8219865571329282,
+        "accepted_by_oof_cutoff": true,
+        "color_support_distance": 0.7108340647215415,
+        "color_support_limit": 1.4329732711947747,
+        "pattern_support_distance": 1.950758001785489,
+        "pattern_support_limit": 2.489447251916752,
+        "boundary_supported": true,
+        "estimated_radius_fraction": 0.4267088449918307,
+        "boundary_quality": 1.0,
+        "pigment_chroma_median": 75.82215881347656,
+        "white_spatial_score": 0.3179667592048645
+      }
+    },
+    {
+      "scene_id": "demo3-scattered-frame-900",
+      "truth": 7,
+      "prediction": null,
+      "confidence": 0.5088962071300578,
+      "evidence": {
+        "color": "maroon",
+        "pattern": "solid",
+        "color_confidence": 0.5088962071300578,
+        "pattern_confidence": 0.9829716664619679,
+        "confidence_threshold": 0.8219865571329282,
+        "accepted_by_oof_cutoff": false,
+        "color_support_distance": 0.4293692597652514,
+        "color_support_limit": 3.2530955891229425,
+        "pattern_support_distance": 0.8621434929034866,
+        "pattern_support_limit": 2.489447251916752,
+        "boundary_supported": true,
+        "estimated_radius_fraction": 0.4135759793795072,
+        "boundary_quality": 1.0,
+        "pigment_chroma_median": 59.16925048828125,
+        "white_spatial_score": 0.2678590714931488
+      }
+    },
+    {
+      "scene_id": "demo3-scattered-frame-900",
+      "truth": 12,
+      "prediction": null,
+      "confidence": 0.652676988840239,
+      "evidence": {
+        "color": "purple",
+        "pattern": "stripe",
+        "color_confidence": 0.652676988840239,
+        "pattern_confidence": 0.7352930459593161,
+        "confidence_threshold": 0.8219865571329282,
+        "accepted_by_oof_cutoff": false,
+        "color_support_distance": 1.7644103922515229,
+        "color_support_limit": 4.59332720420304,
+        "pattern_support_distance": 1.580711096136039,
+        "pattern_support_limit": 3.7911698775825577,
+        "boundary_supported": true,
+        "estimated_radius_fraction": 0.4398417839637169,
+        "boundary_quality": 1.0,
+        "pigment_chroma_median": 17.804492950439453,
+        "white_spatial_score": 0.27369460463523865
+      }
+    },
+    {
+      "scene_id": "demo3-scattered-frame-900",
+      "truth": "cue",
+      "prediction": null,
+      "confidence": 0.5535603909163616,
+      "evidence": {
+        "color": "purple",
+        "pattern": "cue",
+        "color_confidence": 0.5535603909163616,
+        "pattern_confidence": 0.7948653612187047,
+        "confidence_threshold": 0.8219865571329282,
+        "accepted_by_oof_cutoff": false,
+        "color_support_distance": 2.0949384814882896,
+        "color_support_limit": 4.59332720420304,
+        "pattern_support_distance": 1.3874838633334592,
+        "pattern_support_limit": 1.25,
+        "boundary_supported": true,
+        "estimated_radius_fraction": 0.4162025451660156,
+        "boundary_quality": 1.0,
+        "pigment_chroma_median": 13.152946472167969,
+        "white_spatial_score": 0.2835973799228668
+      }
+    },
+    {
+      "scene_id": "demo3-scattered-frame-900",
+      "truth": 10,
+      "prediction": null,
+      "confidence": 0.5731266345044972,
+      "evidence": {
+        "color": "blue",
+        "pattern": "stripe",
+        "color_confidence": 0.5731266345044972,
+        "pattern_confidence": 0.8980159563176356,
+        "confidence_threshold": 0.8219865571329282,
+        "accepted_by_oof_cutoff": false,
+        "color_support_distance": 1.0813272771258373,
+        "color_support_limit": 1.25,
+        "pattern_support_distance": 1.131135876154178,
+        "pattern_support_limit": 3.7911698775825577,
+        "boundary_supported": true,
+        "estimated_radius_fraction": 0.3951898721548227,
+        "boundary_quality": 1.0,
+        "pigment_chroma_median": 49.33558654785156,
+        "white_spatial_score": 0.3042302131652832
+      }
+    },
+    {
+      "scene_id": "demo3-scattered-frame-900",
+      "truth": 11,
+      "prediction": null,
+      "confidence": 0.4029558578538818,
+      "evidence": {
+        "color": "purple",
+        "pattern": "cue",
+        "color_confidence": 0.4029558578538818,
+        "pattern_confidence": 0.6213158553980321,
+        "confidence_threshold": 0.8219865571329282,
+        "accepted_by_oof_cutoff": false,
+        "color_support_distance": 1.9393504854207169,
+        "color_support_limit": 4.59332720420304,
+        "pattern_support_distance": 2.001294221831806,
+        "pattern_support_limit": 1.25,
+        "boundary_supported": true,
+        "estimated_radius_fraction": 0.4372151814974271,
+        "boundary_quality": 1.0,
+        "pigment_chroma_median": 26.4007568359375,
+        "white_spatial_score": 0.31253668665885925
+      }
+    },
+    {
+      "scene_id": "demo3-scattered-frame-900",
+      "truth": 8,
+      "prediction": 8,
+      "confidence": 0.8312263553289769,
+      "evidence": {
+        "color": "black",
+        "pattern": "solid",
+        "color_confidence": 0.8312263553289769,
+        "pattern_confidence": 0.9899128861470349,
+        "confidence_threshold": 0.8219865571329282,
+        "accepted_by_oof_cutoff": true,
+        "color_support_distance": 1.27814807197742,
+        "color_support_limit": 3.324152261237053,
+        "pattern_support_distance": 1.2457508375294928,
+        "pattern_support_limit": 2.489447251916752,
+        "boundary_supported": true,
+        "estimated_radius_fraction": 0.4162025451660156,
+        "boundary_quality": 1.0,
+        "pigment_chroma_median": 13.152946472167969,
+        "white_spatial_score": 0.24712975323200226
+      }
+    },
+    {
+      "scene_id": "demo3-scattered-frame-900",
+      "truth": 1,
+      "prediction": null,
+      "confidence": 0.7398113724597303,
+      "evidence": {
+        "color": "yellow",
+        "pattern": "solid",
+        "color_confidence": 0.7398113724597303,
+        "pattern_confidence": 0.9899332638587179,
+        "confidence_threshold": 0.8219865571329282,
+        "accepted_by_oof_cutoff": false,
+        "color_support_distance": 0.7534182155649531,
+        "color_support_limit": 2.428825531548079,
+        "pattern_support_distance": 1.2850801319339085,
+        "pattern_support_limit": 2.489447251916752,
+        "boundary_supported": true,
+        "estimated_radius_fraction": 0.4267088449918307,
+        "boundary_quality": 1.0,
+        "pigment_chroma_median": 80.3056640625,
+        "white_spatial_score": 0.24321594834327698
+      }
+    },
+    {
+      "scene_id": "demo3-scattered-frame-900",
+      "truth": 13,
+      "prediction": null,
+      "confidence": 0.3789654451285929,
+      "evidence": {
+        "color": "yellow",
+        "pattern": "stripe",
+        "color_confidence": 0.3789654451285929,
+        "pattern_confidence": 0.689891374879773,
+        "confidence_threshold": 0.8219865571329282,
+        "accepted_by_oof_cutoff": false,
+        "color_support_distance": 0.8377754686890384,
+        "color_support_limit": 2.428825531548079,
+        "pattern_support_distance": 1.246827399687244,
+        "pattern_support_limit": 3.7911698775825577,
+        "boundary_supported": true,
+        "estimated_radius_fraction": 0.4135759793795072,
+        "boundary_quality": 1.0,
+        "pigment_chroma_median": 71.18637084960938,
+        "white_spatial_score": 0.3186236619949341
+      }
+    },
+    {
+      "scene_id": "demo3-scattered-frame-900",
+      "truth": 15,
+      "prediction": null,
+      "confidence": 0.5351091350265063,
+      "evidence": {
+        "color": "purple",
+        "pattern": "cue",
+        "color_confidence": 0.5351091350265063,
+        "pattern_confidence": 0.7950389556095986,
+        "confidence_threshold": 0.8219865571329282,
+        "accepted_by_oof_cutoff": false,
+        "color_support_distance": 2.076762784035453,
+        "color_support_limit": 4.59332720420304,
+        "pattern_support_distance": 1.4769305867324707,
+        "pattern_support_limit": 1.25,
+        "boundary_supported": true,
+        "estimated_radius_fraction": 0.40569620866041917,
+        "boundary_quality": 1.0,
+        "pigment_chroma_median": 10.29563045501709,
+        "white_spatial_score": 0.2809036076068878
+      }
+    },
+    {
+      "scene_id": "demo3-scattered-frame-900",
+      "truth": 3,
+      "prediction": null,
+      "confidence": 0.4808571368200512,
+      "evidence": {
+        "color": "red",
+        "pattern": "solid",
+        "color_confidence": 0.4808571368200512,
+        "pattern_confidence": 0.9970601338448635,
+        "confidence_threshold": 0.8219865571329282,
+        "accepted_by_oof_cutoff": false,
+        "color_support_distance": 1.1316189527166414,
+        "color_support_limit": 2.015857741197372,
+        "pattern_support_distance": 1.7150634375528704,
+        "pattern_support_limit": 2.489447251916752,
+        "boundary_supported": true,
+        "estimated_radius_fraction": 0.4109493769132174,
+        "boundary_quality": 1.0,
+        "pigment_chroma_median": 80.62257385253906,
+        "white_spatial_score": 0.3298557698726654
+      }
+    },
+    {
+      "scene_id": "demo3-scattered-frame-900",
+      "truth": 4,
+      "prediction": 4,
+      "confidence": 0.838072713498271,
+      "evidence": {
+        "color": "purple",
+        "pattern": "solid",
+        "color_confidence": 0.838072713498271,
+        "pattern_confidence": 0.9327698499597079,
+        "confidence_threshold": 0.8219865571329282,
+        "accepted_by_oof_cutoff": true,
+        "color_support_distance": 0.3549657716744193,
+        "color_support_limit": 4.59332720420304,
+        "pattern_support_distance": 0.8959714547730457,
+        "pattern_support_limit": 2.489447251916752,
+        "boundary_supported": true,
+        "estimated_radius_fraction": 0.4109493769132174,
+        "boundary_quality": 1.0,
+        "pigment_chroma_median": 55.803226470947266,
+        "white_spatial_score": 0.27162033319473267
+      }
+    },
+    {
+      "scene_id": "demo3-scattered-frame-900",
+      "truth": 2,
+      "prediction": 4,
+      "confidence": 0.8369855936589804,
+      "evidence": {
+        "color": "purple",
+        "pattern": "solid",
+        "color_confidence": 0.8369855936589804,
+        "pattern_confidence": 0.9558389787438529,
+        "confidence_threshold": 0.8219865571329282,
+        "accepted_by_oof_cutoff": true,
+        "color_support_distance": 0.36661751530939224,
+        "color_support_limit": 4.59332720420304,
+        "pattern_support_distance": 1.0738543190342034,
+        "pattern_support_limit": 2.489447251916752,
+        "boundary_supported": true,
+        "estimated_radius_fraction": 0.4319620132446289,
+        "boundary_quality": 1.0,
+        "pigment_chroma_median": 55.973209381103516,
+        "white_spatial_score": 0.28009048104286194
+      }
+    },
+    {
+      "scene_id": "demo3-scattered-frame-900",
+      "truth": 9,
+      "prediction": null,
+      "confidence": 0.5078855110586842,
+      "evidence": {
+        "color": "yellow",
+        "pattern": "stripe",
+        "color_confidence": 0.5078855110586842,
+        "pattern_confidence": 0.5566256802225823,
+        "confidence_threshold": 0.8219865571329282,
+        "accepted_by_oof_cutoff": false,
+        "color_support_distance": 1.4894480757815503,
+        "color_support_limit": 2.428825531548079,
+        "pattern_support_distance": 2.3586138548357467,
+        "pattern_support_limit": 3.7911698775825577,
+        "boundary_supported": true,
+        "estimated_radius_fraction": 0.4267088449918307,
+        "boundary_quality": 1.0,
+        "pigment_chroma_median": 34.058773040771484,
+        "white_spatial_score": 0.3176157474517822
+      }
+    }
+  ],
+  "limitations": [
+    "User-confirmed identities; source still regions use preserved visual centers or manually estimated centers, with region boxes padded to include ball appearance.",
+    "The two video-frame regions are manually estimated from full-resolution frames; they are not physical center annotations.",
+    "Repeated frames from one camera arrangement are correlated and must not be described as independent validation scenes."
+  ]
+}

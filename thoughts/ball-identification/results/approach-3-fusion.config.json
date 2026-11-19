@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "approach": "conservative appearance, constrained numeral OCR, and distinct-view agreement",
+  "training": {
+    "seed": 20261030,
+    "lab_color_features": true,
+    "learned_palette_distributions": true,
+    "learned_cue_solid_stripe_distributions": true,
+    "derive_number_from_palette_and_pattern": true,
+    "holdout_scenes": ["demo3-rack-frame-000", "demo3-scattered-frame-900"]
+  },
+  "calibration": {
+    "method": "grouped leave-capture-group-out on training scenes only",
+    "minimum_correct_oof_support": 2,
+    "eligibility": "identity is accepted only with at least the configured correct OOF candidates and zero incorrect OOF candidates",
+    "high_confidence_oof_errors": "disable that candidate identity instead of clipping the global probability threshold",
+    "reported_confidence": "heuristic score combining component posterior with normalized OOF distance support; not a calibrated correctness probability"
+  },
+  "crop": {"patch_size": 64, "sphere_radius_fraction": 0.43},
+  "abstention": {
+    "palette_min_probability": 0.48,
+    "pattern_min_probability": 0.48,
+    "identity_min_probability": 0.86,
+    "identity_min_margin": 0.15,
+    "number_min_probability": 0.91,
+    "number_min_margin": 0.16,
+    "number_spot_min_area_fraction": 0.008
+  },
+  "number_evidence": {
+    "source": "white-medallion segmentation and constrained 1-15 font-template comparisons",
+    "only_corroborates_appearance": true,
+    "disagreement_behavior": "abstain",
+    "missing_or_ambiguous_behavior": "ignore number evidence"
+  },
+  "sequence": {
+    "window_seconds": 5,
+    "sampling_hz": 1,
+    "minimum_distinct_views": 3,
+    "minimum_agreeing_views": 3,
+    "phash_max_hamming_distance": 10,
+    "confidence_aggregation": "minimum supporting view probability; never multiplied by vote count",
+    "single_confident_view_behavior": "preserve immediate single-frame prediction"
+  },
+  "provenance": {
+    "manual_labels": "user-confirmed corpus-v1.json",
+    "external_ocr_runtime": null,
+    "no_legacy_classifier_fallback": true
+  },
+  "limitations": [
+    "Video evaluation frames share one recording and are not independent camera sessions.",
+    "Font-template number evidence is expected to abstain on undersampled, tilted, or occluded digits.",
+    "This experiment does not qualify other ball sets, cameras, or lighting.",
+    "Caller must enforce object-track coherence and reject stale detections after motion, reassociation, session, or settings changes."
+  ]
+}

@@ -1036,125 +1036,6 @@
         "enabled": false,
         "threshold": 30
       },
-      "ball_colors": {
-        "black": {
-          "lower": [
-            0,
-            0,
-            0
-          ],
-          "upper": [
-            180,
-            255,
-            70
-          ]
-        },
-        "blue": {
-          "lower": [
-            90,
-            80,
-            80
-          ],
-          "upper": [
-            140,
-            255,
-            255
-          ]
-        },
-        "cue": {
-          "lower": [
-            0,
-            0,
-            150
-          ],
-          "upper": [
-            180,
-            50,
-            255
-          ]
-        },
-        "green": {
-          "lower": [
-            30,
-            80,
-            80
-          ],
-          "upper": [
-            90,
-            255,
-            255
-          ]
-        },
-        "maroon": {
-          "lower": [
-            0,
-            60,
-            30
-          ],
-          "upper": [
-            15,
-            255,
-            120
-          ]
-        },
-        "orange": {
-          "lower": [
-            8,
-            80,
-            80
-          ],
-          "upper": [
-            25,
-            255,
-            255
-          ]
-        },
-        "purple": {
-          "lower": [
-            120,
-            80,
-            80
-          ],
-          "upper": [
-            170,
-            255,
-            255
-          ]
-        },
-        "red": {
-          "lower": [
-            0,
-            80,
-            80
-          ],
-          "upper": [
-            15,
-            255,
-            255
-          ]
-        },
-        "yellow": {
-          "lower": [
-            10,
-            80,
-            80
-          ],
-          "upper": [
-            35,
-            255,
-            255
-          ]
-        }
-      },
-      "brightness_filters": {
-        "ball_mask_inner_ratio": 0.8,
-        "ball_mask_radius_ratio": 0.7,
-        "eight_ball_max_avg": 50,
-        "eight_ball_min_highlight": 150,
-        "min_avg_brightness": 40,
-        "min_max_brightness": 80,
-        "region_expansion_ratio": 1.2
-      },
       "color_filtering": {
         "blue_table": {
           "hue_max": 125,
@@ -1285,7 +1166,6 @@
       "detection_backend": "yolo",
       "enable_ball_detection": true,
       "enable_boundary_masking": true,
-      "enable_opencv_classification": false,
       "marker_filtering": {
         "enabled": true,
         "mask_radius_px": 15

@@ -1,0 +1,1269 @@
+{
+  "schema_version": 1,
+  "approach": "approach_mobile.py",
+  "manifest_sha256": "71b9cc6b65290b915a2712775cb7879d2f6c3cb13a8787ad728de4eb43608573",
+  "proposal_sha256": "390efbac9a85b1d882727e345723eb8df87d6f272c5342aaef36ddab51eb9386",
+  "approach_sha256": "3ff0aa207089e4a67f3bfa2ee1784c07e969f72f9f39e48796b48ce565d0c3ca",
+  "config_path": "/Users/jchadwick/.codex/worktrees/ball-id-mobilenet/billiards-trainer/thoughts/ball-identification/approach_mobile_config.json",
+  "config_sha256": "4d40fbec1c9b0fd080382e0f6c8d77904143edbe9b6b62bdc25489f615b7b0f9",
+  "seed": 20261030,
+  "resources": {
+    "platform": "darwin",
+    "cpu_seconds_fit_and_model_load": 1.0567349999999993,
+    "cpu_seconds_postfit_evaluation": 5.874443000000001,
+    "peak_rss_bytes_before_fit": 864239616,
+    "peak_rss_bytes_after_fit": 1210728448,
+    "peak_rss_bytes_after_evaluation": 1491009536,
+    "peak_rss_increase_over_pre_fit_bytes": 626769920
+  },
+  "approach_training_metadata": {
+    "samples": 95,
+    "scenes": [
+      "alternate-grid-720",
+      "framing-after-4k",
+      "framing-before-720",
+      "measured-grid-720",
+      "small-checkerboard-001",
+      "small-checkerboard-002",
+      "small-checkerboard-003",
+      "small-checkerboard-004",
+      "small-checkerboard-005"
+    ],
+    "groups": [
+      "framing",
+      "grid-arrangement"
+    ],
+    "train_seconds": 1.2823156658560038,
+    "training_device": "mps",
+    "pretrained": true,
+    "backbone": "torchvision.mobilenet_v3_small",
+    "heads": {
+      "color": [
+        "yellow",
+        "blue",
+        "red",
+        "purple",
+        "orange",
+        "green",
+        "maroon",
+        "black",
+        "white"
+      ],
+      "pattern": [
+        "solid",
+        "stripe",
+        "cue"
+      ]
+    },
+    "calibration": {
+      "status": "separate_capture_group_calibration",
+      "training_groups": [
+        "framing",
+        "grid-arrangement"
+      ],
+      "training_observations": 95,
+      "calibration_group": "moved-checkerboard",
+      "calibration_observations": 34,
+      "calibration_errors_before_abstention": 7,
+      "calibration_threshold": 0.9882630539894104,
+      "calibration_accepted": 21,
+      "calibration_accepted_errors": 0,
+      "calibration_wrong_predictions": 7,
+      "training_seconds": 1.2823156658560038,
+      "training_device": "mps",
+      "calibrated_identities": [
+        "11",
+        "12",
+        "13",
+        "4",
+        "5",
+        "7",
+        "9"
+      ],
+      "uncalibrated_identities": [
+        "1",
+        "14",
+        "15",
+        "2",
+        "3",
+        "6",
+        "8",
+        "cue"
+      ],
+      "inference_matches_calibration_model": true
+    },
+    "unseen_number_examples": [
+      10
+    ]
+  },
+  "training": {
+    "samples": 129,
+    "scenes": [
+      "alternate-grid-720",
+      "framing-after-4k",
+      "framing-before-720",
+      "measured-grid-720",
+      "small-checkerboard-001",
+      "small-checkerboard-002",
+      "small-checkerboard-003",
+      "small-checkerboard-004",
+      "small-checkerboard-005",
+      "small-checkerboard-006",
+      "small-checkerboard-007",
+      "small-checkerboard-008",
+      "small-checkerboard-009"
+    ],
+    "fit_seconds": 1.3409856669604778,
+    "train_diagnostic": {
+      "observations": 129,
+      "accepted": 110,
+      "correct_accepted": 110,
+      "wrong_accepted": 0,
+      "coverage": 0.8527131782945736,
+      "selective_accuracy": 1.0,
+      "by_identity": {
+        "6": {
+          "truth": 6,
+          "n": 3,
+          "accepted": 3,
+          "correct": 3,
+          "errors": 0
+        },
+        "5": {
+          "truth": 5,
+          "n": 13,
+          "accepted": 12,
+          "correct": 12,
+          "errors": 0
+        },
+        "13": {
+          "truth": 13,
+          "n": 13,
+          "accepted": 13,
+          "correct": 13,
+          "errors": 0
+        },
+        "11": {
+          "truth": 11,
+          "n": 13,
+          "accepted": 13,
+          "correct": 13,
+          "errors": 0
+        },
+        "cue": {
+          "truth": "cue",
+          "n": 3,
+          "accepted": 3,
+          "correct": 3,
+          "errors": 0
+        },
+        "9": {
+          "truth": 9,
+          "n": 10,
+          "accepted": 10,
+          "correct": 10,
+          "errors": 0
+        },
+        "12": {
+          "truth": 12,
+          "n": 10,
+          "accepted": 3,
+          "correct": 3,
+          "errors": 0
+        },
+        "15": {
+          "truth": 15,
+          "n": 9,
+          "accepted": 7,
+          "correct": 7,
+          "errors": 0
+        },
+        "14": {
+          "truth": 14,
+          "n": 10,
+          "accepted": 7,
+          "correct": 7,
+          "errors": 0
+        },
+        "4": {
+          "truth": 4,
+          "n": 9,
+          "accepted": 9,
+          "correct": 9,
+          "errors": 0
+        },
+        "3": {
+          "truth": 3,
+          "n": 3,
+          "accepted": 3,
+          "correct": 3,
+          "errors": 0
+        },
+        "8": {
+          "truth": 8,
+          "n": 10,
+          "accepted": 7,
+          "correct": 7,
+          "errors": 0
+        },
+        "7": {
+          "truth": 7,
+          "n": 10,
+          "accepted": 10,
+          "correct": 10,
+          "errors": 0
+        },
+        "1": {
+          "truth": 1,
+          "n": 10,
+          "accepted": 7,
+          "correct": 7,
+          "errors": 0
+        },
+        "2": {
+          "truth": 2,
+          "n": 3,
+          "accepted": 3,
+          "correct": 3,
+          "errors": 0
+        }
+      },
+      "confusion_pairs": {}
+    },
+    "timing": {
+      "batch_elapsed_ms": 708.9607082307339,
+      "crops": 129,
+      "batch_amortized_ms_per_crop": 5.4958194436491,
+      "reported_per_crop_p50_ms": 0.0,
+      "reported_per_crop_p95_ms": 0.0
+    }
+  },
+  "heldout_manual_regions": {
+    "observations": 32,
+    "accepted": 1,
+    "correct_accepted": 0,
+    "wrong_accepted": 1,
+    "coverage": 0.03125,
+    "selective_accuracy": 0.0,
+    "by_identity": {
+      "1": {
+        "truth": 1,
+        "n": 2,
+        "accepted": 1,
+        "correct": 0,
+        "errors": 1
+      },
+      "2": {
+        "truth": 2,
+        "n": 2,
+        "accepted": 0,
+        "correct": 0,
+        "errors": 0
+      },
+      "3": {
+        "truth": 3,
+        "n": 2,
+        "accepted": 0,
+        "correct": 0,
+        "errors": 0
+      },
+      "4": {
+        "truth": 4,
+        "n": 2,
+        "accepted": 0,
+        "correct": 0,
+        "errors": 0
+      },
+      "5": {
+        "truth": 5,
+        "n": 2,
+        "accepted": 0,
+        "correct": 0,
+        "errors": 0
+      },
+      "6": {
+        "truth": 6,
+        "n": 2,
+        "accepted": 0,
+        "correct": 0,
+        "errors": 0
+      },
+      "7": {
+        "truth": 7,
+        "n": 2,
+        "accepted": 0,
+        "correct": 0,
+        "errors": 0
+      },
+      "8": {
+        "truth": 8,
+        "n": 2,
+        "accepted": 0,
+        "correct": 0,
+        "errors": 0
+      },
+      "9": {
+        "truth": 9,
+        "n": 2,
+        "accepted": 0,
+        "correct": 0,
+        "errors": 0
+      },
+      "10": {
+        "truth": 10,
+        "n": 2,
+        "accepted": 0,
+        "correct": 0,
+        "errors": 0
+      },
+      "11": {
+        "truth": 11,
+        "n": 2,
+        "accepted": 0,
+        "correct": 0,
+        "errors": 0
+      },
+      "12": {
+        "truth": 12,
+        "n": 2,
+        "accepted": 0,
+        "correct": 0,
+        "errors": 0
+      },
+      "13": {
+        "truth": 13,
+        "n": 2,
+        "accepted": 0,
+        "correct": 0,
+        "errors": 0
+      },
+      "14": {
+        "truth": 14,
+        "n": 2,
+        "accepted": 0,
+        "correct": 0,
+        "errors": 0
+      },
+      "15": {
+        "truth": 15,
+        "n": 2,
+        "accepted": 0,
+        "correct": 0,
+        "errors": 0
+      },
+      "cue": {
+        "truth": "cue",
+        "n": 2,
+        "accepted": 0,
+        "correct": 0,
+        "errors": 0
+      }
+    },
+    "confusion_pairs": {
+      "1->9": 1
+    },
+    "scene_scope": "two frames from one video, correlated; provisional only",
+    "timing": {
+      "batch_elapsed_ms": 181.9079159758985,
+      "crops": 32,
+      "batch_amortized_ms_per_crop": 5.684622374246828,
+      "reported_per_crop_p50_ms": 0.0,
+      "reported_per_crop_p95_ms": 0.0
+    }
+  },
+  "training_actual_detection_regions_diagnostic": {
+    "observations": 125,
+    "accepted": 41,
+    "correct_accepted": 40,
+    "wrong_accepted": 1,
+    "coverage": 0.328,
+    "selective_accuracy": 0.975609756097561,
+    "by_identity": {
+      "4": {
+        "truth": 4,
+        "n": 9,
+        "accepted": 8,
+        "correct": 8,
+        "errors": 0
+      },
+      "15": {
+        "truth": 15,
+        "n": 9,
+        "accepted": 1,
+        "correct": 0,
+        "errors": 1
+      },
+      "8": {
+        "truth": 8,
+        "n": 6,
+        "accepted": 0,
+        "correct": 0,
+        "errors": 0
+      },
+      "1": {
+        "truth": 1,
+        "n": 10,
+        "accepted": 0,
+        "correct": 0,
+        "errors": 0
+      },
+      "11": {
+        "truth": 11,
+        "n": 13,
+        "accepted": 10,
+        "correct": 10,
+        "errors": 0
+      },
+      "9": {
+        "truth": 9,
+        "n": 10,
+        "accepted": 10,
+        "correct": 10,
+        "errors": 0
+      },
+      "5": {
+        "truth": 5,
+        "n": 13,
+        "accepted": 0,
+        "correct": 0,
+        "errors": 0
+      },
+      "12": {
+        "truth": 12,
+        "n": 10,
+        "accepted": 0,
+        "correct": 0,
+        "errors": 0
+      },
+      "14": {
+        "truth": 14,
+        "n": 10,
+        "accepted": 6,
+        "correct": 6,
+        "errors": 0
+      },
+      "3": {
+        "truth": 3,
+        "n": 3,
+        "accepted": 3,
+        "correct": 3,
+        "errors": 0
+      },
+      "7": {
+        "truth": 7,
+        "n": 10,
+        "accepted": 0,
+        "correct": 0,
+        "errors": 0
+      },
+      "cue": {
+        "truth": "cue",
+        "n": 3,
+        "accepted": 0,
+        "correct": 0,
+        "errors": 0
+      },
+      "13": {
+        "truth": 13,
+        "n": 13,
+        "accepted": 0,
+        "correct": 0,
+        "errors": 0
+      },
+      "2": {
+        "truth": 2,
+        "n": 3,
+        "accepted": 3,
+        "correct": 3,
+        "errors": 0
+      },
+      "6": {
+        "truth": 6,
+        "n": 3,
+        "accepted": 0,
+        "correct": 0,
+        "errors": 0
+      }
+    },
+    "confusion_pairs": {
+      "15->11": 1
+    },
+    "matched_regions": 125,
+    "timing": {
+      "batch_elapsed_ms": 696.3426666334271,
+      "crops": 125,
+      "batch_amortized_ms_per_crop": 5.570741333067417,
+      "reported_per_crop_p50_ms": 0.0,
+      "reported_per_crop_p95_ms": 0.0
+    }
+  },
+  "heldout_actual_detection_regions": {
+    "observations": 29,
+    "accepted": 0,
+    "correct_accepted": 0,
+    "wrong_accepted": 0,
+    "coverage": 0.0,
+    "selective_accuracy": null,
+    "by_identity": {
+      "cue": {
+        "truth": "cue",
+        "n": 2,
+        "accepted": 0,
+        "correct": 0,
+        "errors": 0
+      },
+      "15": {
+        "truth": 15,
+        "n": 2,
+        "accepted": 0,
+        "correct": 0,
+        "errors": 0
+      },
+      "6": {
+        "truth": 6,
+        "n": 2,
+        "accepted": 0,
+        "correct": 0,
+        "errors": 0
+      },
+      "3": {
+        "truth": 3,
+        "n": 2,
+        "accepted": 0,
+        "correct": 0,
+        "errors": 0
+      },
+      "1": {
+        "truth": 1,
+        "n": 2,
+        "accepted": 0,
+        "correct": 0,
+        "errors": 0
+      },
+      "9": {
+        "truth": 9,
+        "n": 2,
+        "accepted": 0,
+        "correct": 0,
+        "errors": 0
+      },
+      "14": {
+        "truth": 14,
+        "n": 2,
+        "accepted": 0,
+        "correct": 0,
+        "errors": 0
+      },
+      "10": {
+        "truth": 10,
+        "n": 1,
+        "accepted": 0,
+        "correct": 0,
+        "errors": 0
+      },
+      "7": {
+        "truth": 7,
+        "n": 2,
+        "accepted": 0,
+        "correct": 0,
+        "errors": 0
+      },
+      "5": {
+        "truth": 5,
+        "n": 2,
+        "accepted": 0,
+        "correct": 0,
+        "errors": 0
+      },
+      "13": {
+        "truth": 13,
+        "n": 2,
+        "accepted": 0,
+        "correct": 0,
+        "errors": 0
+      },
+      "4": {
+        "truth": 4,
+        "n": 2,
+        "accepted": 0,
+        "correct": 0,
+        "errors": 0
+      },
+      "12": {
+        "truth": 12,
+        "n": 2,
+        "accepted": 0,
+        "correct": 0,
+        "errors": 0
+      },
+      "2": {
+        "truth": 2,
+        "n": 2,
+        "accepted": 0,
+        "correct": 0,
+        "errors": 0
+      },
+      "8": {
+        "truth": 8,
+        "n": 1,
+        "accepted": 0,
+        "correct": 0,
+        "errors": 0
+      },
+      "11": {
+        "truth": 11,
+        "n": 1,
+        "accepted": 0,
+        "correct": 0,
+        "errors": 0
+      }
+    },
+    "confusion_pairs": {},
+    "matched_regions": 29,
+    "timing": {
+      "batch_elapsed_ms": 170.42604088783264,
+      "crops": 29,
+      "batch_amortized_ms_per_crop": 5.876760030614919,
+      "reported_per_crop_p50_ms": 0.0,
+      "reported_per_crop_p95_ms": 0.0
+    }
+  },
+  "unmatched_detection_crops": {
+    "regions": 45,
+    "predicted_identity_count": 0,
+    "by_scene": {
+      "demo3-rack-frame-000": 0,
+      "demo3-scattered-frame-900": 0,
+      "framing-after-4k": 0,
+      "framing-before-720": 0,
+      "large-checkerboard-001": 0,
+      "large-checkerboard-002": 0,
+      "large-checkerboard-003": 0,
+      "large-checkerboard-004": 0,
+      "large-checkerboard-005": 0,
+      "large-checkerboard-006": 0,
+      "large-checkerboard-007": 0,
+      "large-checkerboard-008": 0,
+      "small-checkerboard-001": 0,
+      "small-checkerboard-002": 0,
+      "small-checkerboard-003": 0,
+      "small-checkerboard-004": 0,
+      "small-checkerboard-005": 0,
+      "small-checkerboard-006": 0,
+      "small-checkerboard-007": 0,
+      "small-checkerboard-008": 0,
+      "small-checkerboard-009": 0
+    },
+    "timing": {
+      "batch_elapsed_ms": 260.0036249496043,
+      "crops": 45,
+      "batch_amortized_ms_per_crop": 5.7778583322134285,
+      "reported_per_crop_p50_ms": 0.0,
+      "reported_per_crop_p95_ms": 0.0
+    }
+  },
+  "detector_coverage": {
+    "all_labeled_positive_scenes": {
+      "measured-grid-720": {
+        "ground_truth": 15,
+        "detections": 15,
+        "matched": 15,
+        "missed_ground_truth": 0,
+        "extra_detections": 0
+      },
+      "alternate-grid-720": {
+        "ground_truth": 15,
+        "detections": 15,
+        "matched": 15,
+        "missed_ground_truth": 0,
+        "extra_detections": 0
+      },
+      "small-checkerboard-001": {
+        "ground_truth": 15,
+        "detections": 16,
+        "matched": 15,
+        "missed_ground_truth": 0,
+        "extra_detections": 1
+      },
+      "small-checkerboard-002": {
+        "ground_truth": 11,
+        "detections": 14,
+        "matched": 11,
+        "missed_ground_truth": 0,
+        "extra_detections": 3
+      },
+      "small-checkerboard-003": {
+        "ground_truth": 11,
+        "detections": 13,
+        "matched": 11,
+        "missed_ground_truth": 0,
+        "extra_detections": 2
+      },
+      "small-checkerboard-004": {
+        "ground_truth": 11,
+        "detections": 13,
+        "matched": 11,
+        "missed_ground_truth": 0,
+        "extra_detections": 2
+      },
+      "small-checkerboard-005": {
+        "ground_truth": 11,
+        "detections": 11,
+        "matched": 10,
+        "missed_ground_truth": 1,
+        "extra_detections": 1
+      },
+      "small-checkerboard-006": {
+        "ground_truth": 10,
+        "detections": 11,
+        "matched": 9,
+        "missed_ground_truth": 1,
+        "extra_detections": 2
+      },
+      "small-checkerboard-007": {
+        "ground_truth": 11,
+        "detections": 11,
+        "matched": 10,
+        "missed_ground_truth": 1,
+        "extra_detections": 1
+      },
+      "small-checkerboard-008": {
+        "ground_truth": 10,
+        "detections": 13,
+        "matched": 9,
+        "missed_ground_truth": 1,
+        "extra_detections": 4
+      },
+      "small-checkerboard-009": {
+        "ground_truth": 3,
+        "detections": 4,
+        "matched": 3,
+        "missed_ground_truth": 0,
+        "extra_detections": 1
+      },
+      "framing-before-720": {
+        "ground_truth": 3,
+        "detections": 4,
+        "matched": 3,
+        "missed_ground_truth": 0,
+        "extra_detections": 1
+      },
+      "framing-after-4k": {
+        "ground_truth": 3,
+        "detections": 5,
+        "matched": 3,
+        "missed_ground_truth": 0,
+        "extra_detections": 2
+      },
+      "large-checkerboard-001": {
+        "ground_truth": 0,
+        "detections": 3,
+        "matched": 0,
+        "missed_ground_truth": 0,
+        "extra_detections": 3
+      },
+      "large-checkerboard-002": {
+        "ground_truth": 0,
+        "detections": 2,
+        "matched": 0,
+        "missed_ground_truth": 0,
+        "extra_detections": 2
+      },
+      "large-checkerboard-003": {
+        "ground_truth": 0,
+        "detections": 3,
+        "matched": 0,
+        "missed_ground_truth": 0,
+        "extra_detections": 3
+      },
+      "large-checkerboard-004": {
+        "ground_truth": 0,
+        "detections": 2,
+        "matched": 0,
+        "missed_ground_truth": 0,
+        "extra_detections": 2
+      },
+      "large-checkerboard-005": {
+        "ground_truth": 0,
+        "detections": 4,
+        "matched": 0,
+        "missed_ground_truth": 0,
+        "extra_detections": 4
+      },
+      "large-checkerboard-006": {
+        "ground_truth": 0,
+        "detections": 2,
+        "matched": 0,
+        "missed_ground_truth": 0,
+        "extra_detections": 2
+      },
+      "large-checkerboard-007": {
+        "ground_truth": 0,
+        "detections": 3,
+        "matched": 0,
+        "missed_ground_truth": 0,
+        "extra_detections": 3
+      },
+      "large-checkerboard-008": {
+        "ground_truth": 0,
+        "detections": 4,
+        "matched": 0,
+        "missed_ground_truth": 0,
+        "extra_detections": 4
+      },
+      "demo3-rack-frame-000": {
+        "ground_truth": 16,
+        "detections": 15,
+        "matched": 14,
+        "missed_ground_truth": 2,
+        "extra_detections": 1
+      },
+      "demo3-scattered-frame-900": {
+        "ground_truth": 16,
+        "detections": 16,
+        "matched": 15,
+        "missed_ground_truth": 1,
+        "extra_detections": 1
+      }
+    },
+    "heldout_video_frames": {
+      "demo3-rack-frame-000": {
+        "ground_truth": 16,
+        "detections": 15,
+        "matched": 14,
+        "missed_ground_truth": 2,
+        "extra_detections": 1
+      },
+      "demo3-scattered-frame-900": {
+        "ground_truth": 16,
+        "detections": 16,
+        "matched": 15,
+        "missed_ground_truth": 1,
+        "extra_detections": 1
+      }
+    }
+  },
+  "candidate_outputs": [
+    {
+      "scene_id": "demo3-rack-frame-000",
+      "truth": 1,
+      "prediction": 9,
+      "confidence": 0.9962561130523682,
+      "evidence": {
+        "color": "yellow",
+        "color_probability": 0.9962561130523682,
+        "pattern": "stripe",
+        "pattern_probability": 0.9989748001098633,
+        "abstention_threshold": 0.9882630539894104
+      }
+    },
+    {
+      "scene_id": "demo3-rack-frame-000",
+      "truth": 2,
+      "prediction": null,
+      "confidence": 0.7546764612197876,
+      "evidence": {
+        "color": "green",
+        "color_probability": 0.7546764612197876,
+        "pattern": "stripe",
+        "pattern_probability": 0.804743766784668,
+        "abstention_threshold": 0.9882630539894104
+      }
+    },
+    {
+      "scene_id": "demo3-rack-frame-000",
+      "truth": 3,
+      "prediction": null,
+      "confidence": 0.5876690149307251,
+      "evidence": {
+        "color": "red",
+        "color_probability": 0.5876690149307251,
+        "pattern": "solid",
+        "pattern_probability": 0.976159930229187,
+        "abstention_threshold": 0.9882630539894104
+      }
+    },
+    {
+      "scene_id": "demo3-rack-frame-000",
+      "truth": 4,
+      "prediction": null,
+      "confidence": 0.47791463136672974,
+      "evidence": {
+        "color": "green",
+        "color_probability": 0.7445592284202576,
+        "pattern": "solid",
+        "pattern_probability": 0.47791463136672974,
+        "abstention_threshold": 0.9882630539894104
+      }
+    },
+    {
+      "scene_id": "demo3-rack-frame-000",
+      "truth": 5,
+      "prediction": null,
+      "confidence": 0.7852706909179688,
+      "evidence": {
+        "color": "yellow",
+        "color_probability": 0.8334820866584778,
+        "pattern": "cue",
+        "pattern_probability": 0.7852706909179688,
+        "abstention_threshold": 0.9882630539894104
+      }
+    },
+    {
+      "scene_id": "demo3-rack-frame-000",
+      "truth": 6,
+      "prediction": null,
+      "confidence": 0.5578910708427429,
+      "evidence": {
+        "color": "green",
+        "color_probability": 0.8339844346046448,
+        "pattern": "stripe",
+        "pattern_probability": 0.5578910708427429,
+        "abstention_threshold": 0.9882630539894104
+      }
+    },
+    {
+      "scene_id": "demo3-rack-frame-000",
+      "truth": 7,
+      "prediction": null,
+      "confidence": 0.9764629602432251,
+      "evidence": {
+        "color": "red",
+        "color_probability": 0.9764629602432251,
+        "pattern": "solid",
+        "pattern_probability": 0.9968170523643494,
+        "abstention_threshold": 0.9882630539894104
+      }
+    },
+    {
+      "scene_id": "demo3-rack-frame-000",
+      "truth": 8,
+      "prediction": null,
+      "confidence": 0.5948349833488464,
+      "evidence": {
+        "color": "red",
+        "color_probability": 0.5948349833488464,
+        "pattern": "solid",
+        "pattern_probability": 0.9506950378417969,
+        "abstention_threshold": 0.9882630539894104
+      }
+    },
+    {
+      "scene_id": "demo3-rack-frame-000",
+      "truth": 9,
+      "prediction": null,
+      "confidence": 0.38168326020240784,
+      "evidence": {
+        "color": "white",
+        "color_probability": 0.38168326020240784,
+        "pattern": "cue",
+        "pattern_probability": 0.5430696606636047,
+        "abstention_threshold": 0.9882630539894104
+      }
+    },
+    {
+      "scene_id": "demo3-rack-frame-000",
+      "truth": 10,
+      "prediction": null,
+      "confidence": 0.5194056034088135,
+      "evidence": {
+        "color": "red",
+        "color_probability": 0.5194056034088135,
+        "pattern": "stripe",
+        "pattern_probability": 0.999983549118042,
+        "abstention_threshold": 0.9882630539894104
+      }
+    },
+    {
+      "scene_id": "demo3-rack-frame-000",
+      "truth": 11,
+      "prediction": null,
+      "confidence": 0.7839987874031067,
+      "evidence": {
+        "color": "red",
+        "color_probability": 0.8549959659576416,
+        "pattern": "cue",
+        "pattern_probability": 0.7839987874031067,
+        "abstention_threshold": 0.9882630539894104
+      }
+    },
+    {
+      "scene_id": "demo3-rack-frame-000",
+      "truth": 12,
+      "prediction": null,
+      "confidence": 0.4699079692363739,
+      "evidence": {
+        "color": "red",
+        "color_probability": 0.4699079692363739,
+        "pattern": "stripe",
+        "pattern_probability": 0.5370379090309143,
+        "abstention_threshold": 0.9882630539894104
+      }
+    },
+    {
+      "scene_id": "demo3-rack-frame-000",
+      "truth": 13,
+      "prediction": null,
+      "confidence": 0.44043436646461487,
+      "evidence": {
+        "color": "white",
+        "color_probability": 0.44043436646461487,
+        "pattern": "cue",
+        "pattern_probability": 0.8581340909004211,
+        "abstention_threshold": 0.9882630539894104
+      }
+    },
+    {
+      "scene_id": "demo3-rack-frame-000",
+      "truth": 14,
+      "prediction": null,
+      "confidence": 0.9731650948524475,
+      "evidence": {
+        "color": "green",
+        "color_probability": 0.9731650948524475,
+        "pattern": "stripe",
+        "pattern_probability": 0.9999477863311768,
+        "abstention_threshold": 0.9882630539894104
+      }
+    },
+    {
+      "scene_id": "demo3-rack-frame-000",
+      "truth": 15,
+      "prediction": null,
+      "confidence": 0.9113470911979675,
+      "evidence": {
+        "color": "red",
+        "color_probability": 0.9113470911979675,
+        "pattern": "stripe",
+        "pattern_probability": 0.9717532992362976,
+        "abstention_threshold": 0.9882630539894104
+      }
+    },
+    {
+      "scene_id": "demo3-rack-frame-000",
+      "truth": "cue",
+      "prediction": null,
+      "confidence": 0.46302172541618347,
+      "evidence": {
+        "color": "red",
+        "color_probability": 0.46302172541618347,
+        "pattern": "stripe",
+        "pattern_probability": 0.6974786520004272,
+        "abstention_threshold": 0.9882630539894104
+      }
+    },
+    {
+      "scene_id": "demo3-scattered-frame-900",
+      "truth": 6,
+      "prediction": null,
+      "confidence": 0.7288352847099304,
+      "evidence": {
+        "color": "green",
+        "color_probability": 0.8647458553314209,
+        "pattern": "stripe",
+        "pattern_probability": 0.7288352847099304,
+        "abstention_threshold": 0.9882630539894104
+      }
+    },
+    {
+      "scene_id": "demo3-scattered-frame-900",
+      "truth": 14,
+      "prediction": null,
+      "confidence": 0.5328572392463684,
+      "evidence": {
+        "color": "yellow",
+        "color_probability": 0.5328572392463684,
+        "pattern": "stripe",
+        "pattern_probability": 0.9838063716888428,
+        "abstention_threshold": 0.9882630539894104
+      }
+    },
+    {
+      "scene_id": "demo3-scattered-frame-900",
+      "truth": 5,
+      "prediction": null,
+      "confidence": 0.6024500727653503,
+      "evidence": {
+        "color": "yellow",
+        "color_probability": 0.9835553765296936,
+        "pattern": "solid",
+        "pattern_probability": 0.6024500727653503,
+        "abstention_threshold": 0.9882630539894104
+      }
+    },
+    {
+      "scene_id": "demo3-scattered-frame-900",
+      "truth": 7,
+      "prediction": null,
+      "confidence": 0.9513880014419556,
+      "evidence": {
+        "color": "red",
+        "color_probability": 0.9513880014419556,
+        "pattern": "solid",
+        "pattern_probability": 0.9844985604286194,
+        "abstention_threshold": 0.9882630539894104
+      }
+    },
+    {
+      "scene_id": "demo3-scattered-frame-900",
+      "truth": 12,
+      "prediction": null,
+      "confidence": 0.9342229962348938,
+      "evidence": {
+        "color": "green",
+        "color_probability": 0.9342229962348938,
+        "pattern": "stripe",
+        "pattern_probability": 0.9950044751167297,
+        "abstention_threshold": 0.9882630539894104
+      }
+    },
+    {
+      "scene_id": "demo3-scattered-frame-900",
+      "truth": "cue",
+      "prediction": null,
+      "confidence": 0.5744653940200806,
+      "evidence": {
+        "color": "yellow",
+        "color_probability": 0.5744653940200806,
+        "pattern": "stripe",
+        "pattern_probability": 0.9793058037757874,
+        "abstention_threshold": 0.9882630539894104
+      }
+    },
+    {
+      "scene_id": "demo3-scattered-frame-900",
+      "truth": 10,
+      "prediction": null,
+      "confidence": 0.4440879821777344,
+      "evidence": {
+        "color": "purple",
+        "color_probability": 0.4440879821777344,
+        "pattern": "stripe",
+        "pattern_probability": 0.9999904632568359,
+        "abstention_threshold": 0.9882630539894104
+      }
+    },
+    {
+      "scene_id": "demo3-scattered-frame-900",
+      "truth": 11,
+      "prediction": null,
+      "confidence": 0.49098849296569824,
+      "evidence": {
+        "color": "purple",
+        "color_probability": 0.49098849296569824,
+        "pattern": "stripe",
+        "pattern_probability": 0.9954581260681152,
+        "abstention_threshold": 0.9882630539894104
+      }
+    },
+    {
+      "scene_id": "demo3-scattered-frame-900",
+      "truth": 8,
+      "prediction": null,
+      "confidence": 0.909507155418396,
+      "evidence": {
+        "color": "black",
+        "color_probability": 0.909507155418396,
+        "pattern": "solid",
+        "pattern_probability": 0.9995274543762207,
+        "abstention_threshold": 0.9882630539894104
+      }
+    },
+    {
+      "scene_id": "demo3-scattered-frame-900",
+      "truth": 1,
+      "prediction": null,
+      "confidence": 0.4909610152244568,
+      "evidence": {
+        "color": "yellow",
+        "color_probability": 0.9801118969917297,
+        "pattern": "stripe",
+        "pattern_probability": 0.4909610152244568,
+        "abstention_threshold": 0.9882630539894104
+      }
+    },
+    {
+      "scene_id": "demo3-scattered-frame-900",
+      "truth": 13,
+      "prediction": null,
+      "confidence": 0.935798704624176,
+      "evidence": {
+        "color": "yellow",
+        "color_probability": 0.935798704624176,
+        "pattern": "stripe",
+        "pattern_probability": 0.9936017394065857,
+        "abstention_threshold": 0.9882630539894104
+      }
+    },
+    {
+      "scene_id": "demo3-scattered-frame-900",
+      "truth": 15,
+      "prediction": null,
+      "confidence": 0.9413554668426514,
+      "evidence": {
+        "color": "purple",
+        "color_probability": 0.9413554668426514,
+        "pattern": "stripe",
+        "pattern_probability": 0.9974296689033508,
+        "abstention_threshold": 0.9882630539894104
+      }
+    },
+    {
+      "scene_id": "demo3-scattered-frame-900",
+      "truth": 3,
+      "prediction": null,
+      "confidence": 0.6825498342514038,
+      "evidence": {
+        "color": "red",
+        "color_probability": 0.6825498342514038,
+        "pattern": "solid",
+        "pattern_probability": 0.9977656602859497,
+        "abstention_threshold": 0.9882630539894104
+      }
+    },
+    {
+      "scene_id": "demo3-scattered-frame-900",
+      "truth": 4,
+      "prediction": null,
+      "confidence": 0.6969037055969238,
+      "evidence": {
+        "color": "purple",
+        "color_probability": 0.9033557772636414,
+        "pattern": "solid",
+        "pattern_probability": 0.6969037055969238,
+        "abstention_threshold": 0.9882630539894104
+      }
+    },
+    {
+      "scene_id": "demo3-scattered-frame-900",
+      "truth": 2,
+      "prediction": null,
+      "confidence": 0.39928001165390015,
+      "evidence": {
+        "color": "purple",
+        "color_probability": 0.39928001165390015,
+        "pattern": "solid",
+        "pattern_probability": 0.9028841257095337,
+        "abstention_threshold": 0.9882630539894104
+      }
+    },
+    {
+      "scene_id": "demo3-scattered-frame-900",
+      "truth": 9,
+      "prediction": null,
+      "confidence": 0.9289399981498718,
+      "evidence": {
+        "color": "yellow",
+        "color_probability": 0.9510738253593445,
+        "pattern": "stripe",
+        "pattern_probability": 0.9289399981498718,
+        "abstention_threshold": 0.9882630539894104
+      }
+    }
+  ],
+  "limitations": [
+    "User-confirmed identities; source still regions use preserved visual centers or manually estimated centers, with region boxes padded to include ball appearance.",
+    "The two video-frame regions are manually estimated from full-resolution frames; they are not physical center annotations.",
+    "Repeated frames from one camera arrangement are correlated and must not be described as independent validation scenes."
+  ]
+}

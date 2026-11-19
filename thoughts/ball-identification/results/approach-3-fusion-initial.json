@@ -1,0 +1,2629 @@
+{
+  "schema_version": 1,
+  "approach": "approach_fusion.py",
+  "manifest_sha256": "71b9cc6b65290b915a2712775cb7879d2f6c3cb13a8787ad728de4eb43608573",
+  "proposal_sha256": "390efbac9a85b1d882727e345723eb8df87d6f272c5342aaef36ddab51eb9386",
+  "seed": 20261030,
+  "training": {
+    "samples": 129,
+    "scenes": [
+      "alternate-grid-720",
+      "framing-after-4k",
+      "framing-before-720",
+      "measured-grid-720",
+      "small-checkerboard-001",
+      "small-checkerboard-002",
+      "small-checkerboard-003",
+      "small-checkerboard-004",
+      "small-checkerboard-005",
+      "small-checkerboard-006",
+      "small-checkerboard-007",
+      "small-checkerboard-008",
+      "small-checkerboard-009"
+    ],
+    "fit_seconds": 0.5773222092539072,
+    "train_diagnostic": {
+      "observations": 129,
+      "accepted": 36,
+      "correct_accepted": 36,
+      "wrong_accepted": 0,
+      "coverage": 0.27906976744186046,
+      "selective_accuracy": 1.0,
+      "by_identity": {
+        "6": {
+          "truth": 6,
+          "n": 3,
+          "accepted": 0,
+          "correct": 0,
+          "errors": 0
+        },
+        "5": {
+          "truth": 5,
+          "n": 13,
+          "accepted": 7,
+          "correct": 7,
+          "errors": 0
+        },
+        "13": {
+          "truth": 13,
+          "n": 13,
+          "accepted": 0,
+          "correct": 0,
+          "errors": 0
+        },
+        "11": {
+          "truth": 11,
+          "n": 13,
+          "accepted": 0,
+          "correct": 0,
+          "errors": 0
+        },
+        "cue": {
+          "truth": "cue",
+          "n": 3,
+          "accepted": 3,
+          "correct": 3,
+          "errors": 0
+        },
+        "9": {
+          "truth": 9,
+          "n": 10,
+          "accepted": 10,
+          "correct": 10,
+          "errors": 0
+        },
+        "12": {
+          "truth": 12,
+          "n": 10,
+          "accepted": 0,
+          "correct": 0,
+          "errors": 0
+        },
+        "15": {
+          "truth": 15,
+          "n": 9,
+          "accepted": 0,
+          "correct": 0,
+          "errors": 0
+        },
+        "14": {
+          "truth": 14,
+          "n": 10,
+          "accepted": 0,
+          "correct": 0,
+          "errors": 0
+        },
+        "4": {
+          "truth": 4,
+          "n": 9,
+          "accepted": 0,
+          "correct": 0,
+          "errors": 0
+        },
+        "3": {
+          "truth": 3,
+          "n": 3,
+          "accepted": 3,
+          "correct": 3,
+          "errors": 0
+        },
+        "8": {
+          "truth": 8,
+          "n": 10,
+          "accepted": 0,
+          "correct": 0,
+          "errors": 0
+        },
+        "7": {
+          "truth": 7,
+          "n": 10,
+          "accepted": 0,
+          "correct": 0,
+          "errors": 0
+        },
+        "1": {
+          "truth": 1,
+          "n": 10,
+          "accepted": 10,
+          "correct": 10,
+          "errors": 0
+        },
+        "2": {
+          "truth": 2,
+          "n": 3,
+          "accepted": 3,
+          "correct": 3,
+          "errors": 0
+        }
+      },
+      "confusion_pairs": {}
+    },
+    "timing": {
+      "batch_elapsed_ms": 122.56366712972522,
+      "crops": 129,
+      "batch_amortized_ms_per_crop": 0.950105946742056,
+      "reported_per_crop_p50_ms": 0.0,
+      "reported_per_crop_p95_ms": 0.0
+    }
+  },
+  "heldout_manual_regions": {
+    "observations": 32,
+    "accepted": 20,
+    "correct_accepted": 6,
+    "wrong_accepted": 14,
+    "coverage": 0.625,
+    "selective_accuracy": 0.3,
+    "by_identity": {
+      "1": {
+        "truth": 1,
+        "n": 2,
+        "accepted": 2,
+        "correct": 2,
+        "errors": 0
+      },
+      "2": {
+        "truth": 2,
+        "n": 2,
+        "accepted": 1,
+        "correct": 1,
+        "errors": 0
+      },
+      "3": {
+        "truth": 3,
+        "n": 2,
+        "accepted": 2,
+        "correct": 2,
+        "errors": 0
+      },
+      "4": {
+        "truth": 4,
+        "n": 2,
+        "accepted": 1,
+        "correct": 0,
+        "errors": 1
+      },
+      "5": {
+        "truth": 5,
+        "n": 2,
+        "accepted": 2,
+        "correct": 1,
+        "errors": 1
+      },
+      "6": {
+        "truth": 6,
+        "n": 2,
+        "accepted": 0,
+        "correct": 0,
+        "errors": 0
+      },
+      "7": {
+        "truth": 7,
+        "n": 2,
+        "accepted": 1,
+        "correct": 0,
+        "errors": 1
+      },
+      "8": {
+        "truth": 8,
+        "n": 2,
+        "accepted": 2,
+        "correct": 0,
+        "errors": 2
+      },
+      "9": {
+        "truth": 9,
+        "n": 2,
+        "accepted": 2,
+        "correct": 0,
+        "errors": 2
+      },
+      "10": {
+        "truth": 10,
+        "n": 2,
+        "accepted": 0,
+        "correct": 0,
+        "errors": 0
+      },
+      "11": {
+        "truth": 11,
+        "n": 2,
+        "accepted": 1,
+        "correct": 0,
+        "errors": 1
+      },
+      "12": {
+        "truth": 12,
+        "n": 2,
+        "accepted": 2,
+        "correct": 0,
+        "errors": 2
+      },
+      "13": {
+        "truth": 13,
+        "n": 2,
+        "accepted": 1,
+        "correct": 0,
+        "errors": 1
+      },
+      "14": {
+        "truth": 14,
+        "n": 2,
+        "accepted": 0,
+        "correct": 0,
+        "errors": 0
+      },
+      "15": {
+        "truth": 15,
+        "n": 2,
+        "accepted": 1,
+        "correct": 0,
+        "errors": 1
+      },
+      "cue": {
+        "truth": "cue",
+        "n": 2,
+        "accepted": 2,
+        "correct": 0,
+        "errors": 2
+      }
+    },
+    "confusion_pairs": {
+      "5->1": 1,
+      "8->3": 1,
+      "9->1": 2,
+      "12->3": 2,
+      "cue->1": 2,
+      "7->3": 1,
+      "11->3": 1,
+      "8->6": 1,
+      "13->1": 1,
+      "15->3": 1,
+      "4->3": 1
+    },
+    "scene_scope": "two frames from one video, correlated; provisional only",
+    "timing": {
+      "batch_elapsed_ms": 34.171834122389555,
+      "crops": 32,
+      "batch_amortized_ms_per_crop": 1.0678698163246736,
+      "reported_per_crop_p50_ms": 0.0,
+      "reported_per_crop_p95_ms": 0.0
+    }
+  },
+  "training_actual_detection_regions_diagnostic": {
+    "observations": 125,
+    "accepted": 96,
+    "correct_accepted": 32,
+    "wrong_accepted": 64,
+    "coverage": 0.768,
+    "selective_accuracy": 0.3333333333333333,
+    "by_identity": {
+      "4": {
+        "truth": 4,
+        "n": 9,
+        "accepted": 6,
+        "correct": 0,
+        "errors": 6
+      },
+      "15": {
+        "truth": 15,
+        "n": 9,
+        "accepted": 2,
+        "correct": 0,
+        "errors": 2
+      },
+      "8": {
+        "truth": 8,
+        "n": 6,
+        "accepted": 6,
+        "correct": 0,
+        "errors": 6
+      },
+      "1": {
+        "truth": 1,
+        "n": 10,
+        "accepted": 10,
+        "correct": 10,
+        "errors": 0
+      },
+      "11": {
+        "truth": 11,
+        "n": 13,
+        "accepted": 1,
+        "correct": 0,
+        "errors": 1
+      },
+      "9": {
+        "truth": 9,
+        "n": 10,
+        "accepted": 10,
+        "correct": 0,
+        "errors": 10
+      },
+      "5": {
+        "truth": 5,
+        "n": 13,
+        "accepted": 13,
+        "correct": 13,
+        "errors": 0
+      },
+      "12": {
+        "truth": 12,
+        "n": 10,
+        "accepted": 10,
+        "correct": 0,
+        "errors": 10
+      },
+      "14": {
+        "truth": 14,
+        "n": 10,
+        "accepted": 3,
+        "correct": 0,
+        "errors": 3
+      },
+      "3": {
+        "truth": 3,
+        "n": 3,
+        "accepted": 3,
+        "correct": 3,
+        "errors": 0
+      },
+      "7": {
+        "truth": 7,
+        "n": 10,
+        "accepted": 10,
+        "correct": 0,
+        "errors": 10
+      },
+      "cue": {
+        "truth": "cue",
+        "n": 3,
+        "accepted": 3,
+        "correct": 0,
+        "errors": 3
+      },
+      "13": {
+        "truth": 13,
+        "n": 13,
+        "accepted": 13,
+        "correct": 0,
+        "errors": 13
+      },
+      "2": {
+        "truth": 2,
+        "n": 3,
+        "accepted": 3,
+        "correct": 3,
+        "errors": 0
+      },
+      "6": {
+        "truth": 6,
+        "n": 3,
+        "accepted": 3,
+        "correct": 3,
+        "errors": 0
+      }
+    },
+    "confusion_pairs": {
+      "4->2": 6,
+      "8->6": 6,
+      "9->1": 10,
+      "12->2": 2,
+      "7->3": 10,
+      "cue->3": 1,
+      "13->5": 13,
+      "cue->1": 2,
+      "15->11": 1,
+      "12->1": 8,
+      "14->3": 3,
+      "15->3": 1,
+      "11->3": 1
+    },
+    "matched_regions": 125,
+    "timing": {
+      "batch_elapsed_ms": 118.63520788028836,
+      "crops": 125,
+      "batch_amortized_ms_per_crop": 0.9490816630423069,
+      "reported_per_crop_p50_ms": 0.0,
+      "reported_per_crop_p95_ms": 0.0
+    }
+  },
+  "heldout_actual_detection_regions": {
+    "observations": 29,
+    "accepted": 19,
+    "correct_accepted": 6,
+    "wrong_accepted": 13,
+    "coverage": 0.6551724137931034,
+    "selective_accuracy": 0.3157894736842105,
+    "by_identity": {
+      "cue": {
+        "truth": "cue",
+        "n": 2,
+        "accepted": 2,
+        "correct": 0,
+        "errors": 2
+      },
+      "15": {
+        "truth": 15,
+        "n": 2,
+        "accepted": 1,
+        "correct": 0,
+        "errors": 1
+      },
+      "6": {
+        "truth": 6,
+        "n": 2,
+        "accepted": 0,
+        "correct": 0,
+        "errors": 0
+      },
+      "3": {
+        "truth": 3,
+        "n": 2,
+        "accepted": 2,
+        "correct": 2,
+        "errors": 0
+      },
+      "1": {
+        "truth": 1,
+        "n": 2,
+        "accepted": 2,
+        "correct": 2,
+        "errors": 0
+      },
+      "9": {
+        "truth": 9,
+        "n": 2,
+        "accepted": 1,
+        "correct": 0,
+        "errors": 1
+      },
+      "14": {
+        "truth": 14,
+        "n": 2,
+        "accepted": 0,
+        "correct": 0,
+        "errors": 0
+      },
+      "10": {
+        "truth": 10,
+        "n": 1,
+        "accepted": 1,
+        "correct": 0,
+        "errors": 1
+      },
+      "7": {
+        "truth": 7,
+        "n": 2,
+        "accepted": 2,
+        "correct": 0,
+        "errors": 2
+      },
+      "5": {
+        "truth": 5,
+        "n": 2,
+        "accepted": 2,
+        "correct": 1,
+        "errors": 1
+      },
+      "13": {
+        "truth": 13,
+        "n": 2,
+        "accepted": 0,
+        "correct": 0,
+        "errors": 0
+      },
+      "4": {
+        "truth": 4,
+        "n": 2,
+        "accepted": 1,
+        "correct": 0,
+        "errors": 1
+      },
+      "12": {
+        "truth": 12,
+        "n": 2,
+        "accepted": 2,
+        "correct": 0,
+        "errors": 2
+      },
+      "2": {
+        "truth": 2,
+        "n": 2,
+        "accepted": 1,
+        "correct": 1,
+        "errors": 0
+      },
+      "8": {
+        "truth": 8,
+        "n": 1,
+        "accepted": 1,
+        "correct": 0,
+        "errors": 1
+      },
+      "11": {
+        "truth": 11,
+        "n": 1,
+        "accepted": 1,
+        "correct": 0,
+        "errors": 1
+      }
+    },
+    "confusion_pairs": {
+      "cue->1": 1,
+      "9->1": 1,
+      "10->3": 1,
+      "7->3": 2,
+      "5->1": 1,
+      "12->3": 2,
+      "8->6": 1,
+      "15->3": 1,
+      "cue->6": 1,
+      "4->3": 1,
+      "11->3": 1
+    },
+    "matched_regions": 29,
+    "timing": {
+      "batch_elapsed_ms": 29.56804120913148,
+      "crops": 29,
+      "batch_amortized_ms_per_crop": 1.0195876279010856,
+      "reported_per_crop_p50_ms": 0.0,
+      "reported_per_crop_p95_ms": 0.0
+    }
+  },
+  "unmatched_detection_crops": {
+    "regions": 45,
+    "predicted_identity_count": 8,
+    "by_scene": {
+      "demo3-rack-frame-000": 0,
+      "demo3-scattered-frame-900": 0,
+      "framing-after-4k": 0,
+      "framing-before-720": 0,
+      "large-checkerboard-001": 0,
+      "large-checkerboard-002": 0,
+      "large-checkerboard-003": 0,
+      "large-checkerboard-004": 1,
+      "large-checkerboard-005": 2,
+      "large-checkerboard-006": 1,
+      "large-checkerboard-007": 0,
+      "large-checkerboard-008": 1,
+      "small-checkerboard-001": 0,
+      "small-checkerboard-002": 0,
+      "small-checkerboard-003": 0,
+      "small-checkerboard-004": 0,
+      "small-checkerboard-005": 0,
+      "small-checkerboard-006": 1,
+      "small-checkerboard-007": 1,
+      "small-checkerboard-008": 1,
+      "small-checkerboard-009": 0
+    },
+    "timing": {
+      "batch_elapsed_ms": 50.913583021610975,
+      "crops": 45,
+      "batch_amortized_ms_per_crop": 1.1314129560357995,
+      "reported_per_crop_p50_ms": 0.0,
+      "reported_per_crop_p95_ms": 0.0
+    }
+  },
+  "detector_coverage": {
+    "all_labeled_positive_scenes": {
+      "measured-grid-720": {
+        "ground_truth": 15,
+        "detections": 15,
+        "matched": 15,
+        "missed_ground_truth": 0,
+        "extra_detections": 0
+      },
+      "alternate-grid-720": {
+        "ground_truth": 15,
+        "detections": 15,
+        "matched": 15,
+        "missed_ground_truth": 0,
+        "extra_detections": 0
+      },
+      "small-checkerboard-001": {
+        "ground_truth": 15,
+        "detections": 16,
+        "matched": 15,
+        "missed_ground_truth": 0,
+        "extra_detections": 1
+      },
+      "small-checkerboard-002": {
+        "ground_truth": 11,
+        "detections": 14,
+        "matched": 11,
+        "missed_ground_truth": 0,
+        "extra_detections": 3
+      },
+      "small-checkerboard-003": {
+        "ground_truth": 11,
+        "detections": 13,
+        "matched": 11,
+        "missed_ground_truth": 0,
+        "extra_detections": 2
+      },
+      "small-checkerboard-004": {
+        "ground_truth": 11,
+        "detections": 13,
+        "matched": 11,
+        "missed_ground_truth": 0,
+        "extra_detections": 2
+      },
+      "small-checkerboard-005": {
+        "ground_truth": 11,
+        "detections": 11,
+        "matched": 10,
+        "missed_ground_truth": 1,
+        "extra_detections": 1
+      },
+      "small-checkerboard-006": {
+        "ground_truth": 10,
+        "detections": 11,
+        "matched": 9,
+        "missed_ground_truth": 1,
+        "extra_detections": 2
+      },
+      "small-checkerboard-007": {
+        "ground_truth": 11,
+        "detections": 11,
+        "matched": 10,
+        "missed_ground_truth": 1,
+        "extra_detections": 1
+      },
+      "small-checkerboard-008": {
+        "ground_truth": 10,
+        "detections": 13,
+        "matched": 9,
+        "missed_ground_truth": 1,
+        "extra_detections": 4
+      },
+      "small-checkerboard-009": {
+        "ground_truth": 3,
+        "detections": 4,
+        "matched": 3,
+        "missed_ground_truth": 0,
+        "extra_detections": 1
+      },
+      "framing-before-720": {
+        "ground_truth": 3,
+        "detections": 4,
+        "matched": 3,
+        "missed_ground_truth": 0,
+        "extra_detections": 1
+      },
+      "framing-after-4k": {
+        "ground_truth": 3,
+        "detections": 5,
+        "matched": 3,
+        "missed_ground_truth": 0,
+        "extra_detections": 2
+      },
+      "large-checkerboard-001": {
+        "ground_truth": 0,
+        "detections": 3,
+        "matched": 0,
+        "missed_ground_truth": 0,
+        "extra_detections": 3
+      },
+      "large-checkerboard-002": {
+        "ground_truth": 0,
+        "detections": 2,
+        "matched": 0,
+        "missed_ground_truth": 0,
+        "extra_detections": 2
+      },
+      "large-checkerboard-003": {
+        "ground_truth": 0,
+        "detections": 3,
+        "matched": 0,
+        "missed_ground_truth": 0,
+        "extra_detections": 3
+      },
+      "large-checkerboard-004": {
+        "ground_truth": 0,
+        "detections": 2,
+        "matched": 0,
+        "missed_ground_truth": 0,
+        "extra_detections": 2
+      },
+      "large-checkerboard-005": {
+        "ground_truth": 0,
+        "detections": 4,
+        "matched": 0,
+        "missed_ground_truth": 0,
+        "extra_detections": 4
+      },
+      "large-checkerboard-006": {
+        "ground_truth": 0,
+        "detections": 2,
+        "matched": 0,
+        "missed_ground_truth": 0,
+        "extra_detections": 2
+      },
+      "large-checkerboard-007": {
+        "ground_truth": 0,
+        "detections": 3,
+        "matched": 0,
+        "missed_ground_truth": 0,
+        "extra_detections": 3
+      },
+      "large-checkerboard-008": {
+        "ground_truth": 0,
+        "detections": 4,
+        "matched": 0,
+        "missed_ground_truth": 0,
+        "extra_detections": 4
+      },
+      "demo3-rack-frame-000": {
+        "ground_truth": 16,
+        "detections": 15,
+        "matched": 14,
+        "missed_ground_truth": 2,
+        "extra_detections": 1
+      },
+      "demo3-scattered-frame-900": {
+        "ground_truth": 16,
+        "detections": 16,
+        "matched": 15,
+        "missed_ground_truth": 1,
+        "extra_detections": 1
+      }
+    },
+    "heldout_video_frames": {
+      "demo3-rack-frame-000": {
+        "ground_truth": 16,
+        "detections": 15,
+        "matched": 14,
+        "missed_ground_truth": 2,
+        "extra_detections": 1
+      },
+      "demo3-scattered-frame-900": {
+        "ground_truth": 16,
+        "detections": 16,
+        "matched": 15,
+        "missed_ground_truth": 1,
+        "extra_detections": 1
+      }
+    }
+  },
+  "candidate_outputs": [
+    {
+      "scene_id": "demo3-rack-frame-000",
+      "truth": 1,
+      "prediction": 1,
+      "confidence": 1.0,
+      "evidence": {
+        "reason": "appearance_agreement",
+        "palette": "yellow",
+        "palette_probability": 1.0,
+        "palette_margin": 1.0,
+        "pattern": "solid",
+        "pattern_probability": 1.0,
+        "pattern_margin": 0.9999999999997903,
+        "composed_identity": 1,
+        "joint_probability": 1.0,
+        "number": {
+          "identity": null,
+          "confidence": 0.0,
+          "reason": "number_spot_not_found"
+        },
+        "independent_number_agreement": false,
+        "training_scenes": [
+          "alternate-grid-720",
+          "framing-after-4k",
+          "framing-before-720",
+          "measured-grid-720",
+          "small-checkerboard-001",
+          "small-checkerboard-002",
+          "small-checkerboard-003",
+          "small-checkerboard-004",
+          "small-checkerboard-005",
+          "small-checkerboard-006",
+          "small-checkerboard-007",
+          "small-checkerboard-008",
+          "small-checkerboard-009"
+        ],
+        "training_count": 129,
+        "identity_probability_gate": 0.86,
+        "training_calibration": {
+          "method": "leave-capture-group-out; calibrated only from samples supplied to fit",
+          "groups": [
+            "framing-placement",
+            "original-grid-placement",
+            "partial-small-placement",
+            "rearranged-small-cluster"
+          ],
+          "folds_used": 3,
+          "folds_skipped_for_incomplete_palette_or_pattern_support": [
+            "original-grid-placement"
+          ],
+          "heldout_training_rows": 40,
+          "false_candidate_score_ceiling": 0.8363058896182736,
+          "selected_identity_probability_gate": 0.86,
+          "limitations": "Folds are few and repeated still-image arrangements remain correlated; threshold calibration is training-only risk control, not statistical qualification."
+        }
+      }
+    },
+    {
+      "scene_id": "demo3-rack-frame-000",
+      "truth": 2,
+      "prediction": null,
+      "confidence": 0.49,
+      "evidence": {
+        "reason": "joint_confidence_or_margin_low",
+        "palette": "red",
+        "palette_probability": 0.9999955892562866,
+        "palette_margin": 0.9999911834315753,
+        "pattern": "stripe",
+        "pattern_probability": 0.7632691264152527,
+        "pattern_margin": 0.5265382528305054,
+        "composed_identity": 11,
+        "joint_probability": 0.7632657598307517,
+        "number": {
+          "identity": null,
+          "confidence": 0.0,
+          "reason": "number_spot_not_found"
+        },
+        "independent_number_agreement": false,
+        "training_scenes": [
+          "alternate-grid-720",
+          "framing-after-4k",
+          "framing-before-720",
+          "measured-grid-720",
+          "small-checkerboard-001",
+          "small-checkerboard-002",
+          "small-checkerboard-003",
+          "small-checkerboard-004",
+          "small-checkerboard-005",
+          "small-checkerboard-006",
+          "small-checkerboard-007",
+          "small-checkerboard-008",
+          "small-checkerboard-009"
+        ],
+        "training_count": 129,
+        "identity_probability_gate": 0.86,
+        "training_calibration": {
+          "method": "leave-capture-group-out; calibrated only from samples supplied to fit",
+          "groups": [
+            "framing-placement",
+            "original-grid-placement",
+            "partial-small-placement",
+            "rearranged-small-cluster"
+          ],
+          "folds_used": 3,
+          "folds_skipped_for_incomplete_palette_or_pattern_support": [
+            "original-grid-placement"
+          ],
+          "heldout_training_rows": 40,
+          "false_candidate_score_ceiling": 0.8363058896182736,
+          "selected_identity_probability_gate": 0.86,
+          "limitations": "Folds are few and repeated still-image arrangements remain correlated; threshold calibration is training-only risk control, not statistical qualification."
+        }
+      }
+    },
+    {
+      "scene_id": "demo3-rack-frame-000",
+      "truth": 3,
+      "prediction": 3,
+      "confidence": 0.9999999403953552,
+      "evidence": {
+        "reason": "appearance_agreement",
+        "palette": "red",
+        "palette_probability": 1.0,
+        "palette_margin": 0.9999999973108078,
+        "pattern": "solid",
+        "pattern_probability": 0.9999999403953552,
+        "pattern_margin": 0.9999999040775123,
+        "composed_identity": 3,
+        "joint_probability": 0.9999999403953552,
+        "number": {
+          "identity": null,
+          "confidence": 0.0,
+          "reason": "number_spot_not_found"
+        },
+        "independent_number_agreement": false,
+        "training_scenes": [
+          "alternate-grid-720",
+          "framing-after-4k",
+          "framing-before-720",
+          "measured-grid-720",
+          "small-checkerboard-001",
+          "small-checkerboard-002",
+          "small-checkerboard-003",
+          "small-checkerboard-004",
+          "small-checkerboard-005",
+          "small-checkerboard-006",
+          "small-checkerboard-007",
+          "small-checkerboard-008",
+          "small-checkerboard-009"
+        ],
+        "training_count": 129,
+        "identity_probability_gate": 0.86,
+        "training_calibration": {
+          "method": "leave-capture-group-out; calibrated only from samples supplied to fit",
+          "groups": [
+            "framing-placement",
+            "original-grid-placement",
+            "partial-small-placement",
+            "rearranged-small-cluster"
+          ],
+          "folds_used": 3,
+          "folds_skipped_for_incomplete_palette_or_pattern_support": [
+            "original-grid-placement"
+          ],
+          "heldout_training_rows": 40,
+          "false_candidate_score_ceiling": 0.8363058896182736,
+          "selected_identity_probability_gate": 0.86,
+          "limitations": "Folds are few and repeated still-image arrangements remain correlated; threshold calibration is training-only risk control, not statistical qualification."
+        }
+      }
+    },
+    {
+      "scene_id": "demo3-rack-frame-000",
+      "truth": 4,
+      "prediction": null,
+      "confidence": 0.49,
+      "evidence": {
+        "reason": "joint_confidence_or_margin_low",
+        "palette": "red",
+        "palette_probability": 1.0,
+        "palette_margin": 1.0,
+        "pattern": "solid",
+        "pattern_probability": 0.6708462834358215,
+        "pattern_margin": 0.34169256687164307,
+        "composed_identity": 3,
+        "joint_probability": 0.6708462834358215,
+        "number": {
+          "identity": null,
+          "confidence": 0.1434991955757141,
+          "margin": 0.003158971667289734,
+          "reason": "number_template_uncertain"
+        },
+        "independent_number_agreement": false,
+        "training_scenes": [
+          "alternate-grid-720",
+          "framing-after-4k",
+          "framing-before-720",
+          "measured-grid-720",
+          "small-checkerboard-001",
+          "small-checkerboard-002",
+          "small-checkerboard-003",
+          "small-checkerboard-004",
+          "small-checkerboard-005",
+          "small-checkerboard-006",
+          "small-checkerboard-007",
+          "small-checkerboard-008",
+          "small-checkerboard-009"
+        ],
+        "training_count": 129,
+        "identity_probability_gate": 0.86,
+        "training_calibration": {
+          "method": "leave-capture-group-out; calibrated only from samples supplied to fit",
+          "groups": [
+            "framing-placement",
+            "original-grid-placement",
+            "partial-small-placement",
+            "rearranged-small-cluster"
+          ],
+          "folds_used": 3,
+          "folds_skipped_for_incomplete_palette_or_pattern_support": [
+            "original-grid-placement"
+          ],
+          "heldout_training_rows": 40,
+          "false_candidate_score_ceiling": 0.8363058896182736,
+          "selected_identity_probability_gate": 0.86,
+          "limitations": "Folds are few and repeated still-image arrangements remain correlated; threshold calibration is training-only risk control, not statistical qualification."
+        }
+      }
+    },
+    {
+      "scene_id": "demo3-rack-frame-000",
+      "truth": 5,
+      "prediction": 1,
+      "confidence": 0.9991605877876282,
+      "evidence": {
+        "reason": "appearance_agreement",
+        "palette": "yellow",
+        "palette_probability": 1.0,
+        "palette_margin": 0.9999999996755294,
+        "pattern": "solid",
+        "pattern_probability": 0.9991605877876282,
+        "pattern_margin": 0.9983212022925727,
+        "composed_identity": 1,
+        "joint_probability": 0.9991605877876282,
+        "number": {
+          "identity": null,
+          "confidence": 0.0,
+          "reason": "number_spot_not_found"
+        },
+        "independent_number_agreement": false,
+        "training_scenes": [
+          "alternate-grid-720",
+          "framing-after-4k",
+          "framing-before-720",
+          "measured-grid-720",
+          "small-checkerboard-001",
+          "small-checkerboard-002",
+          "small-checkerboard-003",
+          "small-checkerboard-004",
+          "small-checkerboard-005",
+          "small-checkerboard-006",
+          "small-checkerboard-007",
+          "small-checkerboard-008",
+          "small-checkerboard-009"
+        ],
+        "training_count": 129,
+        "identity_probability_gate": 0.86,
+        "training_calibration": {
+          "method": "leave-capture-group-out; calibrated only from samples supplied to fit",
+          "groups": [
+            "framing-placement",
+            "original-grid-placement",
+            "partial-small-placement",
+            "rearranged-small-cluster"
+          ],
+          "folds_used": 3,
+          "folds_skipped_for_incomplete_palette_or_pattern_support": [
+            "original-grid-placement"
+          ],
+          "heldout_training_rows": 40,
+          "false_candidate_score_ceiling": 0.8363058896182736,
+          "selected_identity_probability_gate": 0.86,
+          "limitations": "Folds are few and repeated still-image arrangements remain correlated; threshold calibration is training-only risk control, not statistical qualification."
+        }
+      }
+    },
+    {
+      "scene_id": "demo3-rack-frame-000",
+      "truth": 6,
+      "prediction": null,
+      "confidence": 0.3402764522217261,
+      "evidence": {
+        "reason": "palette_or_pattern_uncertain",
+        "palette": "purple",
+        "palette_probability": 0.4727780222892761,
+        "palette_margin": 0.12251681089401245,
+        "pattern": "stripe",
+        "pattern_probability": 0.7197383046150208,
+        "pattern_margin": 0.439476877450943,
+        "composed_identity": 12,
+        "joint_probability": 0.3402764522217261,
+        "number": {
+          "identity": null,
+          "confidence": 0.0,
+          "reason": "number_spot_not_found"
+        },
+        "independent_number_agreement": false,
+        "training_scenes": [
+          "alternate-grid-720",
+          "framing-after-4k",
+          "framing-before-720",
+          "measured-grid-720",
+          "small-checkerboard-001",
+          "small-checkerboard-002",
+          "small-checkerboard-003",
+          "small-checkerboard-004",
+          "small-checkerboard-005",
+          "small-checkerboard-006",
+          "small-checkerboard-007",
+          "small-checkerboard-008",
+          "small-checkerboard-009"
+        ],
+        "training_count": 129,
+        "identity_probability_gate": 0.86,
+        "training_calibration": {
+          "method": "leave-capture-group-out; calibrated only from samples supplied to fit",
+          "groups": [
+            "framing-placement",
+            "original-grid-placement",
+            "partial-small-placement",
+            "rearranged-small-cluster"
+          ],
+          "folds_used": 3,
+          "folds_skipped_for_incomplete_palette_or_pattern_support": [
+            "original-grid-placement"
+          ],
+          "heldout_training_rows": 40,
+          "false_candidate_score_ceiling": 0.8363058896182736,
+          "selected_identity_probability_gate": 0.86,
+          "limitations": "Folds are few and repeated still-image arrangements remain correlated; threshold calibration is training-only risk control, not statistical qualification."
+        }
+      }
+    },
+    {
+      "scene_id": "demo3-rack-frame-000",
+      "truth": 7,
+      "prediction": null,
+      "confidence": 0.49,
+      "evidence": {
+        "reason": "joint_confidence_or_margin_low",
+        "palette": "red",
+        "palette_probability": 1.0,
+        "palette_margin": 1.0,
+        "pattern": "solid",
+        "pattern_probability": 0.7562397718429565,
+        "pattern_margin": 0.5124795734882355,
+        "composed_identity": 3,
+        "joint_probability": 0.7562397718429565,
+        "number": {
+          "identity": null,
+          "confidence": 0.03621034324169159,
+          "margin": 0.008288564160466194,
+          "reason": "number_template_uncertain"
+        },
+        "independent_number_agreement": false,
+        "training_scenes": [
+          "alternate-grid-720",
+          "framing-after-4k",
+          "framing-before-720",
+          "measured-grid-720",
+          "small-checkerboard-001",
+          "small-checkerboard-002",
+          "small-checkerboard-003",
+          "small-checkerboard-004",
+          "small-checkerboard-005",
+          "small-checkerboard-006",
+          "small-checkerboard-007",
+          "small-checkerboard-008",
+          "small-checkerboard-009"
+        ],
+        "training_count": 129,
+        "identity_probability_gate": 0.86,
+        "training_calibration": {
+          "method": "leave-capture-group-out; calibrated only from samples supplied to fit",
+          "groups": [
+            "framing-placement",
+            "original-grid-placement",
+            "partial-small-placement",
+            "rearranged-small-cluster"
+          ],
+          "folds_used": 3,
+          "folds_skipped_for_incomplete_palette_or_pattern_support": [
+            "original-grid-placement"
+          ],
+          "heldout_training_rows": 40,
+          "false_candidate_score_ceiling": 0.8363058896182736,
+          "selected_identity_probability_gate": 0.86,
+          "limitations": "Folds are few and repeated still-image arrangements remain correlated; threshold calibration is training-only risk control, not statistical qualification."
+        }
+      }
+    },
+    {
+      "scene_id": "demo3-rack-frame-000",
+      "truth": 8,
+      "prediction": 3,
+      "confidence": 1.0,
+      "evidence": {
+        "reason": "appearance_agreement",
+        "palette": "red",
+        "palette_probability": 1.0,
+        "palette_margin": 1.0,
+        "pattern": "solid",
+        "pattern_probability": 1.0,
+        "pattern_margin": 1.0,
+        "composed_identity": 3,
+        "joint_probability": 1.0,
+        "number": {
+          "identity": null,
+          "confidence": 0.16210414469242096,
+          "margin": 0.00040055811405181885,
+          "reason": "number_template_uncertain"
+        },
+        "independent_number_agreement": false,
+        "training_scenes": [
+          "alternate-grid-720",
+          "framing-after-4k",
+          "framing-before-720",
+          "measured-grid-720",
+          "small-checkerboard-001",
+          "small-checkerboard-002",
+          "small-checkerboard-003",
+          "small-checkerboard-004",
+          "small-checkerboard-005",
+          "small-checkerboard-006",
+          "small-checkerboard-007",
+          "small-checkerboard-008",
+          "small-checkerboard-009"
+        ],
+        "training_count": 129,
+        "identity_probability_gate": 0.86,
+        "training_calibration": {
+          "method": "leave-capture-group-out; calibrated only from samples supplied to fit",
+          "groups": [
+            "framing-placement",
+            "original-grid-placement",
+            "partial-small-placement",
+            "rearranged-small-cluster"
+          ],
+          "folds_used": 3,
+          "folds_skipped_for_incomplete_palette_or_pattern_support": [
+            "original-grid-placement"
+          ],
+          "heldout_training_rows": 40,
+          "false_candidate_score_ceiling": 0.8363058896182736,
+          "selected_identity_probability_gate": 0.86,
+          "limitations": "Folds are few and repeated still-image arrangements remain correlated; threshold calibration is training-only risk control, not statistical qualification."
+        }
+      }
+    },
+    {
+      "scene_id": "demo3-rack-frame-000",
+      "truth": 9,
+      "prediction": 1,
+      "confidence": 0.9999998807907104,
+      "evidence": {
+        "reason": "appearance_agreement",
+        "palette": "yellow",
+        "palette_probability": 1.0,
+        "palette_margin": 1.0,
+        "pattern": "solid",
+        "pattern_probability": 0.9999998807907104,
+        "pattern_margin": 0.9999997871045494,
+        "composed_identity": 1,
+        "joint_probability": 0.9999998807907104,
+        "number": {
+          "identity": null,
+          "confidence": 0.0,
+          "reason": "number_spot_not_found"
+        },
+        "independent_number_agreement": false,
+        "training_scenes": [
+          "alternate-grid-720",
+          "framing-after-4k",
+          "framing-before-720",
+          "measured-grid-720",
+          "small-checkerboard-001",
+          "small-checkerboard-002",
+          "small-checkerboard-003",
+          "small-checkerboard-004",
+          "small-checkerboard-005",
+          "small-checkerboard-006",
+          "small-checkerboard-007",
+          "small-checkerboard-008",
+          "small-checkerboard-009"
+        ],
+        "training_count": 129,
+        "identity_probability_gate": 0.86,
+        "training_calibration": {
+          "method": "leave-capture-group-out; calibrated only from samples supplied to fit",
+          "groups": [
+            "framing-placement",
+            "original-grid-placement",
+            "partial-small-placement",
+            "rearranged-small-cluster"
+          ],
+          "folds_used": 3,
+          "folds_skipped_for_incomplete_palette_or_pattern_support": [
+            "original-grid-placement"
+          ],
+          "heldout_training_rows": 40,
+          "false_candidate_score_ceiling": 0.8363058896182736,
+          "selected_identity_probability_gate": 0.86,
+          "limitations": "Folds are few and repeated still-image arrangements remain correlated; threshold calibration is training-only risk control, not statistical qualification."
+        }
+      }
+    },
+    {
+      "scene_id": "demo3-rack-frame-000",
+      "truth": 10,
+      "prediction": null,
+      "confidence": 0.49,
+      "evidence": {
+        "reason": "joint_confidence_or_margin_low",
+        "palette": "maroon",
+        "palette_probability": 0.7236212491989136,
+        "palette_margin": 0.5430274158716202,
+        "pattern": "stripe",
+        "pattern_probability": 0.6871492266654968,
+        "pattern_margin": 0.37429845333099365,
+        "composed_identity": 15,
+        "joint_probability": 0.4972357817857542,
+        "number": {
+          "identity": null,
+          "confidence": 0.0,
+          "reason": "number_spot_not_found"
+        },
+        "independent_number_agreement": false,
+        "training_scenes": [
+          "alternate-grid-720",
+          "framing-after-4k",
+          "framing-before-720",
+          "measured-grid-720",
+          "small-checkerboard-001",
+          "small-checkerboard-002",
+          "small-checkerboard-003",
+          "small-checkerboard-004",
+          "small-checkerboard-005",
+          "small-checkerboard-006",
+          "small-checkerboard-007",
+          "small-checkerboard-008",
+          "small-checkerboard-009"
+        ],
+        "training_count": 129,
+        "identity_probability_gate": 0.86,
+        "training_calibration": {
+          "method": "leave-capture-group-out; calibrated only from samples supplied to fit",
+          "groups": [
+            "framing-placement",
+            "original-grid-placement",
+            "partial-small-placement",
+            "rearranged-small-cluster"
+          ],
+          "folds_used": 3,
+          "folds_skipped_for_incomplete_palette_or_pattern_support": [
+            "original-grid-placement"
+          ],
+          "heldout_training_rows": 40,
+          "false_candidate_score_ceiling": 0.8363058896182736,
+          "selected_identity_probability_gate": 0.86,
+          "limitations": "Folds are few and repeated still-image arrangements remain correlated; threshold calibration is training-only risk control, not statistical qualification."
+        }
+      }
+    },
+    {
+      "scene_id": "demo3-rack-frame-000",
+      "truth": 11,
+      "prediction": null,
+      "confidence": 0.49,
+      "evidence": {
+        "reason": "joint_confidence_or_margin_low",
+        "palette": "red",
+        "palette_probability": 1.0,
+        "palette_margin": 0.9999999999906447,
+        "pattern": "solid",
+        "pattern_probability": 0.6914517879486084,
+        "pattern_margin": 0.3829035758972168,
+        "composed_identity": 3,
+        "joint_probability": 0.6914517879486084,
+        "number": {
+          "identity": null,
+          "confidence": 0.37633460760116577,
+          "margin": 0.03801843523979187,
+          "reason": "number_template_uncertain"
+        },
+        "independent_number_agreement": false,
+        "training_scenes": [
+          "alternate-grid-720",
+          "framing-after-4k",
+          "framing-before-720",
+          "measured-grid-720",
+          "small-checkerboard-001",
+          "small-checkerboard-002",
+          "small-checkerboard-003",
+          "small-checkerboard-004",
+          "small-checkerboard-005",
+          "small-checkerboard-006",
+          "small-checkerboard-007",
+          "small-checkerboard-008",
+          "small-checkerboard-009"
+        ],
+        "training_count": 129,
+        "identity_probability_gate": 0.86,
+        "training_calibration": {
+          "method": "leave-capture-group-out; calibrated only from samples supplied to fit",
+          "groups": [
+            "framing-placement",
+            "original-grid-placement",
+            "partial-small-placement",
+            "rearranged-small-cluster"
+          ],
+          "folds_used": 3,
+          "folds_skipped_for_incomplete_palette_or_pattern_support": [
+            "original-grid-placement"
+          ],
+          "heldout_training_rows": 40,
+          "false_candidate_score_ceiling": 0.8363058896182736,
+          "selected_identity_probability_gate": 0.86,
+          "limitations": "Folds are few and repeated still-image arrangements remain correlated; threshold calibration is training-only risk control, not statistical qualification."
+        }
+      }
+    },
+    {
+      "scene_id": "demo3-rack-frame-000",
+      "truth": 12,
+      "prediction": 3,
+      "confidence": 0.9980154037475586,
+      "evidence": {
+        "reason": "appearance_agreement",
+        "palette": "red",
+        "palette_probability": 1.0,
+        "palette_margin": 1.0,
+        "pattern": "solid",
+        "pattern_probability": 0.9980154037475586,
+        "pattern_margin": 0.996030782815069,
+        "composed_identity": 3,
+        "joint_probability": 0.9980154037475586,
+        "number": {
+          "identity": null,
+          "confidence": 0.18638715147972107,
+          "margin": 0.010505542159080505,
+          "reason": "number_template_uncertain"
+        },
+        "independent_number_agreement": false,
+        "training_scenes": [
+          "alternate-grid-720",
+          "framing-after-4k",
+          "framing-before-720",
+          "measured-grid-720",
+          "small-checkerboard-001",
+          "small-checkerboard-002",
+          "small-checkerboard-003",
+          "small-checkerboard-004",
+          "small-checkerboard-005",
+          "small-checkerboard-006",
+          "small-checkerboard-007",
+          "small-checkerboard-008",
+          "small-checkerboard-009"
+        ],
+        "training_count": 129,
+        "identity_probability_gate": 0.86,
+        "training_calibration": {
+          "method": "leave-capture-group-out; calibrated only from samples supplied to fit",
+          "groups": [
+            "framing-placement",
+            "original-grid-placement",
+            "partial-small-placement",
+            "rearranged-small-cluster"
+          ],
+          "folds_used": 3,
+          "folds_skipped_for_incomplete_palette_or_pattern_support": [
+            "original-grid-placement"
+          ],
+          "heldout_training_rows": 40,
+          "false_candidate_score_ceiling": 0.8363058896182736,
+          "selected_identity_probability_gate": 0.86,
+          "limitations": "Folds are few and repeated still-image arrangements remain correlated; threshold calibration is training-only risk control, not statistical qualification."
+        }
+      }
+    },
+    {
+      "scene_id": "demo3-rack-frame-000",
+      "truth": 13,
+      "prediction": null,
+      "confidence": 0.49,
+      "evidence": {
+        "reason": "joint_confidence_or_margin_low",
+        "palette": "yellow",
+        "palette_probability": 0.9999995231628418,
+        "palette_margin": 0.9999992132619582,
+        "pattern": "stripe",
+        "pattern_probability": 0.6907318830490112,
+        "pattern_margin": 0.38146376609802246,
+        "composed_identity": 9,
+        "joint_probability": 0.690731553682383,
+        "number": {
+          "identity": null,
+          "confidence": 0.0,
+          "reason": "number_spot_not_found"
+        },
+        "independent_number_agreement": false,
+        "training_scenes": [
+          "alternate-grid-720",
+          "framing-after-4k",
+          "framing-before-720",
+          "measured-grid-720",
+          "small-checkerboard-001",
+          "small-checkerboard-002",
+          "small-checkerboard-003",
+          "small-checkerboard-004",
+          "small-checkerboard-005",
+          "small-checkerboard-006",
+          "small-checkerboard-007",
+          "small-checkerboard-008",
+          "small-checkerboard-009"
+        ],
+        "training_count": 129,
+        "identity_probability_gate": 0.86,
+        "training_calibration": {
+          "method": "leave-capture-group-out; calibrated only from samples supplied to fit",
+          "groups": [
+            "framing-placement",
+            "original-grid-placement",
+            "partial-small-placement",
+            "rearranged-small-cluster"
+          ],
+          "folds_used": 3,
+          "folds_skipped_for_incomplete_palette_or_pattern_support": [
+            "original-grid-placement"
+          ],
+          "heldout_training_rows": 40,
+          "false_candidate_score_ceiling": 0.8363058896182736,
+          "selected_identity_probability_gate": 0.86,
+          "limitations": "Folds are few and repeated still-image arrangements remain correlated; threshold calibration is training-only risk control, not statistical qualification."
+        }
+      }
+    },
+    {
+      "scene_id": "demo3-rack-frame-000",
+      "truth": 14,
+      "prediction": null,
+      "confidence": 0.49,
+      "evidence": {
+        "reason": "joint_confidence_or_margin_low",
+        "palette": "maroon",
+        "palette_probability": 0.5582438111305237,
+        "palette_margin": 0.3311395198106766,
+        "pattern": "solid",
+        "pattern_probability": 0.999821662902832,
+        "pattern_margin": 0.999643342132913,
+        "composed_identity": 7,
+        "joint_probability": 0.5581442555497347,
+        "number": {
+          "identity": null,
+          "confidence": 0.29178211092948914,
+          "margin": 0.010894328355789185,
+          "reason": "number_template_uncertain"
+        },
+        "independent_number_agreement": false,
+        "training_scenes": [
+          "alternate-grid-720",
+          "framing-after-4k",
+          "framing-before-720",
+          "measured-grid-720",
+          "small-checkerboard-001",
+          "small-checkerboard-002",
+          "small-checkerboard-003",
+          "small-checkerboard-004",
+          "small-checkerboard-005",
+          "small-checkerboard-006",
+          "small-checkerboard-007",
+          "small-checkerboard-008",
+          "small-checkerboard-009"
+        ],
+        "training_count": 129,
+        "identity_probability_gate": 0.86,
+        "training_calibration": {
+          "method": "leave-capture-group-out; calibrated only from samples supplied to fit",
+          "groups": [
+            "framing-placement",
+            "original-grid-placement",
+            "partial-small-placement",
+            "rearranged-small-cluster"
+          ],
+          "folds_used": 3,
+          "folds_skipped_for_incomplete_palette_or_pattern_support": [
+            "original-grid-placement"
+          ],
+          "heldout_training_rows": 40,
+          "false_candidate_score_ceiling": 0.8363058896182736,
+          "selected_identity_probability_gate": 0.86,
+          "limitations": "Folds are few and repeated still-image arrangements remain correlated; threshold calibration is training-only risk control, not statistical qualification."
+        }
+      }
+    },
+    {
+      "scene_id": "demo3-rack-frame-000",
+      "truth": 15,
+      "prediction": null,
+      "confidence": 0.49,
+      "evidence": {
+        "reason": "joint_confidence_or_margin_low",
+        "palette": "red",
+        "palette_probability": 1.0,
+        "palette_margin": 0.9999999999999803,
+        "pattern": "stripe",
+        "pattern_probability": 0.850784182548523,
+        "pattern_margin": 0.7015683352947235,
+        "composed_identity": 11,
+        "joint_probability": 0.850784182548523,
+        "number": {
+          "identity": null,
+          "confidence": 0.0,
+          "reason": "number_spot_not_found"
+        },
+        "independent_number_agreement": false,
+        "training_scenes": [
+          "alternate-grid-720",
+          "framing-after-4k",
+          "framing-before-720",
+          "measured-grid-720",
+          "small-checkerboard-001",
+          "small-checkerboard-002",
+          "small-checkerboard-003",
+          "small-checkerboard-004",
+          "small-checkerboard-005",
+          "small-checkerboard-006",
+          "small-checkerboard-007",
+          "small-checkerboard-008",
+          "small-checkerboard-009"
+        ],
+        "training_count": 129,
+        "identity_probability_gate": 0.86,
+        "training_calibration": {
+          "method": "leave-capture-group-out; calibrated only from samples supplied to fit",
+          "groups": [
+            "framing-placement",
+            "original-grid-placement",
+            "partial-small-placement",
+            "rearranged-small-cluster"
+          ],
+          "folds_used": 3,
+          "folds_skipped_for_incomplete_palette_or_pattern_support": [
+            "original-grid-placement"
+          ],
+          "heldout_training_rows": 40,
+          "false_candidate_score_ceiling": 0.8363058896182736,
+          "selected_identity_probability_gate": 0.86,
+          "limitations": "Folds are few and repeated still-image arrangements remain correlated; threshold calibration is training-only risk control, not statistical qualification."
+        }
+      }
+    },
+    {
+      "scene_id": "demo3-rack-frame-000",
+      "truth": "cue",
+      "prediction": 1,
+      "confidence": 1.0,
+      "evidence": {
+        "reason": "appearance_agreement",
+        "palette": "yellow",
+        "palette_probability": 1.0,
+        "palette_margin": 0.9999999975528704,
+        "pattern": "solid",
+        "pattern_probability": 1.0,
+        "pattern_margin": 1.0,
+        "composed_identity": 1,
+        "joint_probability": 1.0,
+        "number": {
+          "identity": null,
+          "confidence": 0.0,
+          "reason": "number_spot_not_found"
+        },
+        "independent_number_agreement": false,
+        "training_scenes": [
+          "alternate-grid-720",
+          "framing-after-4k",
+          "framing-before-720",
+          "measured-grid-720",
+          "small-checkerboard-001",
+          "small-checkerboard-002",
+          "small-checkerboard-003",
+          "small-checkerboard-004",
+          "small-checkerboard-005",
+          "small-checkerboard-006",
+          "small-checkerboard-007",
+          "small-checkerboard-008",
+          "small-checkerboard-009"
+        ],
+        "training_count": 129,
+        "identity_probability_gate": 0.86,
+        "training_calibration": {
+          "method": "leave-capture-group-out; calibrated only from samples supplied to fit",
+          "groups": [
+            "framing-placement",
+            "original-grid-placement",
+            "partial-small-placement",
+            "rearranged-small-cluster"
+          ],
+          "folds_used": 3,
+          "folds_skipped_for_incomplete_palette_or_pattern_support": [
+            "original-grid-placement"
+          ],
+          "heldout_training_rows": 40,
+          "false_candidate_score_ceiling": 0.8363058896182736,
+          "selected_identity_probability_gate": 0.86,
+          "limitations": "Folds are few and repeated still-image arrangements remain correlated; threshold calibration is training-only risk control, not statistical qualification."
+        }
+      }
+    },
+    {
+      "scene_id": "demo3-scattered-frame-900",
+      "truth": 6,
+      "prediction": null,
+      "confidence": 0.49,
+      "evidence": {
+        "reason": "joint_confidence_or_margin_low",
+        "palette": "green",
+        "palette_probability": 0.6184500455856323,
+        "palette_margin": 0.2369002401828766,
+        "pattern": "solid",
+        "pattern_probability": 0.9999999403953552,
+        "pattern_margin": 0.9999998879383192,
+        "composed_identity": 6,
+        "joint_probability": 0.618450008723137,
+        "number": {
+          "identity": null,
+          "confidence": 0.0,
+          "reason": "number_spot_not_found"
+        },
+        "independent_number_agreement": false,
+        "training_scenes": [
+          "alternate-grid-720",
+          "framing-after-4k",
+          "framing-before-720",
+          "measured-grid-720",
+          "small-checkerboard-001",
+          "small-checkerboard-002",
+          "small-checkerboard-003",
+          "small-checkerboard-004",
+          "small-checkerboard-005",
+          "small-checkerboard-006",
+          "small-checkerboard-007",
+          "small-checkerboard-008",
+          "small-checkerboard-009"
+        ],
+        "training_count": 129,
+        "identity_probability_gate": 0.86,
+        "training_calibration": {
+          "method": "leave-capture-group-out; calibrated only from samples supplied to fit",
+          "groups": [
+            "framing-placement",
+            "original-grid-placement",
+            "partial-small-placement",
+            "rearranged-small-cluster"
+          ],
+          "folds_used": 3,
+          "folds_skipped_for_incomplete_palette_or_pattern_support": [
+            "original-grid-placement"
+          ],
+          "heldout_training_rows": 40,
+          "false_candidate_score_ceiling": 0.8363058896182736,
+          "selected_identity_probability_gate": 0.86,
+          "limitations": "Folds are few and repeated still-image arrangements remain correlated; threshold calibration is training-only risk control, not statistical qualification."
+        }
+      }
+    },
+    {
+      "scene_id": "demo3-scattered-frame-900",
+      "truth": 14,
+      "prediction": null,
+      "confidence": 0.49,
+      "evidence": {
+        "reason": "appearance_low_confidence",
+        "palette": "white",
+        "palette_probability": 0.9926764369010925,
+        "palette_margin": 0.988763761240989,
+        "pattern": "solid",
+        "pattern_probability": 0.9998649954795837,
+        "pattern_margin": 0.9997300204704516,
+        "composed_identity": null,
+        "joint_probability": 0.9925424210948002,
+        "number": {
+          "identity": null,
+          "confidence": 0.0,
+          "reason": "number_spot_not_found"
+        },
+        "independent_number_agreement": false,
+        "training_scenes": [
+          "alternate-grid-720",
+          "framing-after-4k",
+          "framing-before-720",
+          "measured-grid-720",
+          "small-checkerboard-001",
+          "small-checkerboard-002",
+          "small-checkerboard-003",
+          "small-checkerboard-004",
+          "small-checkerboard-005",
+          "small-checkerboard-006",
+          "small-checkerboard-007",
+          "small-checkerboard-008",
+          "small-checkerboard-009"
+        ],
+        "training_count": 129,
+        "identity_probability_gate": 0.86,
+        "training_calibration": {
+          "method": "leave-capture-group-out; calibrated only from samples supplied to fit",
+          "groups": [
+            "framing-placement",
+            "original-grid-placement",
+            "partial-small-placement",
+            "rearranged-small-cluster"
+          ],
+          "folds_used": 3,
+          "folds_skipped_for_incomplete_palette_or_pattern_support": [
+            "original-grid-placement"
+          ],
+          "heldout_training_rows": 40,
+          "false_candidate_score_ceiling": 0.8363058896182736,
+          "selected_identity_probability_gate": 0.86,
+          "limitations": "Folds are few and repeated still-image arrangements remain correlated; threshold calibration is training-only risk control, not statistical qualification."
+        }
+      }
+    },
+    {
+      "scene_id": "demo3-scattered-frame-900",
+      "truth": 5,
+      "prediction": 5,
+      "confidence": 0.9991726875305176,
+      "evidence": {
+        "reason": "appearance_agreement",
+        "palette": "orange",
+        "palette_probability": 0.9991726875305176,
+        "palette_margin": 0.9983453797758557,
+        "pattern": "solid",
+        "pattern_probability": 1.0,
+        "pattern_margin": 0.9999999999996039,
+        "composed_identity": 5,
+        "joint_probability": 0.9991726875305176,
+        "number": {
+          "identity": null,
+          "confidence": 0.0,
+          "reason": "number_spot_not_found"
+        },
+        "independent_number_agreement": false,
+        "training_scenes": [
+          "alternate-grid-720",
+          "framing-after-4k",
+          "framing-before-720",
+          "measured-grid-720",
+          "small-checkerboard-001",
+          "small-checkerboard-002",
+          "small-checkerboard-003",
+          "small-checkerboard-004",
+          "small-checkerboard-005",
+          "small-checkerboard-006",
+          "small-checkerboard-007",
+          "small-checkerboard-008",
+          "small-checkerboard-009"
+        ],
+        "training_count": 129,
+        "identity_probability_gate": 0.86,
+        "training_calibration": {
+          "method": "leave-capture-group-out; calibrated only from samples supplied to fit",
+          "groups": [
+            "framing-placement",
+            "original-grid-placement",
+            "partial-small-placement",
+            "rearranged-small-cluster"
+          ],
+          "folds_used": 3,
+          "folds_skipped_for_incomplete_palette_or_pattern_support": [
+            "original-grid-placement"
+          ],
+          "heldout_training_rows": 40,
+          "false_candidate_score_ceiling": 0.8363058896182736,
+          "selected_identity_probability_gate": 0.86,
+          "limitations": "Folds are few and repeated still-image arrangements remain correlated; threshold calibration is training-only risk control, not statistical qualification."
+        }
+      }
+    },
+    {
+      "scene_id": "demo3-scattered-frame-900",
+      "truth": 7,
+      "prediction": 3,
+      "confidence": 0.9950593113899231,
+      "evidence": {
+        "reason": "appearance_agreement",
+        "palette": "red",
+        "palette_probability": 1.0,
+        "palette_margin": 1.0,
+        "pattern": "solid",
+        "pattern_probability": 0.9950593113899231,
+        "pattern_margin": 0.9901185957714915,
+        "composed_identity": 3,
+        "joint_probability": 0.9950593113899231,
+        "number": {
+          "identity": null,
+          "confidence": 0.29766467213630676,
+          "margin": 0.025985628366470337,
+          "reason": "number_template_uncertain"
+        },
+        "independent_number_agreement": false,
+        "training_scenes": [
+          "alternate-grid-720",
+          "framing-after-4k",
+          "framing-before-720",
+          "measured-grid-720",
+          "small-checkerboard-001",
+          "small-checkerboard-002",
+          "small-checkerboard-003",
+          "small-checkerboard-004",
+          "small-checkerboard-005",
+          "small-checkerboard-006",
+          "small-checkerboard-007",
+          "small-checkerboard-008",
+          "small-checkerboard-009"
+        ],
+        "training_count": 129,
+        "identity_probability_gate": 0.86,
+        "training_calibration": {
+          "method": "leave-capture-group-out; calibrated only from samples supplied to fit",
+          "groups": [
+            "framing-placement",
+            "original-grid-placement",
+            "partial-small-placement",
+            "rearranged-small-cluster"
+          ],
+          "folds_used": 3,
+          "folds_skipped_for_incomplete_palette_or_pattern_support": [
+            "original-grid-placement"
+          ],
+          "heldout_training_rows": 40,
+          "false_candidate_score_ceiling": 0.8363058896182736,
+          "selected_identity_probability_gate": 0.86,
+          "limitations": "Folds are few and repeated still-image arrangements remain correlated; threshold calibration is training-only risk control, not statistical qualification."
+        }
+      }
+    },
+    {
+      "scene_id": "demo3-scattered-frame-900",
+      "truth": 12,
+      "prediction": 3,
+      "confidence": 0.999151885509491,
+      "evidence": {
+        "reason": "appearance_agreement",
+        "palette": "red",
+        "palette_probability": 1.0,
+        "palette_margin": 0.9999999926888954,
+        "pattern": "solid",
+        "pattern_probability": 0.999151885509491,
+        "pattern_margin": 0.9983037509955466,
+        "composed_identity": 3,
+        "joint_probability": 0.999151885509491,
+        "number": {
+          "identity": null,
+          "confidence": 0.0,
+          "margin": 0.0,
+          "reason": "number_template_uncertain"
+        },
+        "independent_number_agreement": false,
+        "training_scenes": [
+          "alternate-grid-720",
+          "framing-after-4k",
+          "framing-before-720",
+          "measured-grid-720",
+          "small-checkerboard-001",
+          "small-checkerboard-002",
+          "small-checkerboard-003",
+          "small-checkerboard-004",
+          "small-checkerboard-005",
+          "small-checkerboard-006",
+          "small-checkerboard-007",
+          "small-checkerboard-008",
+          "small-checkerboard-009"
+        ],
+        "training_count": 129,
+        "identity_probability_gate": 0.86,
+        "training_calibration": {
+          "method": "leave-capture-group-out; calibrated only from samples supplied to fit",
+          "groups": [
+            "framing-placement",
+            "original-grid-placement",
+            "partial-small-placement",
+            "rearranged-small-cluster"
+          ],
+          "folds_used": 3,
+          "folds_skipped_for_incomplete_palette_or_pattern_support": [
+            "original-grid-placement"
+          ],
+          "heldout_training_rows": 40,
+          "false_candidate_score_ceiling": 0.8363058896182736,
+          "selected_identity_probability_gate": 0.86,
+          "limitations": "Folds are few and repeated still-image arrangements remain correlated; threshold calibration is training-only risk control, not statistical qualification."
+        }
+      }
+    },
+    {
+      "scene_id": "demo3-scattered-frame-900",
+      "truth": "cue",
+      "prediction": 1,
+      "confidence": 1.0,
+      "evidence": {
+        "reason": "appearance_agreement",
+        "palette": "yellow",
+        "palette_probability": 1.0,
+        "palette_margin": 0.9999999766362606,
+        "pattern": "solid",
+        "pattern_probability": 1.0,
+        "pattern_margin": 1.0,
+        "composed_identity": 1,
+        "joint_probability": 1.0,
+        "number": {
+          "identity": null,
+          "confidence": 0.0,
+          "reason": "number_spot_not_found"
+        },
+        "independent_number_agreement": false,
+        "training_scenes": [
+          "alternate-grid-720",
+          "framing-after-4k",
+          "framing-before-720",
+          "measured-grid-720",
+          "small-checkerboard-001",
+          "small-checkerboard-002",
+          "small-checkerboard-003",
+          "small-checkerboard-004",
+          "small-checkerboard-005",
+          "small-checkerboard-006",
+          "small-checkerboard-007",
+          "small-checkerboard-008",
+          "small-checkerboard-009"
+        ],
+        "training_count": 129,
+        "identity_probability_gate": 0.86,
+        "training_calibration": {
+          "method": "leave-capture-group-out; calibrated only from samples supplied to fit",
+          "groups": [
+            "framing-placement",
+            "original-grid-placement",
+            "partial-small-placement",
+            "rearranged-small-cluster"
+          ],
+          "folds_used": 3,
+          "folds_skipped_for_incomplete_palette_or_pattern_support": [
+            "original-grid-placement"
+          ],
+          "heldout_training_rows": 40,
+          "false_candidate_score_ceiling": 0.8363058896182736,
+          "selected_identity_probability_gate": 0.86,
+          "limitations": "Folds are few and repeated still-image arrangements remain correlated; threshold calibration is training-only risk control, not statistical qualification."
+        }
+      }
+    },
+    {
+      "scene_id": "demo3-scattered-frame-900",
+      "truth": 10,
+      "prediction": null,
+      "confidence": 0.49,
+      "evidence": {
+        "reason": "joint_confidence_or_margin_low",
+        "palette": "blue",
+        "palette_probability": 1.0,
+        "palette_margin": 0.9999999972901583,
+        "pattern": "solid",
+        "pattern_probability": 0.5742362141609192,
+        "pattern_margin": 0.14847242832183838,
+        "composed_identity": 2,
+        "joint_probability": 0.5742362141609192,
+        "number": {
+          "identity": null,
+          "confidence": 0.21400807797908783,
+          "margin": 0.0006340891122817993,
+          "reason": "number_template_uncertain"
+        },
+        "independent_number_agreement": false,
+        "training_scenes": [
+          "alternate-grid-720",
+          "framing-after-4k",
+          "framing-before-720",
+          "measured-grid-720",
+          "small-checkerboard-001",
+          "small-checkerboard-002",
+          "small-checkerboard-003",
+          "small-checkerboard-004",
+          "small-checkerboard-005",
+          "small-checkerboard-006",
+          "small-checkerboard-007",
+          "small-checkerboard-008",
+          "small-checkerboard-009"
+        ],
+        "training_count": 129,
+        "identity_probability_gate": 0.86,
+        "training_calibration": {
+          "method": "leave-capture-group-out; calibrated only from samples supplied to fit",
+          "groups": [
+            "framing-placement",
+            "original-grid-placement",
+            "partial-small-placement",
+            "rearranged-small-cluster"
+          ],
+          "folds_used": 3,
+          "folds_skipped_for_incomplete_palette_or_pattern_support": [
+            "original-grid-placement"
+          ],
+          "heldout_training_rows": 40,
+          "false_candidate_score_ceiling": 0.8363058896182736,
+          "selected_identity_probability_gate": 0.86,
+          "limitations": "Folds are few and repeated still-image arrangements remain correlated; threshold calibration is training-only risk control, not statistical qualification."
+        }
+      }
+    },
+    {
+      "scene_id": "demo3-scattered-frame-900",
+      "truth": 11,
+      "prediction": 3,
+      "confidence": 0.9999266266822815,
+      "evidence": {
+        "reason": "appearance_agreement",
+        "palette": "red",
+        "palette_probability": 1.0,
+        "palette_margin": 0.9999999999999994,
+        "pattern": "solid",
+        "pattern_probability": 0.9999266266822815,
+        "pattern_margin": 0.9998532568351948,
+        "composed_identity": 3,
+        "joint_probability": 0.9999266266822815,
+        "number": {
+          "identity": null,
+          "confidence": 0.0,
+          "reason": "number_spot_not_found"
+        },
+        "independent_number_agreement": false,
+        "training_scenes": [
+          "alternate-grid-720",
+          "framing-after-4k",
+          "framing-before-720",
+          "measured-grid-720",
+          "small-checkerboard-001",
+          "small-checkerboard-002",
+          "small-checkerboard-003",
+          "small-checkerboard-004",
+          "small-checkerboard-005",
+          "small-checkerboard-006",
+          "small-checkerboard-007",
+          "small-checkerboard-008",
+          "small-checkerboard-009"
+        ],
+        "training_count": 129,
+        "identity_probability_gate": 0.86,
+        "training_calibration": {
+          "method": "leave-capture-group-out; calibrated only from samples supplied to fit",
+          "groups": [
+            "framing-placement",
+            "original-grid-placement",
+            "partial-small-placement",
+            "rearranged-small-cluster"
+          ],
+          "folds_used": 3,
+          "folds_skipped_for_incomplete_palette_or_pattern_support": [
+            "original-grid-placement"
+          ],
+          "heldout_training_rows": 40,
+          "false_candidate_score_ceiling": 0.8363058896182736,
+          "selected_identity_probability_gate": 0.86,
+          "limitations": "Folds are few and repeated still-image arrangements remain correlated; threshold calibration is training-only risk control, not statistical qualification."
+        }
+      }
+    },
+    {
+      "scene_id": "demo3-scattered-frame-900",
+      "truth": 8,
+      "prediction": 6,
+      "confidence": 0.9747387170791626,
+      "evidence": {
+        "reason": "appearance_agreement",
+        "palette": "green",
+        "palette_probability": 0.9747387170791626,
+        "palette_margin": 0.9494774416089058,
+        "pattern": "solid",
+        "pattern_probability": 1.0,
+        "pattern_margin": 1.0,
+        "composed_identity": 6,
+        "joint_probability": 0.9747387170791626,
+        "number": {
+          "identity": null,
+          "confidence": 0.0,
+          "reason": "number_spot_not_found"
+        },
+        "independent_number_agreement": false,
+        "training_scenes": [
+          "alternate-grid-720",
+          "framing-after-4k",
+          "framing-before-720",
+          "measured-grid-720",
+          "small-checkerboard-001",
+          "small-checkerboard-002",
+          "small-checkerboard-003",
+          "small-checkerboard-004",
+          "small-checkerboard-005",
+          "small-checkerboard-006",
+          "small-checkerboard-007",
+          "small-checkerboard-008",
+          "small-checkerboard-009"
+        ],
+        "training_count": 129,
+        "identity_probability_gate": 0.86,
+        "training_calibration": {
+          "method": "leave-capture-group-out; calibrated only from samples supplied to fit",
+          "groups": [
+            "framing-placement",
+            "original-grid-placement",
+            "partial-small-placement",
+            "rearranged-small-cluster"
+          ],
+          "folds_used": 3,
+          "folds_skipped_for_incomplete_palette_or_pattern_support": [
+            "original-grid-placement"
+          ],
+          "heldout_training_rows": 40,
+          "false_candidate_score_ceiling": 0.8363058896182736,
+          "selected_identity_probability_gate": 0.86,
+          "limitations": "Folds are few and repeated still-image arrangements remain correlated; threshold calibration is training-only risk control, not statistical qualification."
+        }
+      }
+    },
+    {
+      "scene_id": "demo3-scattered-frame-900",
+      "truth": 1,
+      "prediction": 1,
+      "confidence": 1.0,
+      "evidence": {
+        "reason": "appearance_agreement",
+        "palette": "yellow",
+        "palette_probability": 1.0,
+        "palette_margin": 0.9999999999999999,
+        "pattern": "solid",
+        "pattern_probability": 1.0,
+        "pattern_margin": 1.0,
+        "composed_identity": 1,
+        "joint_probability": 1.0,
+        "number": {
+          "identity": null,
+          "confidence": 0.0,
+          "reason": "number_spot_not_found"
+        },
+        "independent_number_agreement": false,
+        "training_scenes": [
+          "alternate-grid-720",
+          "framing-after-4k",
+          "framing-before-720",
+          "measured-grid-720",
+          "small-checkerboard-001",
+          "small-checkerboard-002",
+          "small-checkerboard-003",
+          "small-checkerboard-004",
+          "small-checkerboard-005",
+          "small-checkerboard-006",
+          "small-checkerboard-007",
+          "small-checkerboard-008",
+          "small-checkerboard-009"
+        ],
+        "training_count": 129,
+        "identity_probability_gate": 0.86,
+        "training_calibration": {
+          "method": "leave-capture-group-out; calibrated only from samples supplied to fit",
+          "groups": [
+            "framing-placement",
+            "original-grid-placement",
+            "partial-small-placement",
+            "rearranged-small-cluster"
+          ],
+          "folds_used": 3,
+          "folds_skipped_for_incomplete_palette_or_pattern_support": [
+            "original-grid-placement"
+          ],
+          "heldout_training_rows": 40,
+          "false_candidate_score_ceiling": 0.8363058896182736,
+          "selected_identity_probability_gate": 0.86,
+          "limitations": "Folds are few and repeated still-image arrangements remain correlated; threshold calibration is training-only risk control, not statistical qualification."
+        }
+      }
+    },
+    {
+      "scene_id": "demo3-scattered-frame-900",
+      "truth": 13,
+      "prediction": 1,
+      "confidence": 0.8962667661815402,
+      "evidence": {
+        "reason": "appearance_agreement",
+        "palette": "yellow",
+        "palette_probability": 0.9989954233169556,
+        "palette_margin": 0.9982779566780664,
+        "pattern": "solid",
+        "pattern_probability": 0.8971680402755737,
+        "pattern_margin": 0.7943361029028893,
+        "composed_identity": 1,
+        "joint_probability": 0.8962667661815402,
+        "number": {
+          "identity": null,
+          "confidence": 0.0,
+          "reason": "number_spot_not_found"
+        },
+        "independent_number_agreement": false,
+        "training_scenes": [
+          "alternate-grid-720",
+          "framing-after-4k",
+          "framing-before-720",
+          "measured-grid-720",
+          "small-checkerboard-001",
+          "small-checkerboard-002",
+          "small-checkerboard-003",
+          "small-checkerboard-004",
+          "small-checkerboard-005",
+          "small-checkerboard-006",
+          "small-checkerboard-007",
+          "small-checkerboard-008",
+          "small-checkerboard-009"
+        ],
+        "training_count": 129,
+        "identity_probability_gate": 0.86,
+        "training_calibration": {
+          "method": "leave-capture-group-out; calibrated only from samples supplied to fit",
+          "groups": [
+            "framing-placement",
+            "original-grid-placement",
+            "partial-small-placement",
+            "rearranged-small-cluster"
+          ],
+          "folds_used": 3,
+          "folds_skipped_for_incomplete_palette_or_pattern_support": [
+            "original-grid-placement"
+          ],
+          "heldout_training_rows": 40,
+          "false_candidate_score_ceiling": 0.8363058896182736,
+          "selected_identity_probability_gate": 0.86,
+          "limitations": "Folds are few and repeated still-image arrangements remain correlated; threshold calibration is training-only risk control, not statistical qualification."
+        }
+      }
+    },
+    {
+      "scene_id": "demo3-scattered-frame-900",
+      "truth": 15,
+      "prediction": 3,
+      "confidence": 1.0,
+      "evidence": {
+        "reason": "appearance_agreement",
+        "palette": "red",
+        "palette_probability": 1.0,
+        "palette_margin": 0.9999999999989825,
+        "pattern": "solid",
+        "pattern_probability": 1.0,
+        "pattern_margin": 0.9999999999997896,
+        "composed_identity": 3,
+        "joint_probability": 1.0,
+        "number": {
+          "identity": null,
+          "confidence": 0.0,
+          "reason": "number_spot_not_found"
+        },
+        "independent_number_agreement": false,
+        "training_scenes": [
+          "alternate-grid-720",
+          "framing-after-4k",
+          "framing-before-720",
+          "measured-grid-720",
+          "small-checkerboard-001",
+          "small-checkerboard-002",
+          "small-checkerboard-003",
+          "small-checkerboard-004",
+          "small-checkerboard-005",
+          "small-checkerboard-006",
+          "small-checkerboard-007",
+          "small-checkerboard-008",
+          "small-checkerboard-009"
+        ],
+        "training_count": 129,
+        "identity_probability_gate": 0.86,
+        "training_calibration": {
+          "method": "leave-capture-group-out; calibrated only from samples supplied to fit",
+          "groups": [
+            "framing-placement",
+            "original-grid-placement",
+            "partial-small-placement",
+            "rearranged-small-cluster"
+          ],
+          "folds_used": 3,
+          "folds_skipped_for_incomplete_palette_or_pattern_support": [
+            "original-grid-placement"
+          ],
+          "heldout_training_rows": 40,
+          "false_candidate_score_ceiling": 0.8363058896182736,
+          "selected_identity_probability_gate": 0.86,
+          "limitations": "Folds are few and repeated still-image arrangements remain correlated; threshold calibration is training-only risk control, not statistical qualification."
+        }
+      }
+    },
+    {
+      "scene_id": "demo3-scattered-frame-900",
+      "truth": 3,
+      "prediction": 3,
+      "confidence": 1.0,
+      "evidence": {
+        "reason": "appearance_agreement",
+        "palette": "red",
+        "palette_probability": 1.0,
+        "palette_margin": 0.9999999757797227,
+        "pattern": "solid",
+        "pattern_probability": 1.0,
+        "pattern_margin": 0.9999999999990609,
+        "composed_identity": 3,
+        "joint_probability": 1.0,
+        "number": {
+          "identity": null,
+          "confidence": 0.0,
+          "reason": "number_spot_not_found"
+        },
+        "independent_number_agreement": false,
+        "training_scenes": [
+          "alternate-grid-720",
+          "framing-after-4k",
+          "framing-before-720",
+          "measured-grid-720",
+          "small-checkerboard-001",
+          "small-checkerboard-002",
+          "small-checkerboard-003",
+          "small-checkerboard-004",
+          "small-checkerboard-005",
+          "small-checkerboard-006",
+          "small-checkerboard-007",
+          "small-checkerboard-008",
+          "small-checkerboard-009"
+        ],
+        "training_count": 129,
+        "identity_probability_gate": 0.86,
+        "training_calibration": {
+          "method": "leave-capture-group-out; calibrated only from samples supplied to fit",
+          "groups": [
+            "framing-placement",
+            "original-grid-placement",
+            "partial-small-placement",
+            "rearranged-small-cluster"
+          ],
+          "folds_used": 3,
+          "folds_skipped_for_incomplete_palette_or_pattern_support": [
+            "original-grid-placement"
+          ],
+          "heldout_training_rows": 40,
+          "false_candidate_score_ceiling": 0.8363058896182736,
+          "selected_identity_probability_gate": 0.86,
+          "limitations": "Folds are few and repeated still-image arrangements remain correlated; threshold calibration is training-only risk control, not statistical qualification."
+        }
+      }
+    },
+    {
+      "scene_id": "demo3-scattered-frame-900",
+      "truth": 4,
+      "prediction": 3,
+      "confidence": 0.9143976024152245,
+      "evidence": {
+        "reason": "appearance_agreement",
+        "palette": "red",
+        "palette_probability": 0.9999999403953552,
+        "palette_margin": 0.9999998904374081,
+        "pattern": "solid",
+        "pattern_probability": 0.914397656917572,
+        "pattern_margin": 0.8287953361868858,
+        "composed_identity": 3,
+        "joint_probability": 0.9143976024152245,
+        "number": {
+          "identity": null,
+          "confidence": 0.0,
+          "reason": "number_spot_not_found"
+        },
+        "independent_number_agreement": false,
+        "training_scenes": [
+          "alternate-grid-720",
+          "framing-after-4k",
+          "framing-before-720",
+          "measured-grid-720",
+          "small-checkerboard-001",
+          "small-checkerboard-002",
+          "small-checkerboard-003",
+          "small-checkerboard-004",
+          "small-checkerboard-005",
+          "small-checkerboard-006",
+          "small-checkerboard-007",
+          "small-checkerboard-008",
+          "small-checkerboard-009"
+        ],
+        "training_count": 129,
+        "identity_probability_gate": 0.86,
+        "training_calibration": {
+          "method": "leave-capture-group-out; calibrated only from samples supplied to fit",
+          "groups": [
+            "framing-placement",
+            "original-grid-placement",
+            "partial-small-placement",
+            "rearranged-small-cluster"
+          ],
+          "folds_used": 3,
+          "folds_skipped_for_incomplete_palette_or_pattern_support": [
+            "original-grid-placement"
+          ],
+          "heldout_training_rows": 40,
+          "false_candidate_score_ceiling": 0.8363058896182736,
+          "selected_identity_probability_gate": 0.86,
+          "limitations": "Folds are few and repeated still-image arrangements remain correlated; threshold calibration is training-only risk control, not statistical qualification."
+        }
+      }
+    },
+    {
+      "scene_id": "demo3-scattered-frame-900",
+      "truth": 2,
+      "prediction": 2,
+      "confidence": 0.9855978898638256,
+      "evidence": {
+        "reason": "appearance_agreement",
+        "palette": "blue",
+        "palette_probability": 0.9994105100631714,
+        "palette_margin": 0.9988210481824353,
+        "pattern": "solid",
+        "pattern_probability": 0.9861792325973511,
+        "pattern_margin": 0.9723584400489926,
+        "composed_identity": 2,
+        "joint_probability": 0.9855978898638256,
+        "number": {
+          "identity": null,
+          "confidence": 0.11258799582719803,
+          "margin": 0.0017190054059028625,
+          "reason": "number_template_uncertain"
+        },
+        "independent_number_agreement": false,
+        "training_scenes": [
+          "alternate-grid-720",
+          "framing-after-4k",
+          "framing-before-720",
+          "measured-grid-720",
+          "small-checkerboard-001",
+          "small-checkerboard-002",
+          "small-checkerboard-003",
+          "small-checkerboard-004",
+          "small-checkerboard-005",
+          "small-checkerboard-006",
+          "small-checkerboard-007",
+          "small-checkerboard-008",
+          "small-checkerboard-009"
+        ],
+        "training_count": 129,
+        "identity_probability_gate": 0.86,
+        "training_calibration": {
+          "method": "leave-capture-group-out; calibrated only from samples supplied to fit",
+          "groups": [
+            "framing-placement",
+            "original-grid-placement",
+            "partial-small-placement",
+            "rearranged-small-cluster"
+          ],
+          "folds_used": 3,
+          "folds_skipped_for_incomplete_palette_or_pattern_support": [
+            "original-grid-placement"
+          ],
+          "heldout_training_rows": 40,
+          "false_candidate_score_ceiling": 0.8363058896182736,
+          "selected_identity_probability_gate": 0.86,
+          "limitations": "Folds are few and repeated still-image arrangements remain correlated; threshold calibration is training-only risk control, not statistical qualification."
+        }
+      }
+    },
+    {
+      "scene_id": "demo3-scattered-frame-900",
+      "truth": 9,
+      "prediction": 1,
+      "confidence": 0.9962544441223145,
+      "evidence": {
+        "reason": "appearance_agreement",
+        "palette": "yellow",
+        "palette_probability": 1.0,
+        "palette_margin": 0.9999999999999999,
+        "pattern": "solid",
+        "pattern_probability": 0.9962544441223145,
+        "pattern_margin": 0.9925089115276933,
+        "composed_identity": 1,
+        "joint_probability": 0.9962544441223145,
+        "number": {
+          "identity": null,
+          "confidence": 0.0,
+          "reason": "number_spot_not_found"
+        },
+        "independent_number_agreement": false,
+        "training_scenes": [
+          "alternate-grid-720",
+          "framing-after-4k",
+          "framing-before-720",
+          "measured-grid-720",
+          "small-checkerboard-001",
+          "small-checkerboard-002",
+          "small-checkerboard-003",
+          "small-checkerboard-004",
+          "small-checkerboard-005",
+          "small-checkerboard-006",
+          "small-checkerboard-007",
+          "small-checkerboard-008",
+          "small-checkerboard-009"
+        ],
+        "training_count": 129,
+        "identity_probability_gate": 0.86,
+        "training_calibration": {
+          "method": "leave-capture-group-out; calibrated only from samples supplied to fit",
+          "groups": [
+            "framing-placement",
+            "original-grid-placement",
+            "partial-small-placement",
+            "rearranged-small-cluster"
+          ],
+          "folds_used": 3,
+          "folds_skipped_for_incomplete_palette_or_pattern_support": [
+            "original-grid-placement"
+          ],
+          "heldout_training_rows": 40,
+          "false_candidate_score_ceiling": 0.8363058896182736,
+          "selected_identity_probability_gate": 0.86,
+          "limitations": "Folds are few and repeated still-image arrangements remain correlated; threshold calibration is training-only risk control, not statistical qualification."
+        }
+      }
+    }
+  ],
+  "limitations": [
+    "User-confirmed identities; source still regions use preserved visual centers or manually estimated centers, with region boxes padded to include ball appearance.",
+    "The two video-frame regions are manually estimated from full-resolution frames; they are not physical center annotations.",
+    "Repeated frames from one camera arrangement are correlated and must not be described as independent validation scenes."
+  ]
+}

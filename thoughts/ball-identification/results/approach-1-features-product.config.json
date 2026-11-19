@@ -1,0 +1,32 @@
+{
+  "feature_version": 1,
+  "ball_radius_search_fraction": [
+    0.16,
+    0.99
+  ],
+  "felt_border_fraction": 0.12,
+  "radial_angle_samples": 64,
+  "radial_samples": 80,
+  "edge_contrast_fraction": 0.45,
+  "inside_ball_fraction": 0.84,
+  "sector_count": 12,
+  "radial_band_count": 4,
+  "feature_clip_sigma": 6.0,
+  "logistic_l2": 0.08,
+  "optimizer_steps": 650,
+  "optimizer_learning_rate": 0.035,
+  "optimizer_seed": 20261030,
+  "minimum_accepted_oof_samples": 2,
+  "support_distance_slack": 2.0,
+  "support_distance_floor": 1.25,
+  "minimum_boundary_quality_quantile": 0.05,
+  "minimum_boundary_quality_floor": 0.18,
+  "confidence_aggregation": "independence_product",
+  "purpose": "Experimental hyperparameters for approach 1; they are learned or calibrated from the supplied training split and are not production configuration.",
+  "provenance": {
+    "features": "local Lab color distribution, rotation-robust angular-sector/radial spatial pattern statistics, crop-local felt-relative boundary estimate",
+    "training": "independent color and cue/solid/stripe logistic heads; identity composed from learned heads",
+    "abstention": "minimum of the learned color and pattern probabilities, with a leave-one-scene-out threshold chosen to maximize training-only coverage at zero observed error, plus learned class support and crop-boundary quality",
+    "excluded": "No legacy fixed HSV thresholds, hand-coded white ratios, video evaluation labels, or production config values"
+  }
+}

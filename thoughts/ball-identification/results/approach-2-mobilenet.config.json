@@ -1,0 +1,13 @@
+{
+  "seed": 20261030,
+  "image_size": 96,
+  "batch_size": 24,
+  "epochs": 18,
+  "calibration_epochs": 5,
+  "head_learning_rate": 0.0008,
+  "tail_learning_rate": 0.00012,
+  "weight_decay": 0.0001,
+  "threads": 2,
+  "pretrained": true,
+  "fallback_threshold": 1.01
+}
