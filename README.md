@@ -11,7 +11,7 @@ ball-number recognition and complete shot physics are not provided.
 - The server, capture supervisor, detector, tracking, state conversion, HTTP,
   WebSocket delivery, and static-file serving are Rust.
 - The client is a standard HTML/CSS/JavaScript application built from
-  `frontend/web`. `/` redirects to `/live`;
+  `frontend/web`. The home page opens setup until the camera and table are ready;
   `/practice` is an editable sandbox whose simulated balls never stand in for
   live detections.
 - The `/live` page displays the newest configured camera video while receiving
@@ -36,29 +36,28 @@ ball-number recognition and complete shot physics are not provided.
 - Live inference uses the Rust detector with an ONNX model and its matching
   source checkpoint and export manifest. Model class numbers are not treated
   as pool-ball identities.
-- Python is only used by the optional ONNX export utility. It is not part of
-  the server, deployment image, or normal Rust and browser test workflows.
+- Python supports the optional ONNX export utility and browser checkerboard
+  fitting. Checkerboard fitting uses OpenCV on the gateway host.
 
 ## Run locally
 
-Live inference requires the supported OpenVINO Intel GPU environment and matching
-model assets.
-
-Install Rust, Node.js, and GStreamer development/runtime libraries for the
-selected camera or network stream. Set the model paths and capture settings in
-the current Rust configuration:
+Install Rust, Node.js, and the GStreamer libraries and plugins for your camera.
+The live runtime also requires the supported OpenVINO Intel GPU environment and
+verified model assets. Start the application:
 
 ```sh
-# Edit config.json: perception.rust_live.onnx_path and
-# perception.rust_live.source_checkpoint_path must identify a matching model pair.
 make run
 ```
+
+Open the app, choose a camera or enter its HTTP(S) MJPEG URL, then follow the
+table calibration steps. The app saves your choices and uses its own camera
+preview automatically.
 
 The local gateway listens on `http://127.0.0.1:8001` by default. The Rust
 server serves the production browser bundle from `backend/static`. Set
 `RUST_CONFIG=/path/to/config.json` to select another configuration. `make
 run-api` starts the gateway without capture; `make run-frontend` starts Vite
-for browser development.
+for browser development and proxies API calls to the local gateway.
 
 For [Docker deployment](docs/DOCKER.md), the [local distribution bundle](docs/LOCAL_DEPLOYMENT.md), or [model export](tools/README_MODEL_EXPORT.md), see the linked guides.
 

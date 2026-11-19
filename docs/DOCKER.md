@@ -1,40 +1,53 @@
 # Docker deployment
 
-The image builds the Rust gateway and live detector, a GStreamer capture helper,
-and the standard browser client. The runtime image does not install Python.
-
-## Configure model and capture
-
-Compose mounts `CONFIG_HOST_FILE` at `/app/config/config.json` and
-`MODEL_DIRECTORY` at `/app/models` (read-only). Live inference requires a
-verified ONNX export, its source checkpoint, and the sibling manifest named by
-appending `.manifest.json` to the ONNX filename. Set the model paths and
-machine-specific capture/calibration settings in the mounted configuration.
-
-Set `api.stream.viewer_url` separately when the browser should display a camera
-stream. The browser loads that URL directly; the state API does not proxy video.
+The Compose image packages the Rust gateway, live detector, GStreamer capture
+and camera discovery, the browser client, and the verified model. It does not
+install Python.
 
 ## Build and run
 
+From a checkout with the standard model assets, run:
+
 ```sh
-docker compose build backend
-docker compose up -d backend
-docker compose logs -f backend
+docker compose up --build -d backend
 ```
 
-The service listens on host port 8000 by default. Set `API_PORT` to override
-it. Set `START_LIVE=false` to run the gateway without opening a camera. The
-scene-ingress listener remains loopback-only inside the container.
+The build verifies the ONNX export and checkpoint against the export manifest.
+Set `MODEL_DIRECTORY` to select another directory with the standard layout:
+`exports/billiards-yolov8n.onnx`, its sibling `.onnx.manifest.json`, and
+`billiards-yolov8n.pt`. A public source checkout may require obtaining the model
+assets before this step. The Dockerfile's `runtime` target is available for
+gateway smoke tests without model assets.
 
-One service instance owns one table's capture and state. Use separate
-configurations and instances for separate tables; do not scale one instance
-against the same camera.
+Open `http://127.0.0.1:8000` to select a camera and calibrate the table. The
+gateway starts even if no camera has been selected. The default host port is
+8000 and can be changed with `API_PORT`. Set `START_LIVE=false` for a
+gateway-only instance.
 
-## Persistence and security boundary
+OpenVINO Runtime and its Intel GPU plugin must be available inside the container
+for live inference. Use a Compose override to provide the matching runtime
+libraries and access to the Intel render device. A local camera also requires
+passing its video device to the container and granting access to the container
+user. A supported network camera can be selected by its HTTP(S) MJPEG URL.
 
-`CONFIG_HOST_FILE` selects the writable host configuration file.
-`MODEL_DIRECTORY` selects the read-only model directory. The `billiards-data`
-volume retains application data when the container is recreated.
+## Persistence
 
-The HTTP and WebSocket APIs have no authentication. Restrict network access to
-trusted clients.
+The `billiards-data` volume keeps camera setup, calibration, and the game
+session across container replacement. Each service instance should own its own
+table and data volume.
+
+To use an existing configuration file, set `CONFIG_FILE` and bind-mount its
+**directory** in a Compose override. The gateway needs directory write access
+to update the file atomically. For example:
+
+```yaml
+services:
+  backend:
+    environment:
+      CONFIG_FILE: /app/site-config/config.json
+    volumes:
+      - ./site-config:/app/site-config
+```
+
+The HTTP and WebSocket APIs have no authentication. The published port binds
+to loopback by default.

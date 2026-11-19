@@ -3,36 +3,65 @@
 The Rust server is the runtime configuration authority. Its versioned schema
 and defaults are in
 [`perception/contracts/configuration/v1`](../perception/contracts/configuration/v1/).
-Create a current configuration with `make config-example`, then set model paths
-and machine-specific capture settings before starting live inference. The
-example clears the recorded-video input path because the live capture runtime
-accepts camera and network sources only.
+New installs start with built-in defaults. Open the app, select a discovered
+camera or enter a supported HTTP(S) MJPEG URL, and calibrate the table. The
+gateway starts before a camera is selected and keeps serving setup if capture
+cannot start. The default local configuration path is `data/config.json`.
+The first source selection creates a sparse file. Existing files keep their
+saved camera and overrides.
 
-A compatible four-corner table calibration supplies the physical aiming map.
-Optional optics and ball-center assets improve localization but are not required
-for approximate markers or direct-pot advice. Without a usable table mapping,
-compatible image-space markers remain available while physical advice pauses.
-A source or geometry change requires compatible calibration again.
+The calibration screen freezes an identified camera frame. Mark the four
+playing-area corners and confirm the playing-surface dimensions using a preset
+or measurements. The runtime solves and persists the transform and binds it to
+the capture geometry. A different source or incompatible geometry requires
+calibration again. Optional optics and ball-center calibration assets refine
+physical ball localization and are checked separately in the Setup calibration
+checklist. They are not prerequisites for approximate center markers or live
+direct-pot advice: compatible detector centers and the active table projection
+are enough for those features. Without a usable table mapping, compatible
+image-space markers can remain visible, while advice that needs physical
+distances pauses. Use **Configure
+calibration files** to save paths on the server. A path change requires a
+restart and may require recalibrating the table for the new configuration
+revision. Fit ball centers against the active table calibration revision.
 
-Select another file for local runs with `RUST_CONFIG`:
+For browser fitting, choose **Calibrate camera optics**. Download the four
+US Letter tiles from the wizard, print at 100% scale, and assemble them flat.
+Verify that a square measures 2 inches (50.8 mm). The assembled board has
+9 by 6 inner corners. Follow the eight position and tilt prompts, replacing
+any individual capture as needed. The gateway host needs
+Python 3 with NumPy and OpenCV. Set `BILLIARDS_CALIBRATION_PYTHON` to select an
+interpreter when the dependencies are installed in a virtual environment.
+Then choose **Calibrate ball centers** and collect at least twelve distinct,
+independently referenced ball placements. Choose any of the displayed targets,
+with extra targets near the left and right edges. The wizard overlays the
+selected target on the live camera preview and gives two distances from the
+cushion noses in millimeters and inches.
+Measure to a flat mark on the cloth and center the ball over that mark.
+The green check confirms the camera found a ball in the target area. After
+capture, confirm the suggested ball outline in the zoomed view or mark it manually.
+Both wizards reload the compatible saved photos when reopened, and the page
+reports held-out errors and saves successful fits automatically. Browser
+assets are stored under `backend/calibration_data/browser-precision` in the
+project root, take precedence for the matching camera, and are revalidated
+against active table geometry. Refit ball centers after changing the optics or
+table calibration.
+
+Open Advanced for configuration overrides. Select a different file or validate
+one locally with:
 
 ```sh
 RUST_CONFIG=/path/to/config.json make run
+RUST_CONFIG=/path/to/config.json make config-check
 ```
 
-Validate a file without changing it:
-
-```sh
-RUST_CONFIG=config.json make config-check
-```
-
-Production live inference is fixed to the OpenVINO GPU provider. It uses
-`perception.rust_live.onnx_path` and
-`perception.rust_live.source_checkpoint_path` to name a matching ONNX model and
-source checkpoint. The ONNX file's sibling `.manifest.json` must match both
-artifacts. Model and checkpoint paths may be absolute or relative to
-`--project-root`. The live schema, command-line interface, and packaged runtime
-reject CPU and automatic provider selection.
+Production live inference uses OpenVINO on the supported Intel GPU. Packages
+include the verified ONNX export, its sibling manifest, and the matching
+checkpoint. The source checkout resolves the default export under
+`models/exports/` when the packaged layout is absent. Advanced users can
+override `perception.rust_live.onnx_path` and
+`perception.rust_live.source_checkpoint_path` using paths relative to
+`--project-root` or absolute paths.
 
 The separate `billiards-perception-video-replay` audit tool accepts CPU,
 automatic, and OpenVINO provider selection for offline analysis. Those replay
@@ -47,14 +76,14 @@ they are a backend selection result, not a claim of physical X/Y accuracy.
 Coral model settings are no longer accepted by the live configuration schema.
 
 Set `api.stream.viewer_url` to the browser-reachable MJPEG URL of the camera
-service. The live view opens that URL directly. Use a camera service
+service. Live Diagnostics opens that URL directly. Use a camera service
 origin separate from the application API. The camera image and perception
 state are independent in this view; the viewer keeps the newest video and
 normal center markers do not require frame IDs or exact-frame pairing. The
 producer's active `observation_status.perception.table_projection` is the source-pixel to
 center-origin table-millimeter mapping used for world positions and projected
 aim paths. It must match the current camera/source geometry and calibration
-context. Calibration must use that same camera view.
+context. Setup can request a single still for table calibration.
 
 Configuration changes are validated before they are applied. Successful
 updates preserve the configuration revision and restart-required semantics.

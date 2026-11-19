@@ -11,34 +11,24 @@ remains HTML/CSS/JavaScript.
 The build host needs Rust/Cargo, Node.js/npm, `pkg-config`, `jq`, a SHA-256
 utility, and GStreamer 1.x development libraries discoverable through
 `pkg-config`. The native build is compatible with the build host by default.
-Provide a verified ONNX model pair and a live-capable configuration:
+Build with the standard model assets:
 
 ```bash
-BILLIARDS_ONNX_MODEL=/path/to/billiards-yolov8n.onnx \
-BILLIARDS_SOURCE_CHECKPOINT=/path/to/billiards-yolov8n.pt \
 make deploy
 ```
 
-The ONNX model must have a sibling manifest named
-`billiards-yolov8n.onnx.manifest.json`. The build validates the manifest schema
-and the SHA-256 digests of both the ONNX export and source checkpoint against
-that manifest before building. By default, `config.json` is the configuration
-source. `BILLIARDS_CONFIG_SOURCE` selects another file, and `BILLIARDS_DIST_DIR`
-selects the output directory (default: `dist/`).
+The builder looks for `models/exports/billiards-yolov8n.onnx`, its sibling
+`.onnx.manifest.json`, and `models/billiards-yolov8n.pt`. If your checkout does
+not include the artifacts, obtain a verified export and its matching checkpoint,
+then pass their paths with `BILLIARDS_ONNX_MODEL` and
+`BILLIARDS_SOURCE_CHECKPOINT`. The build checks the manifest schema and SHA-256
+digests before compiling. Production live inference uses the Intel OpenVINO GPU.
 
-The production live bundle requires `perception.rust_live.provider` to be
-`openvino`. It runs live inference on the Intel GPU; CPU and automatic provider
-choices remain available to the separate offline video-replay audit tool only.
-
-Before building, the configuration must clear
-`vision.camera.video_file_path` and select either a stable GStreamer camera
-selector (`perception.capture.device_selector` beginning with
-`gstreamer-device-v1:`) or an HTTP(S) MJPEG source in
-`vision.camera.device_id`. Integer camera indices are not supported by this
-live capture path yet. The builder copies the ONNX model and its manifest
-with the `.pt` checkpoint into `models/`, writes package-relative model and
-executable paths to `config.json`, and includes `build-info.txt` with the
-host/target and source revision.
+The build host needs no camera or runtime configuration. For a preconfigured
+deployment, set `BILLIARDS_CONFIG_SOURCE` to an existing config file. The builder
+packages model and executable paths relative to the output directory and checks
+any explicit capture source without opening it. Set `BILLIARDS_DIST_DIR` to
+choose an output directory other than `dist/`.
 
 `BILLIARDS_RUST_TARGET` selects a Cargo target triple and
 `BILLIARDS_RUST_FEATURES` selects the Rust feature set. A cross-build still
@@ -49,12 +39,12 @@ dependencies. A macOS bundle cannot run on Linux, and vice versa.
 
 The bundle contains:
 
-- `bin/`: Rust gateway, live detector, GStreamer capture helper, and any
-  colocated ONNX Runtime libraries
+- `bin/`: Rust gateway, live detector, GStreamer capture helper, camera
+  discovery command, and any colocated ONNX Runtime libraries
 - `frontend/`: built static browser client
 - `models/`: verified ONNX model, source checkpoint, and export manifest
-- `config.json`: package-ready live configuration
-- `.billiards-inference-provider`: provider metadata used by startup preflight
+- `config.json`: runtime overrides, created by setup or included when an
+  explicit source config is supplied
 - `data/`, `logs/`, `run/`, and `backend/calibration_data/`: runtime directories
 - `run.sh` and `update.sh`: Rust-only start and restart entry points
 - `build-info.txt`: build and source-revision metadata
@@ -87,13 +77,14 @@ cd /path/to/dist
 ./run.sh
 ```
 
-`run.sh` starts live capture by default and requires the Rust server, live
-detector, capture helper, nonempty configuration, and built `frontend/index.html`.
-The bundled provider preflight checks the verified ONNX model, its export
-manifest, and the source checkpoint. To start the gateway without live capture, set
-`BILLIARDS_START_LIVE=false`; a config file and built browser client are still
-required. The default HTTP listener is `0.0.0.0:8000`; the scene-ingress
-listener defaults to loopback at `127.0.0.1:49321`.
+Open `http://127.0.0.1:8000` to choose a camera and calibrate the table. On later
+starts the gateway opens the saved source and reuses compatible calibration.
+Keep `backend/calibration_data/browser-precision/` when upgrading or replacing
+the runtime directory. It contains the fitted optics and ball-center files
+and the saved wizard photos and measurements. The old wizard's photos
+cannot be recovered from a fitted file.
+To run without live setup and capture, set `BILLIARDS_START_LIVE=false`.
+The scene-ingress listener defaults to loopback at `127.0.0.1:49321`.
 
 After replacing the distribution files, run:
 
@@ -119,11 +110,11 @@ that does not match the configured server executable.
 | `BILLIARDS_SERVER_EXECUTABLE` | `<bin>/billiards-server` | Rust gateway executable |
 | `BILLIARDS_LIVE_EXECUTABLE` | `<bin>/billiards-perception-live` | Rust live detector executable |
 | `BILLIARDS_CAPTURE_HELPER_EXECUTABLE` | `<bin>/billiards-perception-gstreamer-probe` | GStreamer helper executable |
-| `BILLIARDS_HTTP_BIND` | `0.0.0.0` | HTTP bind address |
+| `BILLIARDS_HTTP_BIND` | `127.0.0.1` | HTTP bind address |
 | `BILLIARDS_HTTP_PORT` | `8000` | HTTP port |
 | `BILLIARDS_SCENE_BIND` | `127.0.0.1` | Scene-ingress bind address; Rust requires loopback |
 | `BILLIARDS_SCENE_PORT` | `49321` | Scene-ingress port |
-| `BILLIARDS_START_LIVE` | `true` | Start the supervised live detector |
+| `BILLIARDS_START_LIVE` | `true` | Enable live setup and supervised capture |
 | `BILLIARDS_RUN_DIR` | `<bundle>/run` | Runtime PID-file directory |
 | `BILLIARDS_PID_FILE` | `<run-dir>/billiards-server.pid` | Server PID-file path |
 

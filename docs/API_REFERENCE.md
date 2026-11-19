@@ -29,6 +29,52 @@ yet; see [Runtime architecture](ARCHITECTURE.md#deployment-boundary).
 Updates use the versioned Rust schema and revisioned persistence described in
 [Configuration](CONFIG.md).
 
+## Camera and table setup
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `GET` | `/api/v1/setup` | Read capture status, selected source, configuration revision, and calibration status |
+| `GET` | `/api/v1/setup/cameras` | Discover local camera selectors without opening a source |
+| `PUT` | `/api/v1/setup/source` | Save a stable selector or HTTP(S) MJPEG URL and restart capture |
+| `GET` | `/api/v1/setup/calibration/frame` | Freeze an identified JPEG and return its capture token and calibration store revision |
+| `POST` | `/api/v1/setup/calibration` | Solve and save table calibration from the frozen frame |
+| `GET` | `/api/v1/setup/calibration/checkerboard.pdf` | Download the four-page, actual-size checkerboard print |
+| `GET` | `/api/v1/setup/calibration/captures/{mode}` | List compatible saved slots and their thumbnails |
+| `PUT` | `/api/v1/setup/calibration/captures/{mode}/{slot}` | Save or replace a captured still, with measurements for a ball sample |
+| `DELETE` | `/api/v1/setup/calibration/captures/{mode}/{slot}` | Remove one saved capture |
+| `DELETE` | `/api/v1/setup/calibration/captures/{mode}` | Clear the compatible saved captures for one wizard |
+| `GET` | `/api/v1/setup/calibration/ball-placement` | Read the projected target and current ball placement feedback |
+| `POST` | `/api/v1/setup/calibration/ball-candidate` | Propose a ball outline on a single frozen still for operator review |
+| `POST` | `/api/v1/setup/calibration/optics` | Fit and activate optics from checkerboard stills |
+| `POST` | `/api/v1/setup/calibration/ball-centers` | Fit and activate measured ball-center calibration |
+
+Setup status includes `precision_calibration.optics` and
+`precision_calibration.ball_centers`. Each reports a compatibility state and
+may include a validation detail. The separate `calibrated` flag represents
+active table geometry.
+
+Source updates accept `source` and `expected_revision`. Calibration accepts
+`schema_version: 1`, the unchanged frame `descriptor`,
+`expected_store_revision`, `table_width_mm`, `table_height_mm`, and four
+`corners_px` entries with `x_px` and `y_px` in clockwise order from the
+top left. Stale revision or frame conflicts return HTTP 409. Successful
+calibration restarts the producer to load the saved result.
+
+The capture modes are `optics` and `ball-centers`. To save a still, send its
+unchanged `descriptor`, `jpeg_base64`, and `capture_token`. For ball centers,
+include `image_center_px`, `radius_px`, and the independently measured
+`table_center_mm`. The wizard fits the selected `slots` directly from disk.
+Deleting the input photos does not delete the previously fitted profile.
+Saved thumbnails and the single-still endpoints are separate from live video,
+which the browser receives directly from the camera service.
+
+The placement query accepts `x_mm` and `y_mm` relative to the playing
+surface center. It returns projected target and detected ball geometry in
+raw camera pixels. The placement check helps align the ball with the
+prescribed spot. The physical mark still supplies the reference used for fitting.
+When `observation_available` is false, the projected target can still be drawn,
+but there is no current ball observation to confirm placement.
+
 ## Game state
 
 | Method | Path | Purpose |
@@ -89,6 +135,32 @@ current defaults. A cue line may be visible without signed direction; in that
 case its direction is unknown and it does not drive a live path prediction.
 The manual desired-aim suggestion is independent of cue detection.
 
+## Runtime diagnostics WebSocket
+
+Connect to `/api/v1/diagnostics/ws` for complete, versioned runtime-health
+snapshots. The gateway sends an initial snapshot even when no producer or scene
+is available, then pushes updates on evidence changes and the configured
+diagnostics heartbeat. This is a separate stream from the state WebSocket; it
+does not republish game state or change the state stream's latest-value
+semantics.
+
+Snapshots use `schema_version: 1` and include gateway identity/revision/build,
+producer reporter state and active or last-known model/build metadata, stream
+freshness settings, and seven named stage assessments: `gateway_service`,
+`source_lifecycle`, `capture_progress`, `model_initialization`,
+`scheduled_perception_work`, `scene_delivery`, and `localization`. Stage
+details include stable status/reason/source fields and, when applicable,
+progress ages, in-flight job age/deadline, job counters, scheduler state, and
+failure evidence. Last-known producer details are explicitly separate from
+active producer metadata.
+
+The channel is push-only; clients should reconnect to resume updates and should
+mark the latest snapshot stale after its `stream.stale_after_ms` interval. A
+browser connection failure is not proof that the gateway or producer failed.
+The HTTP health endpoints remain available for explicit liveness/readiness
+checks. The contract and fixtures are in
+[`perception/contracts/browser-diagnostics/v1`](../perception/contracts/browser-diagnostics/v1/).
+
 ## Browser assets and camera video
 
 The Rust server serves the built HTML, JavaScript, and CSS bundle. The browser
@@ -128,9 +200,7 @@ Each `multipart/x-mixed-replace` part must include a valid `Content-Length`,
 | `X-Calibration-Revision` | Calibration revision used to localize state |
 | `X-Rectification-Revision` | Image rectification revision |
 
-The configured stream origin must permit browser `fetch` access with an
-appropriate CORS policy when it is cross-origin. Frame bytes, part headers,
-and retained decoded frames are bounded by `api.stream.frame_pairing`; see
-[Configuration](CONFIG.md#identified-video-and-exact-frame-overlays). The Rust
-gateway route `/api/v1/video/identified.mjpg` emits the identity headers from
-the capture preview descriptor; the preview TCP listener stays loopback-only.
+The API does not offer an MJPEG endpoint. Live Diagnostics loads its image
+directly from the camera service. The frame identity contract above describes
+the requirements for a viewer that correlates a separate identified stream
+with perception state. Setup exposes a single bounded calibration still.
