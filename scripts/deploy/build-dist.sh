@@ -7,13 +7,12 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 PROJECT_ROOT="$(cd -- "$SCRIPT_DIR/../.." && pwd -P)"
-CONFIG_SOURCE="${BILLIARDS_CONFIG_SOURCE:-$PROJECT_ROOT/config.json}"
+CONFIG_SOURCE="${BILLIARDS_CONFIG_SOURCE:-}"
 ONNX_SOURCE="${BILLIARDS_ONNX_MODEL:-}"
 CHECKPOINT_SOURCE="${BILLIARDS_SOURCE_CHECKPOINT:-}"
 DIST_DIR="${BILLIARDS_DIST_DIR:-$PROJECT_ROOT/dist}"
 RUST_TARGET="${BILLIARDS_RUST_TARGET:-}"
 RUST_FEATURES="${BILLIARDS_RUST_FEATURES:-camera-gstreamer-source}"
-ONNX_MANIFEST_SOURCE="${ONNX_SOURCE}.manifest.json"
 DISTRIBUTION_MARKER_SOURCE="$SCRIPT_DIR/distribution-marker.txt"
 
 fail() {
@@ -46,37 +45,43 @@ require_command npm
 require_command pkg-config
 require_command jq
 require_file "$DISTRIBUTION_MARKER_SOURCE" "distribution ownership marker"
-require_file "$CONFIG_SOURCE" "Rust application configuration"
-[[ -n "$CHECKPOINT_SOURCE" ]] || fail "set BILLIARDS_SOURCE_CHECKPOINT to the source .pt checkpoint matching the selected model manifest"
-require_file "$CHECKPOINT_SOURCE" "source model checkpoint"
+# An optional source config is for preconfigured deployments. A fresh package
+# uses runtime defaults and leaves the destination camera unset.
+if [[ -n "$CONFIG_SOURCE" ]]; then
+    require_file "$CONFIG_SOURCE" "Rust application configuration"
+    jq -e 'type == "object"' "$CONFIG_SOURCE" >/dev/null || fail "configuration must contain a JSON object: $CONFIG_SOURCE"
+    source_configuration="$(cat -- "$CONFIG_SOURCE")"
+else
+    source_configuration='{}'
+fi
+config_value() {
+    jq -er "$1" <<< "$source_configuration"
+}
 
-# The selected inference provider remains owned by the source configuration.
-# Packaging only chooses which verified model artifacts to include and writes
-# their package-relative paths into the staged configuration.
-INFERENCE_PROVIDER="$(jq -er '.perception.rust_live.provider // "openvino"' "$CONFIG_SOURCE")" \
-    || fail "configuration must define a valid perception.rust_live.provider: $CONFIG_SOURCE"
-case "$INFERENCE_PROVIDER" in
-    openvino)
-        [[ -n "$ONNX_SOURCE" ]] || fail "set BILLIARDS_ONNX_MODEL to the verified ONNX model to include in the distribution"
-        require_file "$ONNX_SOURCE" "ONNX model"
-        require_file "$ONNX_MANIFEST_SOURCE" "ONNX export manifest"
-        ;;
-    *)
-        fail "unsupported perception.rust_live.provider '$INFERENCE_PROVIDER' in $CONFIG_SOURCE"
-        ;;
-esac
+INFERENCE_PROVIDER="$(config_value '.perception.rust_live.provider // "openvino"')"
+[[ "$INFERENCE_PROVIDER" == openvino ]] || fail "unsupported perception.rust_live.provider '$INFERENCE_PROVIDER' in $CONFIG_SOURCE"
+[[ -n "$ONNX_SOURCE" ]] || ONNX_SOURCE="$(config_value '.perception.rust_live.onnx_path // ""')"
+[[ -n "$CHECKPOINT_SOURCE" ]] || CHECKPOINT_SOURCE="$(config_value '.perception.rust_live.source_checkpoint_path // ""')"
+ONNX_SOURCE="${ONNX_SOURCE:-models/exports/billiards-yolov8n.onnx}"
+CHECKPOINT_SOURCE="${CHECKPOINT_SOURCE:-models/billiards-yolov8n.pt}"
+[[ "$ONNX_SOURCE" == /* ]] || ONNX_SOURCE="$PROJECT_ROOT/$ONNX_SOURCE"
+[[ "$CHECKPOINT_SOURCE" == /* ]] || CHECKPOINT_SOURCE="$PROJECT_ROOT/$CHECKPOINT_SOURCE"
+ONNX_MANIFEST_SOURCE="${ONNX_SOURCE}.manifest.json"
+require_file "$ONNX_SOURCE" "ONNX model (set BILLIARDS_ONNX_MODEL to select an export)"
+require_file "$ONNX_MANIFEST_SOURCE" "ONNX export manifest"
+require_file "$CHECKPOINT_SOURCE" "source model checkpoint (set BILLIARDS_SOURCE_CHECKPOINT to select a checkpoint)"
 
-# Fail before building if the selected config cannot drive the Rust live path.
-# In particular, the Rust camera path requires either an explicit stable
-# GStreamer discovery selector or a remote HTTP-MJPEG source; integer camera
-# indexes remain unsupported until the physical discovery adapter qualifies it.
-jq -e '
+# Validate explicit sources without requiring a camera on the build host.
+config_value '
   (.vision.camera.video_file_path == null or .vision.camera.video_file_path == "") and
-  (
-    ((.perception.capture.device_selector // null) | type == "string" and startswith("gstreamer-device-v1:")) or
-    ((.vision.camera.device_id // null) | type == "string" and (startswith("http://") or startswith("https://")))
-  )
-' "$CONFIG_SOURCE" >/dev/null || fail "configuration must clear vision.camera.video_file_path and select a stable GStreamer camera or an HTTP(S) MJPEG URL; update $CONFIG_SOURCE first"
+  ((.perception.capture.device_selector // "") as $selector |
+    ($selector | type == "string") and
+    (if $selector == "" then
+       ((.vision.camera.device_id // 0) | . == 0 or (type == "string" and (startswith("http://") or startswith("https://"))))
+     else
+       ($selector | startswith("gstreamer-device-v1:"))
+     end))
+' >/dev/null || fail "configuration contains an unsupported live capture source: $CONFIG_SOURCE"
 
 jq -e '
   .manifest_schema_version == 1 and
@@ -136,7 +141,8 @@ printf '%s\n' 'Building Rust server and live capture binaries...'
             --target "$RUST_TARGET" \
             --bin billiards-server \
             --bin billiards-perception-live \
-            --bin billiards-perception-gstreamer-probe
+            --bin billiards-perception-gstreamer-probe \
+            --bin billiards-perception-camera-discovery
     else
         cargo build \
             --locked \
@@ -145,7 +151,8 @@ printf '%s\n' 'Building Rust server and live capture binaries...'
             --features "$RUST_FEATURES" \
             --bin billiards-server \
             --bin billiards-perception-live \
-            --bin billiards-perception-gstreamer-probe
+            --bin billiards-perception-gstreamer-probe \
+            --bin billiards-perception-camera-discovery
     fi
 )
 
@@ -162,7 +169,7 @@ else
 fi
 
 mkdir -p "$STAGING/bin" "$STAGING/models" "$STAGING/data" "$STAGING/logs" "$STAGING/run" "$STAGING/backend/calibration_data"
-for binary in billiards-server billiards-perception-live billiards-perception-gstreamer-probe; do
+for binary in billiards-server billiards-perception-live billiards-perception-gstreamer-probe billiards-perception-camera-discovery; do
     require_file "$BUILD_DIR/$binary" "built Rust binary"
     install -m 0755 "$BUILD_DIR/$binary" "$STAGING/bin/$binary"
 done
@@ -182,26 +189,28 @@ install -m 0644 "$CHECKPOINT_SOURCE" "$STAGING/models/billiards-yolov8n.pt"
 
 # Paths are deliberately relative to the package root so the entire bundle can
 # be moved without a host-specific absolute model or executable path.
-jq \
-    --arg model 'models/billiards-yolov8n.onnx' \
-    --arg checkpoint 'models/billiards-yolov8n.pt' \
-    --arg live 'bin/billiards-perception-live' \
-    --arg helper 'bin/billiards-perception-gstreamer-probe' \
-    '.perception.rust_live = (.perception.rust_live // {}) |
-     .perception.rust_live.onnx_path = $model |
-     .perception.rust_live.source_checkpoint_path = $checkpoint |
-     .perception.rust_live.executable_path = $live |
-     .perception.rust_live.capture_helper_executable_path = $helper |
-     .vision.camera.video_file_path = ""' \
-    "$CONFIG_SOURCE" > "$STAGING/config.json"
+if [[ -n "$CONFIG_SOURCE" ]]; then
+    jq \
+        --arg model 'models/billiards-yolov8n.onnx' \
+        --arg checkpoint 'models/billiards-yolov8n.pt' \
+        --arg live 'bin/billiards-perception-live' \
+        --arg helper 'bin/billiards-perception-gstreamer-probe' \
+        '.perception.rust_live = (.perception.rust_live // {}) |
+         .perception.rust_live.onnx_path = $model |
+         .perception.rust_live.source_checkpoint_path = $checkpoint |
+         .perception.rust_live.executable_path = $live |
+         .perception.rust_live.capture_helper_executable_path = $helper |
+         .vision.camera.video_file_path = ""' \
+        <<< "$source_configuration" > "$STAGING/config.json"
+fi
 # Localization profiles are bounded data assets, not model files. Copy exact
 # bytes and rewrite only configuration paths so moving the bundle cannot leave
 # it dependent on files in the build workspace. Runtime validates their schema,
 # estimator revision and capture context before using them.
-localization_limit="$(jq -er '.perception.rust_live.ball_localization.maximum_asset_bytes // 4194304 | select(type == "number" and floor == . and . > 0)' "$CONFIG_SOURCE")" \
+localization_limit="$(config_value '.perception.rust_live.ball_localization.maximum_asset_bytes // 4194304 | select(type == "number" and floor == . and . > 0)')" \
     || fail "ball localization maximum_asset_bytes must be a positive integer"
 for asset_key in optics_profile_path ball_center_calibration_path; do
-    asset_source="$(jq -er --arg key "$asset_key" '.perception.rust_live.ball_localization[$key] // "" | select(type == "string")' "$CONFIG_SOURCE")" \
+    asset_source="$(jq -er --arg key "$asset_key" '.perception.rust_live.ball_localization[$key] // "" | select(type == "string")' <<< "$source_configuration")" \
         || fail "ball localization $asset_key must be a string or null"
     [[ -n "$asset_source" ]] || continue
     [[ "$asset_source" == /* ]] || asset_source="$PROJECT_ROOT/$asset_source"
@@ -218,7 +227,6 @@ for asset_key in optics_profile_path ball_center_calibration_path; do
     mv "$STAGING/config.next.json" "$STAGING/config.json"
 done
 
-printf '%s\n' "$INFERENCE_PROVIDER" > "$STAGING/.billiards-inference-provider"
 [[ -f "$STAGING/frontend/index.html" ]] || fail "packaged frontend is missing index.html after the frontend build"
 install -m 0755 "$SCRIPT_DIR/run.sh" "$STAGING/run.sh"
 install -m 0755 "$SCRIPT_DIR/update.sh" "$STAGING/update.sh"

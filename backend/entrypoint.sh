@@ -3,7 +3,7 @@ set -eu
 
 # Keep the container's process tree owned by the Rust gateway. The gateway
 # supervises billiards-perception-live and forwards shutdown to that child.
-CONFIG_FILE=${CONFIG_FILE:-/app/config/config.json}
+CONFIG_FILE=${CONFIG_FILE:-/app/backend/calibration_data/config.json}
 PROJECT_ROOT=${PROJECT_ROOT:-/app}
 WEB_ROOT=${WEB_ROOT:-/app/web}
 HTTP_BIND=${HTTP_BIND:-0.0.0.0}
@@ -27,7 +27,7 @@ case "$START_LIVE" in
         ;;
 esac
 
-mkdir -p "$PROJECT_ROOT" /app/config /app/data /app/logs /app/temp
+mkdir -p "$PROJECT_ROOT" "$(dirname "$CONFIG_FILE")" /app/data /app/logs /app/temp
 
 if [ ! -d "$WEB_ROOT" ]; then
     echo "Rust server static web root does not exist: $WEB_ROOT" >&2
@@ -39,17 +39,9 @@ set -- \
     --http-port "$HTTP_PORT" \
     --scene-bind "$SCENE_BIND" \
     --scene-port "$SCENE_PORT" \
+    --config "$CONFIG_FILE" \
     --project-root "$PROJECT_ROOT" \
     --web-root "$WEB_ROOT"
-
-if [ -f "$CONFIG_FILE" ]; then
-    set -- "$@" --config "$CONFIG_FILE"
-elif [ "$LIVE_ENABLED" = true ]; then
-    echo "Live capture requires a mounted configuration file: $CONFIG_FILE" >&2
-    exit 1
-else
-    echo "No configuration file found; starting gateway-only without config APIs."
-fi
 
 case "$LIVE_ENABLED" in
     true)
@@ -71,5 +63,5 @@ case "$LIVE_ENABLED" in
 esac
 
 echo "Starting Rust billiards server on ${HTTP_BIND}:${HTTP_PORT}."
-echo "Project root: ${PROJECT_ROOT}; static client: ${WEB_ROOT}; live capture: ${LIVE_ENABLED}."
+echo "Project root: ${PROJECT_ROOT}; static client: ${WEB_ROOT}; live setup: ${LIVE_ENABLED}."
 exec /app/bin/billiards-server "$@"

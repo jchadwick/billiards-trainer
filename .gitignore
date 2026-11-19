@@ -20,6 +20,7 @@ __pycache__/
 /dist/
 /build/
 /repomix-output.xml
+/backend/calibration_data/browser-precision/*/captures-v1/
 
 # Local environment and machine-specific settings
 .env

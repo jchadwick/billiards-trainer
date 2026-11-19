@@ -14,7 +14,7 @@ WEB_ROOT="${BILLIARDS_WEB_ROOT:-$SCRIPT_DIR/frontend}"
 PROJECT_ROOT="${BILLIARDS_PROJECT_ROOT:-$SCRIPT_DIR}"
 RUN_DIR="${BILLIARDS_RUN_DIR:-$SCRIPT_DIR/run}"
 PID_FILE="${BILLIARDS_PID_FILE:-$RUN_DIR/billiards-server.pid}"
-HTTP_BIND="${BILLIARDS_HTTP_BIND:-0.0.0.0}"
+HTTP_BIND="${BILLIARDS_HTTP_BIND:-127.0.0.1}"
 HTTP_PORT="${BILLIARDS_HTTP_PORT:-8000}"
 SCENE_BIND="${BILLIARDS_SCENE_BIND:-127.0.0.1}"
 SCENE_PORT="${BILLIARDS_SCENE_PORT:-49321}"
@@ -31,37 +31,11 @@ require_executable() {
     [[ -f "$executable" && -x "$executable" ]] || fail "$label is missing or not executable: $executable. Build or install the Rust distribution first."
 }
 
-require_file() {
-    local file_path="$1"
-    local label="$2"
-    [[ -f "$file_path" && -r "$file_path" && -s "$file_path" ]] || fail "$label is missing, unreadable, or empty: $file_path"
-}
-
-[[ -f "$CONFIG" && -r "$CONFIG" && -s "$CONFIG" ]] || fail "configuration file is missing, unreadable, or empty: $CONFIG"
 [[ -d "$PROJECT_ROOT" ]] || fail "project root does not exist: $PROJECT_ROOT"
 require_executable "$SERVER" "Rust server binary"
 if [[ "$START_LIVE" == "true" || "$START_LIVE" == "1" || "$START_LIVE" == "yes" ]]; then
     require_executable "$LIVE" "Rust live detector binary"
     require_executable "$CAPTURE_HELPER" "Rust GStreamer capture helper"
-    if [[ "$CONFIG" == "$SCRIPT_DIR/config.json" ]]; then
-        # The distribution builder records the selected provider separately so
-        # startup can validate the right model bundle without adding a JSON
-        # parser dependency to the target device.
-        inference_provider="onnx"
-        if [[ -f "$SCRIPT_DIR/.billiards-inference-provider" ]]; then
-            inference_provider="$(cat -- "$SCRIPT_DIR/.billiards-inference-provider")"
-        fi
-        case "$inference_provider" in
-            openvino)
-                require_file "$PROJECT_ROOT/models/billiards-yolov8n.onnx" "packaged ONNX model"
-                require_file "$PROJECT_ROOT/models/billiards-yolov8n.pt" "packaged source checkpoint"
-                require_file "$PROJECT_ROOT/models/billiards-yolov8n.onnx.manifest.json" "packaged ONNX export manifest"
-                ;;
-            *)
-                fail "unsupported packaged inference provider '$inference_provider'"
-                ;;
-        esac
-    fi
 elif [[ "$START_LIVE" != "false" && "$START_LIVE" != "0" && "$START_LIVE" != "no" ]]; then
     fail "BILLIARDS_START_LIVE must be true or false (received: $START_LIVE)"
 fi
@@ -100,7 +74,7 @@ if [[ "$START_LIVE" == "true" || "$START_LIVE" == "1" || "$START_LIVE" == "yes" 
 fi
 
 printf 'Starting Rust Billiards Trainer server at http://%s:%s\n' "$HTTP_BIND" "$HTTP_PORT"
-printf 'Serving web client from %s; live detector: %s\n' "$WEB_ROOT" "$START_LIVE"
+printf 'Serving web client from %s; live setup: %s\n' "$WEB_ROOT" "$START_LIVE"
 "$SERVER" "${args[@]}" &
 server_pid=$!
 printf '%s\n' "$server_pid" > "$PID_FILE"

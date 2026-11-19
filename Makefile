@@ -36,7 +36,7 @@ RUST_HTTP_BIND ?= 127.0.0.1
 RUST_HTTP_PORT ?= 8001
 RUST_SCENE_BIND ?= 127.0.0.1
 RUST_SCENE_PORT ?= 49321
-RUST_CONFIG ?= config.json
+RUST_CONFIG ?= data/config.json
 RUST_SERVER_ARGS ?=
 BILLIARDS_TRAINER_IMAGE ?= billiards-trainer:dev
 LOGS_DIR := logs
@@ -144,7 +144,8 @@ build-rust: ## Build Rust server and live perception binaries
 	cargo build --locked --manifest-path $(RUST_MANIFEST) --features $(RUST_FEATURES) \
 		--bin billiards-server \
 		--bin billiards-perception-live \
-		--bin billiards-perception-gstreamer-probe
+		--bin billiards-perception-gstreamer-probe \
+		--bin billiards-perception-camera-discovery
 
 build: build-frontend build-rust ## Build the Rust application and web client
 
@@ -166,14 +167,14 @@ run-api: build-frontend setup-dirs ## Run Rust gateway without live capture
 		--web-root "$(PWD)/backend/static" $(RUST_SERVER_ARGS)
 
 run-frontend: ## Run frontend dev server only
-	cd frontend/web && npm run dev
+	cd frontend/web && VITE_DEV_PROXY_TARGET="$${VITE_DEV_PROXY_TARGET:-http://127.0.0.1:$(RUST_HTTP_PORT)}" npm run dev
 
 # ===== Configuration =====
 
 config-check: ## Validate configuration files
 	@echo "$(BLUE)Checking configuration files...$(RESET)"
 	@temporary_store=$$(mktemp -d) && trap 'rm -rf "$$temporary_store"' EXIT && \
-		node --input-type=module -e 'import fs from "node:fs"; const data=JSON.parse(fs.readFileSync("$(RUST_CONFIG)", "utf8")); process.stdout.write(JSON.stringify({protocol_version:1,operation:"validate",merge:false,data})+"\n");' | \
+		node --input-type=module -e 'import fs from "node:fs"; const path=process.argv[1]; const data=JSON.parse(fs.readFileSync(fs.existsSync(path) ? path : "perception/contracts/configuration/v1/defaults.json", "utf8")); process.stdout.write(JSON.stringify({protocol_version:1,operation:"validate",merge:false,data})+"\n");' "$(RUST_CONFIG)" | \
 		cargo run --locked --quiet --manifest-path $(RUST_MANIFEST) --bin billiards-perception-config -- --config "$$temporary_store/validation.json" | \
 		node --input-type=module -e 'let raw=""; for await (const chunk of process.stdin) raw += chunk; const result=JSON.parse(raw); if (!result.ok || !result.valid) { console.error(JSON.stringify(result.validation_errors ?? result.error)); process.exit(1); } console.log("Rust configuration schema and runtime rules are valid");'
 
@@ -182,9 +183,9 @@ config-example: ## Create example configuration files
 	@if [ -e "$(RUST_CONFIG)" ]; then \
 		echo "$(RED)$(RUST_CONFIG) already exists; refusing to overwrite it$(RESET)"; exit 1; \
 	fi
+	@mkdir -p "$(dir $(RUST_CONFIG))"
 	@cp perception/contracts/configuration/v1/defaults.json "$(RUST_CONFIG)"
-	@node --input-type=module -e 'const fs = await import("node:fs"); const file = process.argv[1]; const config = JSON.parse(fs.readFileSync(file, "utf8")); config.vision.camera.video_file_path = ""; fs.writeFileSync(file, `${JSON.stringify(config, null, 2)}\n`);' "$(RUST_CONFIG)"
-	@echo "$(GREEN)Created $(RUST_CONFIG) from the Rust-owned configuration defaults$(RESET)"
+	@echo "$(GREEN)Created $(RUST_CONFIG) with built-in defaults$(RESET)"
 
 # ===== Cleanup =====
 
@@ -205,7 +206,7 @@ clean-logs: ## Clean log files
 
 clean-data: ## Clean data and temporary files
 	@echo "$(BLUE)Cleaning data files...$(RESET)"
-	rm -rf $(DATA_DIR)/*
+	@if [ -d "$(DATA_DIR)" ]; then find "$(DATA_DIR)" -mindepth 1 -maxdepth 1 ! -name config.json ! -name '.*' -exec rm -rf {} +; fi
 	rm -rf $(TEMP_DIR)/*
 	@echo "$(GREEN)Data files cleaned!$(RESET)"
 
@@ -222,7 +223,7 @@ clean-all: clean clean-logs clean-frontend ## Clean generated build, log, and br
 docker-build: ## Build the Rust application image with Docker Compose
 	BILLIARDS_TRAINER_IMAGE="$(BILLIARDS_TRAINER_IMAGE)" docker compose build backend
 
-docker-smoke: docker-build ## Build and run a local gateway-only container smoke test
+docker-smoke: docker-build ## Build and verify a container with no camera or config
 	DOCKER_IMAGE="$(BILLIARDS_TRAINER_IMAGE)" bash scripts/tooling/docker-runtime-smoke.sh
 
 docker-run: ## Run the Rust application in the foreground with Docker Compose

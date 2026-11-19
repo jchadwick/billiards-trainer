@@ -119,7 +119,7 @@ while (($#)); do
     fi
 done
 mkdir -p "$output_root/release"
-for binary in billiards-server billiards-perception-live billiards-perception-gstreamer-probe; do
+for binary in billiards-server billiards-perception-live billiards-perception-gstreamer-probe billiards-perception-camera-discovery; do
     printf '#!/usr/bin/env bash\nexit 0\n' > "$output_root/release/$binary"
     chmod 0755 "$output_root/release/$binary"
 done
@@ -172,6 +172,7 @@ assert_file "$DIST_DIR/.billiards-distribution"
 assert_file "$DIST_DIR/bin/billiards-server"
 assert_file "$DIST_DIR/bin/billiards-perception-live"
 assert_file "$DIST_DIR/bin/billiards-perception-gstreamer-probe"
+assert_file "$DIST_DIR/bin/billiards-perception-camera-discovery"
 assert_file "$DIST_DIR/bin/libonnxruntime.so.1"
 assert_file "$DIST_DIR/frontend/index.html"
 assert_file "$DIST_DIR/frontend/client.css"
@@ -318,5 +319,15 @@ for unsupported_provider in cpu auto coral; do
         || fail "builder did not explain that live inference provider $unsupported_provider is unsupported"
     assert_no_staging_dirs
 done
+
+# A fresh distribution needs model assets but no config file or capture source.
+mkdir -p "$REPO/models/exports"
+cp "$ONNX_SOURCE" "$REPO/models/exports/billiards-yolov8n.onnx"
+cp "$MANIFEST_SOURCE" "$REPO/models/exports/billiards-yolov8n.onnx.manifest.json"
+cp "$CHECKPOINT_SOURCE" "$REPO/models/billiards-yolov8n.pt"
+run_build "$FAKE_BIN" BILLIARDS_CONFIG_SOURCE= BILLIARDS_ONNX_MODEL= BILLIARDS_SOURCE_CHECKPOINT=
+[[ ! -e "$DIST_DIR/config.json" ]] || fail 'fresh distribution unexpectedly included a runtime config file'
+bash "$DIST_DIR/run.sh" > "$BUILD_LOG" 2>&1 || fail 'fresh distribution failed to launch without configuration'
+assert_file "$DIST_DIR/bin/billiards-perception-camera-discovery"
 
 printf '%s\n' 'build-dist packaging, ownership, failure recovery, and cleanup smoke passed'

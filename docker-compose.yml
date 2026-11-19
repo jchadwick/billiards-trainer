@@ -4,16 +4,15 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
+      target: application
+      additional_contexts:
+        model_assets: ${MODEL_DIRECTORY:-./models}
       args:
         BUILD_VERSION: ${BUILD_VERSION:-dev}
         BUILD_COMMIT: ${BUILD_COMMIT:-unknown}
     ports:
-      - "${API_PORT:-8000}:8000"
+      - "${API_BIND:-127.0.0.1}:${API_PORT:-8000}:8000"
     volumes:
-      # The active configuration stays outside the image and is writable so
-      # changes made through the configuration API persist across restarts.
-      - "${CONFIG_HOST_FILE:-./config.json}:/app/config/config.json"
-      - "${MODEL_DIRECTORY:-./models}:/app/models:ro"
       - billiards-data:/app/backend/calibration_data
     environment:
       ENVIRONMENT: production
@@ -21,14 +20,11 @@ services:
       HTTP_PORT: "8000"
       SCENE_BIND: 127.0.0.1
       SCENE_PORT: "49321"
-      CONFIG_FILE: /app/config/config.json
       PROJECT_ROOT: /app
       WEB_ROOT: /app/web
       LIVE_EXECUTABLE: /app/bin/billiards-perception-live
       CAPTURE_HELPER_EXECUTABLE: /app/bin/billiards-perception-gstreamer-probe
-      # Live mode requires model paths and capture settings in the mounted
-      # Rust configuration. Set START_LIVE=false for a gateway-only instance.
-      START_LIVE: ${START_LIVE:-false}
+      START_LIVE: ${START_LIVE:-true}
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:8000/api/v1/health/live"]
