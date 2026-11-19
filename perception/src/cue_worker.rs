@@ -853,8 +853,8 @@ mod tests {
             max_height_px: HEIGHT,
             max_pixels: (WIDTH * HEIGHT) as usize,
             max_edge_samples: 12_000,
-            max_point_visits: 300_000,
-            max_temporary_bytes: 12_000 * std::mem::size_of::<[f64; 2]>() * 2,
+            max_point_visits: 380_000,
+            max_temporary_bytes: 12_000 * std::mem::size_of::<[f64; 2]>() * 2 + 16_384,
             ..CueGeometryConfig::default()
         }
     }

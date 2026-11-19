@@ -16,6 +16,9 @@ const ABSOLUTE_MAX_PIXELS: usize = 16_777_216;
 const ABSOLUTE_MAX_EDGE_SAMPLES: usize = 500_000;
 const ABSOLUTE_MAX_TEMPORARY_BYTES: usize = 32 * 1024 * 1024;
 const ABSOLUTE_MAX_POINT_VISITS: usize = 50_000_000;
+const MAX_CENTERLINE_SECTIONS: usize = 128;
+const MAX_EDGE_PEAKS_PER_SECTION: usize = 16;
+const CENTERLINE_HISTOGRAM_CAPACITY: usize = 2048;
 
 /// Limits for image work, temporary storage, and acceptable cue-like fits.
 ///
@@ -40,6 +43,32 @@ pub struct CueGeometryConfig {
     pub minimum_eigenvalue_ratio: f64,
     pub minimum_support_points: usize,
     pub minimum_occupied_length_fraction: f64,
+    /// Cue width limits scale with the shorter image dimension so the same
+    /// estimator works on the supported camera resolutions.
+    pub minimum_shaft_width_fraction: f64,
+    pub maximum_shaft_width_fraction: f64,
+    pub minimum_shaft_width_px: f64,
+    /// Pixel fallback for the maximum width when a thumbnail is too small for
+    /// the dimension-scaled shaft-width bound to resolve both sides.
+    pub minimum_shaft_maximum_width_px: f64,
+    /// Minimum spacing between longitudinal cross-sections before a short cue
+    /// is handled as one section with several profiles along its span.
+    pub minimum_centerline_section_spacing_px: f64,
+    /// Maximum cross-sections used to recover the shaft center from paired
+    /// side edges. Shorter observed spans use wider sections, and missing
+    /// sections remain allowed for partial occlusion.
+    pub centerline_sections: usize,
+    /// Longitudinal image profiles sampled within each cross-section. This
+    /// recovers an edge even when the sparse gradient sample misses it.
+    pub cross_section_profile_samples: usize,
+    pub minimum_paired_section_fraction: f64,
+    /// Maximum ratio between robust low and high shaft-width percentiles.
+    pub maximum_shaft_taper_ratio: f64,
+    pub minimum_pair_edge_support: usize,
+    pub maximum_edge_peaks_per_section: usize,
+    pub pair_histogram_bin_width_px: f64,
+    pub pair_peak_radius_px: f64,
+    pub minimum_cross_section_contrast: f64,
     /// A dark endpoint must differ by this many luminance levels to label it
     /// as the likely cue tip. Weak or ambiguous asymmetry leaves direction unset.
     pub minimum_tip_contrast: f64,
@@ -58,7 +87,7 @@ impl Default for CueGeometryConfig {
             max_proposals: 4,
             max_refinements: 2,
             // Includes point selection and every bounded robust-fit pass.
-            max_point_visits: 2_000_000,
+            max_point_visits: 2_500_000,
             // The global edge samples plus one reusable ROI inlier array.
             max_temporary_bytes: 3_000_000,
             minimum_gradient: 24.0,
@@ -68,6 +97,20 @@ impl Default for CueGeometryConfig {
             minimum_eigenvalue_ratio: 7.0,
             minimum_support_points: 18,
             minimum_occupied_length_fraction: 0.65,
+            minimum_shaft_width_fraction: 0.002,
+            maximum_shaft_width_fraction: 0.05,
+            minimum_shaft_width_px: 0.5,
+            minimum_shaft_maximum_width_px: 2.0,
+            minimum_centerline_section_spacing_px: 8.0,
+            centerline_sections: 16,
+            cross_section_profile_samples: 3,
+            minimum_paired_section_fraction: 0.5,
+            maximum_shaft_taper_ratio: 4.0,
+            minimum_pair_edge_support: 1,
+            maximum_edge_peaks_per_section: 8,
+            pair_histogram_bin_width_px: 1.0,
+            pair_peak_radius_px: 0.25,
+            minimum_cross_section_contrast: 10.0,
             minimum_tip_contrast: 55.0,
         }
     }
@@ -104,6 +147,36 @@ impl CueGeometryConfig {
             || self.minimum_support_points < 4
             || !valid_float(self.minimum_occupied_length_fraction)
             || !(0.0..=1.0).contains(&self.minimum_occupied_length_fraction)
+            || !valid_float(self.minimum_shaft_width_fraction)
+            || !valid_float(self.maximum_shaft_width_fraction)
+            || self.minimum_shaft_width_fraction <= 0.0
+            || self.maximum_shaft_width_fraction > 0.05
+            || self.minimum_shaft_width_fraction > self.maximum_shaft_width_fraction
+            || !valid_float(self.minimum_shaft_width_px)
+            || self.minimum_shaft_width_px <= 0.0
+            || !valid_float(self.minimum_shaft_maximum_width_px)
+            || self.minimum_shaft_maximum_width_px < self.minimum_shaft_width_px
+            || !valid_float(self.minimum_centerline_section_spacing_px)
+            || self.minimum_centerline_section_spacing_px <= 0.0
+            || self.minimum_centerline_section_spacing_px > f64::from(ABSOLUTE_MAX_DIMENSION)
+            || !(8..=MAX_CENTERLINE_SECTIONS).contains(&self.centerline_sections)
+            || !(1..=8).contains(&self.cross_section_profile_samples)
+            || !valid_float(self.minimum_paired_section_fraction)
+            || !(0.0..=1.0).contains(&self.minimum_paired_section_fraction)
+            || self.minimum_paired_section_fraction == 0.0
+            || !valid_float(self.maximum_shaft_taper_ratio)
+            || self.maximum_shaft_taper_ratio < 1.0
+            || self.maximum_shaft_taper_ratio > 16.0
+            || self.minimum_pair_edge_support == 0
+            || self.minimum_pair_edge_support > self.max_edge_samples
+            || !(2..=MAX_EDGE_PEAKS_PER_SECTION).contains(&self.maximum_edge_peaks_per_section)
+            || !valid_float(self.pair_histogram_bin_width_px)
+            || !(0.5..=2.0).contains(&self.pair_histogram_bin_width_px)
+            || !valid_float(self.pair_peak_radius_px)
+            || self.pair_peak_radius_px <= 0.0
+            || self.pair_peak_radius_px > 8.0
+            || !valid_float(self.minimum_cross_section_contrast)
+            || !(0.0..=255.0).contains(&self.minimum_cross_section_contrast)
             || !valid_float(self.minimum_tip_contrast)
             || !(0.0..=255.0).contains(&self.minimum_tip_contrast)
         {
@@ -132,10 +205,16 @@ impl CueGeometryConfig {
             .max_proposals
             .checked_add(1)
             .ok_or(CueGeometryError::InvalidConfiguration)?;
-        let visits_per_region = self
+        let edge_visits_per_region = self
             .max_refinements
-            .checked_add(3)
+            .checked_add(2)
             .and_then(|passes| self.max_edge_samples.checked_mul(passes))
+            .ok_or(CueGeometryError::InvalidConfiguration)?;
+        let profile_visits_per_region =
+            profile_visit_budget(self.max_width_px, self.max_height_px, self)
+                .ok_or(CueGeometryError::InvalidConfiguration)?;
+        let visits_per_region = edge_visits_per_region
+            .checked_add(profile_visits_per_region)
             .ok_or(CueGeometryError::InvalidConfiguration)?;
         let worst_case_visits = visits_per_region
             .checked_mul(region_count)
@@ -145,6 +224,21 @@ impl CueGeometryConfig {
         }
         Ok(self)
     }
+}
+
+fn profile_visit_budget(width_px: u32, height_px: u32, config: CueGeometryConfig) -> Option<usize> {
+    let maximum_width = (f64::from(width_px.min(height_px)) * config.maximum_shaft_width_fraction)
+        .max(config.minimum_shaft_maximum_width_px);
+    let half_range = maximum_width + config.pair_peak_radius_px;
+    let histogram_len =
+        ((2.0 * half_range / config.pair_histogram_bin_width_px).ceil() as usize).checked_add(1)?;
+    if histogram_len > CENTERLINE_HISTOGRAM_CAPACITY {
+        return None;
+    }
+    config
+        .centerline_sections
+        .checked_mul(config.cross_section_profile_samples)?
+        .checked_mul(histogram_len)
 }
 
 /// Integer image-space proposal, with right and bottom exclusive.
@@ -260,6 +354,7 @@ pub fn estimate_cue_geometry(
             height_px,
             config,
             &mut point_visits,
+            rgb8,
         ) {
             select_best(&mut best, fit, Some(proposal_index));
         }
@@ -281,6 +376,7 @@ pub fn estimate_cue_geometry(
         height_px,
         config,
         &mut point_visits,
+        rgb8,
     ) {
         select_best(&mut best, fit, None);
     }
@@ -493,6 +589,7 @@ fn fit_region(
     height: u32,
     config: CueGeometryConfig,
     point_visits: &mut usize,
+    rgb8: &[u8],
 ) -> Option<Fit> {
     inliers.clear();
     for point in points {
@@ -542,10 +639,10 @@ fn fit_region(
         max_projection = max_projection.max(projection);
         max_residual = max_residual.max(perpendicular_distance(point, line.center, line.axis));
     }
-    let length = max_projection - min_projection;
+    let side_length = max_projection - min_projection;
     let longest_dimension = width.max(height) as f64;
-    if length < longest_dimension * config.minimum_length_fraction
-        || length > longest_dimension * config.maximum_length_fraction_of_longest_dimension
+    if side_length < longest_dimension * config.minimum_length_fraction
+        || side_length > longest_dimension * config.maximum_length_fraction_of_longest_dimension
         || max_residual > config.maximum_fit_residual_px * 1.5
     {
         return None;
@@ -559,7 +656,7 @@ fn fit_region(
             [point.x - line.center[0], point.y - line.center[1]],
             line.axis,
         );
-        let fraction = (projection - min_projection) / length;
+        let fraction = (projection - min_projection) / side_length;
         let bin = ((fraction * occupied.len() as f64) as usize).min(occupied.len() - 1);
         occupied[bin] = true;
     }
@@ -569,17 +666,514 @@ fn fit_region(
         return None;
     }
     let residual_ratio = (max_residual / config.maximum_fit_residual_px).min(1.0);
-    let length_score = ((length / longest_dimension) / 0.45).clamp(0.0, 1.0);
+    let length_score = ((side_length / longest_dimension) / 0.45).clamp(0.0, 1.0);
     let support_score = ((inliers.len() as f64) / 80.0).clamp(0.0, 1.0);
     let confidence = (occupied_fraction * 0.45 + length_score * 0.30 + support_score * 0.25)
         * (1.0 - residual_ratio * 0.25);
-    Some(Fit {
-        center: line.center,
-        axis: line.axis,
+    paired_centerline_fit(
+        line,
         min_projection,
         max_projection,
-        confidence: confidence.clamp(0.0, 1.0),
+        width,
+        height,
+        config,
+        point_visits,
+        rgb8,
+        confidence.clamp(0.0, 1.0),
+    )
+}
+
+#[derive(Debug, Clone, Copy)]
+struct EdgePeak {
+    offset: f64,
+    support: u32,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct PairedEdges {
+    left: f64,
+    right: f64,
+    support: u32,
+    contrast: f64,
+}
+
+/// Recover the central shaft axis from edge pairs in each cross-section.
+///
+/// The initial robust line identifies a cue-like orientation and longitudinal
+/// span. It is deliberately not returned directly: that line can be either
+/// visible side of the shaft, and its position can therefore flip when edge
+/// contrast changes. This pass finds two supported edges around that proposal,
+/// verifies that they enclose a coherent image region, and fits their midpoint
+/// samples. Missing or ambiguous cross-sections are skipped instead of
+/// allowing one edge to masquerade as the shaft center.
+#[allow(clippy::too_many_arguments)]
+fn paired_centerline_fit(
+    edge_line: PrincipalLine,
+    min_projection: f64,
+    max_projection: f64,
+    width: u32,
+    height: u32,
+    config: CueGeometryConfig,
+    point_visits: &mut usize,
+    rgb8: &[u8],
+    side_confidence: f64,
+) -> Option<Fit> {
+    let side_length = max_projection - min_projection;
+    if side_length <= f64::EPSILON {
+        return None;
+    }
+
+    let shorter_dimension = f64::from(width.min(height));
+    let minimum_width = config
+        .minimum_shaft_width_px
+        .max(shorter_dimension * config.minimum_shaft_width_fraction);
+    // At thumbnail-sized inputs the relative cap can be narrower than a
+    // resolvable shaft. The configured pixel fallback keeps both edges in the
+    // sampling window, while normal camera resolutions remain governed by the
+    // dimension-scaled maximum above.
+    let maximum_width = (shorter_dimension * config.maximum_shaft_width_fraction)
+        .max(config.minimum_shaft_maximum_width_px);
+    if maximum_width < minimum_width {
+        return None;
+    }
+
+    let bin_width = config.pair_histogram_bin_width_px;
+    let half_range = maximum_width + config.pair_peak_radius_px;
+    let histogram_len = ((2.0 * half_range / bin_width).ceil() as usize).saturating_add(1);
+    if histogram_len > CENTERLINE_HISTOGRAM_CAPACITY {
+        return None;
+    }
+
+    let normal = [-edge_line.axis[1], edge_line.axis[0]];
+    let mut center_points = [EdgePoint { x: 0.0, y: 0.0 }; MAX_CENTERLINE_SECTIONS];
+    let mut widths = [0.0_f64; MAX_CENTERLINE_SECTIONS];
+    let mut section_indices = [0_usize; MAX_CENTERLINE_SECTIONS];
+    let mut center_count = 0_usize;
+    // Keep cross-sections about eight pixels apart so their profiles observe
+    // distinct raster phases. On thumbnail inputs this can collapse the work
+    // to one section whose longitudinal profiles still yield paired edges.
+    let section_count = config.centerline_sections.min(
+        (side_length / config.minimum_centerline_section_spacing_px)
+            .floor()
+            .max(1.0) as usize,
+    );
+    let section_width = side_length / section_count as f64;
+    let peak_radius_bins = (config.pair_peak_radius_px / bin_width).floor() as usize;
+    let mut profile_histogram = [0_u32; CENTERLINE_HISTOGRAM_CAPACITY];
+    let mut smoothed = [0_u32; CENTERLINE_HISTOGRAM_CAPACITY];
+
+    for section_index in 0..section_count {
+        profile_histogram[..histogram_len].fill(0);
+
+        // Sparse edge extraction can miss one side of a thin diagonal shaft
+        // because of pixel-grid phase. Re-sample short RGB profiles at several
+        // positions within this section so both physical boundaries vote even
+        // when the global edge reservoir contains only one of them.
+        let profile_gradient_threshold = config.minimum_gradient * bin_width / 2.0;
+        for profile_index in 0..config.cross_section_profile_samples {
+            let along = min_projection
+                + (section_index as f64
+                    + (profile_index as f64 + 0.5) / config.cross_section_profile_samples as f64)
+                    * section_width;
+            let anchor = [
+                edge_line.center[0] + edge_line.axis[0] * along,
+                edge_line.center[1] + edge_line.axis[1] * along,
+            ];
+            for (bin, votes) in profile_histogram[..histogram_len].iter_mut().enumerate() {
+                *point_visits = point_visits.checked_add(1)?;
+                if *point_visits > config.max_point_visits {
+                    return None;
+                }
+                let first_offset = -half_range + bin as f64 * bin_width;
+                let second_offset = first_offset + bin_width;
+                let first = sample_luminance_bilinear(
+                    rgb8,
+                    width as usize,
+                    height as usize,
+                    [
+                        anchor[0] + normal[0] * first_offset,
+                        anchor[1] + normal[1] * first_offset,
+                    ],
+                );
+                let second = sample_luminance_bilinear(
+                    rgb8,
+                    width as usize,
+                    height as usize,
+                    [
+                        anchor[0] + normal[0] * second_offset,
+                        anchor[1] + normal[1] * second_offset,
+                    ],
+                );
+                if let (Some(first), Some(second)) = (first, second) {
+                    if (second - first).abs() >= profile_gradient_threshold {
+                        *votes = votes.saturating_add(1);
+                    }
+                }
+            }
+        }
+        for (bin, smoothed_support) in smoothed[..histogram_len].iter_mut().enumerate() {
+            let start = bin.saturating_sub(peak_radius_bins);
+            let end = bin
+                .saturating_add(peak_radius_bins)
+                .saturating_add(1)
+                .min(histogram_len);
+            *smoothed_support = profile_histogram[start..end]
+                .iter()
+                .fold(0_u32, |total, count| total.saturating_add(*count));
+        }
+
+        let mut peaks = [EdgePeak {
+            offset: 0.0,
+            support: 0,
+        }; MAX_EDGE_PEAKS_PER_SECTION];
+        let mut peak_count = 0_usize;
+        for bin in 0..histogram_len {
+            let support = smoothed[bin];
+            if support < config.minimum_pair_edge_support as u32
+                || (bin > 0 && support < smoothed[bin - 1])
+                || (bin + 1 < histogram_len && support <= smoothed[bin + 1])
+            {
+                continue;
+            }
+
+            let start = bin.saturating_sub(peak_radius_bins);
+            let end = bin
+                .saturating_add(peak_radius_bins)
+                .saturating_add(1)
+                .min(histogram_len);
+            let mut weighted_offset = 0.0;
+            let mut total_weight = 0_u32;
+            for (neighbor, weight) in profile_histogram.iter().enumerate().take(end).skip(start) {
+                weighted_offset +=
+                    (-half_range + (neighbor as f64 + 0.5) * bin_width) * f64::from(*weight);
+                total_weight = total_weight.saturating_add(*weight);
+            }
+            if total_weight == 0 {
+                continue;
+            }
+            let peak = EdgePeak {
+                offset: weighted_offset / f64::from(total_weight),
+                support,
+            };
+            let insert_at = peaks[..peak_count]
+                .iter()
+                .position(|current| peak.support > current.support)
+                .unwrap_or(peak_count);
+            if insert_at >= config.maximum_edge_peaks_per_section {
+                continue;
+            }
+            let new_count = peak_count
+                .saturating_add(1)
+                .min(config.maximum_edge_peaks_per_section);
+            for index in (insert_at + 1..new_count).rev() {
+                peaks[index] = peaks[index - 1];
+            }
+            peaks[insert_at] = peak;
+            peak_count = new_count;
+        }
+
+        let section_projection = min_projection + (section_index as f64 + 0.5) * section_width;
+        let anchor = [
+            edge_line.center[0] + edge_line.axis[0] * section_projection,
+            edge_line.center[1] + edge_line.axis[1] * section_projection,
+        ];
+        let mut best_pair: Option<PairedEdges> = None;
+        for left_index in 0..peak_count {
+            for right_index in left_index + 1..peak_count {
+                let first = peaks[left_index];
+                let second = peaks[right_index];
+                let (left, right) = if first.offset <= second.offset {
+                    (first, second)
+                } else {
+                    (second, first)
+                };
+                let shaft_width = right.offset - left.offset;
+                if shaft_width < minimum_width || shaft_width > maximum_width {
+                    continue;
+                }
+                let support = left.support.min(right.support);
+                if support < config.minimum_pair_edge_support as u32 {
+                    continue;
+                }
+                let Some(contrast) = cross_section_contrast(
+                    rgb8,
+                    width as usize,
+                    height as usize,
+                    anchor,
+                    normal,
+                    left.offset,
+                    right.offset,
+                    config.maximum_fit_residual_px,
+                ) else {
+                    continue;
+                };
+                if contrast < config.minimum_cross_section_contrast {
+                    continue;
+                }
+                let candidate = PairedEdges {
+                    left: left.offset,
+                    right: right.offset,
+                    support,
+                    contrast,
+                };
+                let candidate_center_distance = ((candidate.left + candidate.right) * 0.5).abs();
+                let replaces = best_pair.is_none_or(|current| {
+                    candidate.contrast > current.contrast
+                        || (candidate.contrast == current.contrast
+                            && (candidate.support > current.support
+                                || (candidate.support == current.support
+                                    && candidate_center_distance
+                                        < ((current.left + current.right) * 0.5).abs())))
+                });
+                if replaces {
+                    best_pair = Some(candidate);
+                }
+            }
+        }
+
+        if let Some(pair) = best_pair {
+            center_points[center_count] = EdgePoint {
+                x: anchor[0] + normal[0] * (pair.left + pair.right) * 0.5,
+                y: anchor[1] + normal[1] * (pair.left + pair.right) * 0.5,
+            };
+            widths[center_count] = pair.right - pair.left;
+            section_indices[center_count] = section_index;
+            center_count += 1;
+        }
+    }
+
+    let minimum_sections =
+        (config.minimum_paired_section_fraction * section_count as f64).ceil() as usize;
+    if center_count < minimum_sections {
+        return None;
+    }
+
+    let residual_limit = config.maximum_fit_residual_px * 1.5;
+    let (centerline, retained) = if center_count == 1 {
+        // A short but clear shaft can provide only one resolvable cross-
+        // section. Its paired edges determine the center offset, while the
+        // robust image-edge fit supplies the unsigned line direction.
+        let point = center_points[0];
+        let center_offset = dot(
+            [point.x - edge_line.center[0], point.y - edge_line.center[1]],
+            normal,
+        );
+        (
+            PrincipalLine {
+                center: [
+                    edge_line.center[0] + normal[0] * center_offset,
+                    edge_line.center[1] + normal[1] * center_offset,
+                ],
+                axis: edge_line.axis,
+            },
+            1,
+        )
+    } else {
+        let initial_centerline = principal_line(
+            &center_points[..center_count],
+            config.minimum_eigenvalue_ratio,
+        )?;
+        let mut retained = 0_usize;
+        for index in 0..center_count {
+            if perpendicular_distance(
+                center_points[index],
+                initial_centerline.center,
+                initial_centerline.axis,
+            ) <= residual_limit
+            {
+                center_points[retained] = center_points[index];
+                widths[retained] = widths[index];
+                section_indices[retained] = section_indices[index];
+                retained += 1;
+            }
+        }
+        if retained < minimum_sections {
+            return None;
+        }
+        let centerline =
+            principal_line(&center_points[..retained], config.minimum_eigenvalue_ratio)?;
+        (centerline, retained)
+    };
+
+    let mut ordered_widths = widths;
+    ordered_widths[..retained].sort_unstable_by(f64::total_cmp);
+    let lower_width = ordered_widths[retained / 4];
+    let upper_width = ordered_widths[(retained * 3 / 4).min(retained - 1)];
+    if lower_width <= 0.0 || upper_width / lower_width > config.maximum_shaft_taper_ratio {
+        return None;
+    }
+
+    let mut occupied = [false; 16];
+    let occupied_bin_count = section_count.min(occupied.len());
+    let mut max_residual = 0.0_f64;
+    let (mut min_center_projection, mut max_center_projection) = if retained == 1 {
+        (min_projection, max_projection)
+    } else {
+        let mut minimum = f64::INFINITY;
+        let mut maximum = f64::NEG_INFINITY;
+        for point in center_points[..retained].iter().copied() {
+            let projection = dot(
+                [
+                    point.x - centerline.center[0],
+                    point.y - centerline.center[1],
+                ],
+                centerline.axis,
+            );
+            minimum = minimum.min(projection);
+            maximum = maximum.max(projection);
+            max_residual = max_residual.max(perpendicular_distance(
+                point,
+                centerline.center,
+                centerline.axis,
+            ));
+        }
+        (minimum, maximum)
+    };
+    let centerline_length = max_center_projection - min_center_projection;
+    let longest_dimension = f64::from(width.max(height));
+    if centerline_length < longest_dimension * config.minimum_length_fraction
+        || centerline_length
+            > longest_dimension * config.maximum_length_fraction_of_longest_dimension
+        || max_residual > residual_limit
+    {
+        return None;
+    }
+    for point in center_points[..retained].iter().copied() {
+        let projection = dot(
+            [
+                point.x - centerline.center[0],
+                point.y - centerline.center[1],
+            ],
+            centerline.axis,
+        );
+        let fraction = (projection - min_center_projection) / centerline_length;
+        let bin = ((fraction * occupied_bin_count as f64) as usize).min(occupied_bin_count - 1);
+        occupied[bin] = true;
+    }
+    let occupied_fraction = occupied[..occupied_bin_count]
+        .iter()
+        .filter(|value| **value)
+        .count() as f64
+        / occupied_bin_count as f64;
+    if occupied_fraction < config.minimum_paired_section_fraction {
+        return None;
+    }
+
+    let first_section = section_indices[..retained].iter().min().copied()?;
+    let last_section = section_indices[..retained].iter().max().copied()?;
+    let end_extension = section_width * 0.5;
+    if section_count > 1 && first_section == 0 {
+        min_center_projection -= end_extension;
+    }
+    if section_count > 1 && last_section + 1 == section_count {
+        max_center_projection += end_extension;
+    }
+    let pairing_fraction = retained as f64 / section_count as f64;
+    let length_score = ((centerline_length / longest_dimension) / 0.45).clamp(0.0, 1.0);
+    let paired_confidence =
+        (pairing_fraction * 0.45 + occupied_fraction * 0.30 + length_score * 0.25).clamp(0.0, 1.0);
+    Some(Fit {
+        center: centerline.center,
+        axis: centerline.axis,
+        min_projection: min_center_projection,
+        max_projection: max_center_projection,
+        confidence: (side_confidence * 0.35 + paired_confidence * 0.65).clamp(0.0, 1.0),
     })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn cross_section_contrast(
+    rgb8: &[u8],
+    width: usize,
+    height: usize,
+    anchor: [f64; 2],
+    normal: [f64; 2],
+    left: f64,
+    right: f64,
+    sample_margin: f64,
+) -> Option<f64> {
+    let shaft_width = right - left;
+    let interior_offsets = [
+        left + shaft_width * 0.25,
+        left + shaft_width * 0.5,
+        left + shaft_width * 0.75,
+    ];
+    let exterior_offsets = [left - sample_margin, right + sample_margin];
+    let sample = |offset: f64| {
+        sample_luminance_bilinear(
+            rgb8,
+            width,
+            height,
+            [
+                anchor[0] + normal[0] * offset,
+                anchor[1] + normal[1] * offset,
+            ],
+        )
+    };
+    let mut interior_samples = [0.0; 3];
+    let mut interior_count = 0;
+    for offset in interior_offsets {
+        if let Some(value) = sample(offset) {
+            interior_samples[interior_count] = value;
+            interior_count += 1;
+        }
+    }
+    let mut exterior_samples = [0.0; 2];
+    let mut exterior_count = 0;
+    for offset in exterior_offsets {
+        if let Some(value) = sample(offset) {
+            exterior_samples[exterior_count] = value;
+            exterior_count += 1;
+        }
+    }
+    // Near an image boundary one exterior sample can fall outside the frame.
+    // Keep the valid-side contrast evidence instead of dropping a real cue
+    // that enters or leaves at the edge of a thumbnail.
+    if interior_count < 2 || exterior_count == 0 {
+        return None;
+    }
+    let interior_mean =
+        interior_samples[..interior_count].iter().sum::<f64>() / interior_count as f64;
+    let exterior_mean =
+        exterior_samples[..exterior_count].iter().sum::<f64>() / exterior_count as f64;
+    let interior_deviation = interior_samples[..interior_count]
+        .iter()
+        .map(|sample| (sample - interior_mean).abs())
+        .sum::<f64>()
+        / interior_count as f64;
+    let exterior_deviation = exterior_samples[..exterior_count]
+        .iter()
+        .map(|sample| (sample - exterior_mean).abs())
+        .sum::<f64>()
+        / exterior_count as f64;
+    Some(((interior_mean - exterior_mean).abs() - interior_deviation - exterior_deviation).max(0.0))
+}
+
+fn sample_luminance_bilinear(
+    rgb8: &[u8],
+    width: usize,
+    height: usize,
+    point: [f64; 2],
+) -> Option<f64> {
+    if !point[0].is_finite()
+        || !point[1].is_finite()
+        || point[0] < 0.0
+        || point[1] < 0.0
+        || point[0] > (width - 1) as f64
+        || point[1] > (height - 1) as f64
+    {
+        return None;
+    }
+    let x0 = point[0].floor() as usize;
+    let y0 = point[1].floor() as usize;
+    let x1 = (x0 + 1).min(width - 1);
+    let y1 = (y0 + 1).min(height - 1);
+    let x_fraction = point[0] - x0 as f64;
+    let y_fraction = point[1] - y0 as f64;
+    let sample = |x: usize, y: usize| luminance(rgb8, (y * width + x) * RGB_CHANNELS) as f64;
+    let top = sample(x0, y0) * (1.0 - x_fraction) + sample(x1, y0) * x_fraction;
+    let bottom = sample(x0, y1) * (1.0 - x_fraction) + sample(x1, y1) * x_fraction;
+    Some(top * (1.0 - y_fraction) + bottom * y_fraction)
 }
 
 fn in_region(point: EdgePoint, region: Region) -> bool {
@@ -633,7 +1227,10 @@ fn principal_line(points: &[EdgePoint], minimum_eigenvalue_ratio: f64) -> Option
     let discriminant = ((xx - yy).mul_add(xx - yy, 4.0 * xy * xy)).sqrt();
     let major = (trace + discriminant) / 2.0;
     let minor = (trace - discriminant) / 2.0;
-    if major <= f64::EPSILON || minor <= f64::EPSILON || major / minor < minimum_eigenvalue_ratio {
+    // Zero minor variance is the strongest possible line fit, not a degenerate
+    // blob. This matters for paired side midpoints that lie on the exact same
+    // pixel-space axis after subpixel averaging.
+    if major <= f64::EPSILON || (minor > f64::EPSILON && major / minor < minimum_eigenvalue_ratio) {
         return None;
     }
     let mut axis = if xy.abs() > 1e-9 {
