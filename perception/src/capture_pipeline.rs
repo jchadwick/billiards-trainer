@@ -38,7 +38,7 @@ use crate::live_timing_spans::{FrameTimingContext, SpanGuard, SpanId};
 use crate::phase_scheduler::SchedulerConfig;
 use crate::public_state_lifecycle::{
     PerceptionStateV1, PublicStateDeliveryV1, PublicStateDeliveryV2, SceneStateLifecycle,
-    SourceStateMetadata,
+    SourceStateMetadata, StateLifecycleConfig,
 };
 use crate::scene_transport::{LatestSceneWriter, SceneTransportConfig, SceneTransportStats};
 use crate::tracking::{SceneTrackerV1, TrackingConfigV1};
@@ -531,6 +531,15 @@ impl<D: Rgb8FrameDetector> CaptureScenePipeline<D> {
             tracking.maximum_active_tracks() >= maximum_per_frame_detections,
             "maximum active tracks ({}) must cover the detector's configured per-frame detection maximum ({maximum_per_frame_detections})",
             tracking.maximum_active_tracks()
+        );
+        let maximum_public_ball_count = tracking
+            .maximum_active_tracks()
+            .checked_add(maximum_per_frame_detections)
+            .context("configured track and detector limits overflow")?;
+        ensure!(
+            maximum_public_ball_count <= StateLifecycleConfig::default().maximum_balls,
+            "maximum active tracks plus per-frame detections ({maximum_public_ball_count}) exceed the public-state ball limit ({})",
+            StateLifecycleConfig::default().maximum_balls
         );
         validate_config(&config, &tracking)?;
         let recent_frame_capacity = tracking.recent_observation_capacity();
@@ -1837,6 +1846,7 @@ fn initial_perception_state(schedule: &SchedulerConfig, event_sequence: u64) -> 
         phase: "recovering".to_owned(),
         layout_revision: 0,
         layout_trusted: false,
+        layout_basis_frame_id: None,
         empty_layout_verified: false,
         guidance_valid: false,
         trust_reason: "awaiting_settlement".to_owned(),
@@ -1992,6 +2002,7 @@ mod tests {
     use super::{
         AppliedCaptureCalibration, CapturePipelineConfig, CapturePipelineOutcome,
         CaptureScenePipeline, CaptureSkipReason, LocalizedFrameDetector, Rgb8FrameDetector,
+        StateLifecycleConfig,
     };
 
     struct FakeDetector {
@@ -2201,6 +2212,55 @@ mod tests {
             },
         )
         .unwrap()
+    }
+
+    #[test]
+    fn construction_rejects_a_partial_track_and_detection_bound_over_public_limit() {
+        let mut detector = detector(Arc::new(AtomicU64::new(0)), false, vec![detection()]);
+        detector.settings.max_detections = 1;
+        let tracking = TrackingConfigV1::new(
+            1,
+            Some(0),
+            "camera-main",
+            40.0,
+            Duration::from_millis(100),
+            Duration::from_secs(1),
+            Duration::from_secs(3),
+            StateLifecycleConfig::default().maximum_balls,
+            8,
+            1,
+            1,
+        )
+        .unwrap();
+        let result = CaptureScenePipeline::new(
+            detector,
+            tracking,
+            CapturePipelineConfig {
+                engine_instance_id: "capture-capacity-bound".to_owned(),
+                capture_configuration_revision: 1,
+                capture_calibration_revision: 0,
+                image_space: BatchImageSpace::Raw,
+                maximum_frame_age: Duration::from_secs(1),
+                phase_schedule: None,
+                localization_profile: None,
+                calibration: None,
+                scene_transport: SceneTransportConfig {
+                    address: SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 9),
+                    maximum_message_bytes: 64 * 1024,
+                    public_state_delivery_enabled: true,
+                    connect_timeout: Duration::from_millis(20),
+                    write_timeout: Duration::from_millis(20),
+                    reconnect_initial_delay: Duration::from_millis(20),
+                    reconnect_maximum_delay: Duration::from_millis(40),
+                },
+            },
+        );
+        let error = result
+            .err()
+            .expect("track plus per-frame overflow must fit the lifecycle's public limit");
+        assert!(error
+            .to_string()
+            .contains("exceed the public-state ball limit"));
     }
 
     fn audited_pipeline(

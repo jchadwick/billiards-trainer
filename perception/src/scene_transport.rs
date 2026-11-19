@@ -3,7 +3,9 @@
 //! Snapshot serialization and slot replacement happen on the inference thread;
 //! socket connection, protocol handshake, and writes belong to this dedicated worker.
 //! The worker keeps at most one pending payload while one other payload may be
-//! in flight. It never builds a historical backlog.
+//! in flight. Fresh capture scenes take priority over phase-only updates so a
+//! status change cannot erase the newest measured ball locations before the
+//! gateway receives them. It never builds a historical backlog.
 
 use std::io::{self, Read, Write};
 use std::net::{SocketAddr, TcpStream};
@@ -63,6 +65,10 @@ pub struct SceneTransportStats {
 #[derive(Default)]
 struct SharedState {
     pending: Option<PendingSnapshot>,
+    /// Latest phase-only live event that must follow a pending capture scene.
+    /// This remains a single coalesced slot, so scene plus follow-up stays
+    /// bounded even when the socket is stalled.
+    pending_phase_event: Option<PendingSnapshot>,
     live_binding: Option<LiveBinding>,
     live_handshake_request: Option<LiveHandshakeRequest>,
     last_queued_sequence: Option<u64>,
@@ -239,8 +245,8 @@ impl LatestSceneWriter {
     }
 
     /// Enqueue a live phase/cue update that has no new capture-frame identity.
-    /// Its independent delivery sequence still participates in the same
-    /// bounded newest-only stream and expires on a local deadline.
+    /// It expires on a local deadline and coalesces with other status events,
+    /// but cannot replace an unexpired capture scene waiting for delivery.
     pub(crate) fn submit_live_event_with_deadline(
         &self,
         sequence: u64,
@@ -325,6 +331,40 @@ impl LatestSceneWriter {
             );
         }
         state.last_queued_sequence = Some(sequence);
+        if state
+            .pending
+            .as_ref()
+            .is_some_and(|pending| pending.is_expired(Instant::now()))
+        {
+            state.pending.take();
+            state.stats.expired_snapshots += 1;
+            state.stats.dropped_snapshots += 1;
+        }
+        if frame_id.is_none()
+            && freshness_deadline.is_some()
+            && state.pending.as_ref().is_some_and(is_live_capture_scene)
+        {
+            // A scene carries the centers needed by the UI, while a newer
+            // phase-only event can invalidate its guidance. Keep both in two
+            // bounded coalescing slots and always send the scene first.
+            state.stats.queued_snapshots += 1;
+            if state
+                .pending_phase_event
+                .replace(PendingSnapshot {
+                    sequence,
+                    identity,
+                    frame_id: None,
+                    write_attempt: 1,
+                    freshness_deadline,
+                    payload,
+                })
+                .is_some()
+            {
+                state.stats.replaced_pending_snapshots += 1;
+                state.stats.dropped_snapshots += 1;
+            }
+            return Ok(());
+        }
         state.stats.queued_snapshots += 1;
         let pending = PendingSnapshot {
             sequence,
@@ -334,6 +374,16 @@ impl LatestSceneWriter {
             freshness_deadline,
             payload,
         };
+        if state
+            .pending_phase_event
+            .as_ref()
+            .is_some_and(|event| event.sequence < pending.sequence)
+        {
+            // A newer snapshot includes the current phase/guidance state and
+            // subsumes an older phase-only event.
+            state.pending_phase_event = None;
+            state.stats.dropped_snapshots += 1;
+        }
         if state.pending.replace(pending).is_some() {
             state.stats.replaced_pending_snapshots += 1;
             state.stats.dropped_snapshots += 1;
@@ -812,6 +862,9 @@ fn take_work(shared: &Arc<(Mutex<SharedState>, Condvar)>) -> Option<WorkerWork> 
         if let Some(pending) = state.pending.take() {
             return Some(WorkerWork::Snapshot(pending));
         }
+        if let Some(pending) = state.pending_phase_event.take() {
+            return Some(WorkerWork::Snapshot(pending));
+        }
         if state.stopping {
             return None;
         }
@@ -832,15 +885,19 @@ fn live_acknowledgement_for(
         .map(|binding| binding.acknowledgement.clone())
 }
 
-/// Replace a snapshot that has not started writing with any newer pending
-/// snapshot. In particular, a slow handshake must not put an already stale
-/// location ahead of the freshest scene waiting in the one-item slot.
+/// Replace an in-flight snapshot with newer pending work unless that would
+/// allow a phase-only event to supersede an unexpired capture scene. Keep the
+/// event pending in that case so it can follow the scene after its write.
 fn supersede_with_newest_pending(
     shared: &Arc<(Mutex<SharedState>, Condvar)>,
     pending: PendingSnapshot,
 ) -> PendingSnapshot {
     let mut state = lock_state(&shared.0);
     if let Some(newest) = state.pending.take() {
+        if should_preserve_capture_scene(&pending, &newest) {
+            state.pending = Some(newest);
+            return pending;
+        }
         state.stats.superseded_before_write_snapshots += 1;
         state.stats.dropped_snapshots += 1;
         newest
@@ -867,6 +924,33 @@ fn requeue_or_drop(shared: &Arc<(Mutex<SharedState>, Condvar)>, pending: Pending
     if pending.is_expired(Instant::now()) {
         state.stats.expired_snapshots += 1;
         state.stats.dropped_snapshots += 1;
+    } else if is_live_capture_scene(&pending) {
+        match state.pending.take() {
+            Some(newest) if is_live_phase_event(&newest) => {
+                // A phase-only invalidation may have arrived while this scene
+                // was being written, when it had no queued scene to attach to.
+                // Restore the failed scene and carry the event in the bounded
+                // follow-up slot so reconnect cannot publish stale guidance.
+                let sequence = pending.sequence;
+                state.pending = Some(pending);
+                retain_phase_event_after_scene(&mut state, newest, sequence);
+            }
+            Some(newest) => {
+                // A newer capture or non-live snapshot supersedes this retry.
+                state.pending = Some(newest);
+                state.stats.dropped_snapshots += 1;
+            }
+            None => state.pending = Some(pending),
+        }
+    } else if is_live_phase_event(&pending)
+        && state.pending.as_ref().is_some_and(is_live_capture_scene)
+    {
+        let scene_sequence = state
+            .pending
+            .as_ref()
+            .expect("capture scene was checked above")
+            .sequence;
+        retain_phase_event_after_scene(&mut state, pending, scene_sequence);
     } else if state.pending.is_some() {
         state.stats.dropped_snapshots += 1;
     } else {
@@ -875,12 +959,64 @@ fn requeue_or_drop(shared: &Arc<(Mutex<SharedState>, Condvar)>, pending: Pending
     shared.1.notify_one();
 }
 
+fn is_live_capture_scene(snapshot: &PendingSnapshot) -> bool {
+    snapshot.frame_id.is_some() && snapshot.freshness_deadline.is_some()
+}
+
+fn is_live_phase_event(snapshot: &PendingSnapshot) -> bool {
+    snapshot.frame_id.is_none() && snapshot.freshness_deadline.is_some()
+}
+
+/// Keep the newest phase-only update after a queued capture scene. The two
+/// slots remain bounded, and a scene with a later sequence already contains
+/// the invalidation so an older event can be discarded.
+fn retain_phase_event_after_scene(
+    state: &mut SharedState,
+    event: PendingSnapshot,
+    scene_sequence: u64,
+) {
+    if event.is_expired(Instant::now()) || event.sequence <= scene_sequence {
+        if event.is_expired(Instant::now()) {
+            state.stats.expired_snapshots += 1;
+        }
+        state.stats.dropped_snapshots += 1;
+        return;
+    }
+
+    if let Some(existing) = state.pending_phase_event.take() {
+        if existing.is_expired(Instant::now()) {
+            state.stats.expired_snapshots += 1;
+            state.stats.dropped_snapshots += 1;
+            state.pending_phase_event = Some(event);
+        } else if existing.sequence >= event.sequence {
+            state.stats.dropped_snapshots += 1;
+            state.pending_phase_event = Some(existing);
+        } else {
+            state.stats.replaced_pending_snapshots += 1;
+            state.stats.dropped_snapshots += 1;
+            state.pending_phase_event = Some(event);
+        }
+    } else {
+        state.pending_phase_event = Some(event);
+    }
+}
+
+fn should_preserve_capture_scene(in_flight: &PendingSnapshot, pending: &PendingSnapshot) -> bool {
+    is_live_capture_scene(in_flight)
+        && !in_flight.is_expired(Instant::now())
+        && pending.frame_id.is_none()
+        && pending.freshness_deadline.is_some()
+}
+
 fn count_shutdown_drop(shared: &Arc<(Mutex<SharedState>, Condvar)>, in_flight: bool) {
     let mut state = lock_state(&shared.0);
     if in_flight {
         state.stats.dropped_snapshots += 1;
     }
     if state.pending.take().is_some() {
+        state.stats.dropped_snapshots += 1;
+    }
+    if state.pending_phase_event.take().is_some() {
         state.stats.dropped_snapshots += 1;
     }
 }
@@ -941,13 +1077,16 @@ fn validate_producer_identifier(identifier: &str, name: &str) -> Result<()> {
 mod tests {
     use std::io::{Read, Write};
     use std::net::TcpListener;
-    use std::sync::mpsc;
+    use std::sync::{mpsc, Arc, Condvar, Mutex};
     use std::thread;
     use std::time::{Duration, Instant};
 
     use serde_json::{json, Value};
 
-    use super::{connect_and_handshake, LatestSceneWriter, ProducerIdentity, SceneTransportConfig};
+    use super::{
+        connect_and_handshake, lock_state, requeue_or_drop, take_work, LatestSceneWriter,
+        PendingSnapshot, ProducerIdentity, SceneTransportConfig, SharedState, WorkerWork,
+    };
 
     fn config(address: std::net::SocketAddr) -> SceneTransportConfig {
         SceneTransportConfig {
@@ -1272,6 +1411,265 @@ mod tests {
         assert_eq!(stats.superseded_before_write_snapshots, 1);
         assert_eq!(stats.dropped_snapshots, 2);
         assert_eq!(stats.written_snapshots, 1);
+    }
+
+    #[test]
+    fn phase_event_during_handshake_follows_in_flight_ball_scene() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let (hello_tx, hello_rx) = mpsc::channel();
+        let (release_ready_tx, release_ready_rx) = mpsc::channel();
+        let receiver = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let hello: Value = serde_json::from_slice(&read_frame(&mut stream)).unwrap();
+            assert_eq!(hello["protocol_version"], 2);
+            hello_tx.send(()).unwrap();
+            release_ready_rx
+                .recv_timeout(Duration::from_secs(1))
+                .unwrap();
+            write_ready(&mut stream, None);
+
+            let scene: Value = serde_json::from_slice(&read_frame(&mut stream)).unwrap();
+            let phase: Value = serde_json::from_slice(&read_frame(&mut stream)).unwrap();
+            (scene, phase)
+        });
+
+        let mut writer = LatestSceneWriter::start(config(address)).unwrap();
+        let scene = json!({
+            "delivery_type": "billiards_public_state_delivery",
+            "delivery_schema_version": 2,
+            "delivery_sequence": 1,
+            "source_snapshot": {
+                "source": {"frame_id": "frame-1"},
+                "balls": [{"id": "track-1", "is_observed": true}]
+            }
+        });
+        writer
+            .submit_live_with_frame_id_and_deadline(
+                1,
+                "engine-a",
+                "session-a",
+                "frame-1",
+                Instant::now() + Duration::from_secs(3),
+                serde_json::to_vec(&scene).unwrap(),
+            )
+            .unwrap();
+        hello_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        writer
+            .submit_live_event_with_deadline(
+                2,
+                "engine-a",
+                "session-a",
+                Instant::now() + Duration::from_secs(3),
+                serde_json::to_vec(&json!({
+                    "delivery_type": "billiards_public_state_delivery",
+                    "delivery_schema_version": 2,
+                    "delivery_sequence": 2,
+                    "source_snapshot": null,
+                    "perception": {"event_sequence": 2}
+                }))
+                .unwrap(),
+            )
+            .unwrap();
+        release_ready_tx.send(()).unwrap();
+
+        let stats = writer.shutdown();
+        let (received_scene, received_phase) = receiver.join().unwrap();
+        assert_eq!(received_scene["delivery_sequence"], 1);
+        assert_eq!(
+            received_scene["source_snapshot"]["source"]["frame_id"],
+            "frame-1"
+        );
+        assert_eq!(
+            received_scene["source_snapshot"]["balls"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
+        assert_eq!(received_phase["delivery_sequence"], 2);
+        assert!(received_phase["source_snapshot"].is_null());
+        assert_eq!(stats.written_snapshots, 2);
+        assert_eq!(stats.dropped_snapshots, 0);
+    }
+
+    #[test]
+    fn failed_scene_retry_keeps_newer_phase_event_for_follow_up_delivery() {
+        let identity = ProducerIdentity {
+            engine_instance_id: "engine-a".to_owned(),
+            source_session_id: "session-a".to_owned(),
+        };
+        let shared = Arc::new((Mutex::new(SharedState::default()), Condvar::new()));
+        let deadline = Instant::now() + Duration::from_secs(3);
+        {
+            let mut state = lock_state(&shared.0);
+            // A phase event submitted while the scene write is in flight lands
+            // in the ordinary pending slot because the worker already took
+            // the scene out of it.
+            state.pending = Some(PendingSnapshot {
+                sequence: 2,
+                identity: identity.clone(),
+                frame_id: None,
+                write_attempt: 1,
+                freshness_deadline: Some(deadline),
+                payload: b"phase-event".to_vec(),
+            });
+        }
+
+        // This is the same retry path called after a connection or socket
+        // write error. The scene must be retried first, then invalidation.
+        requeue_or_drop(
+            &shared,
+            PendingSnapshot {
+                sequence: 1,
+                identity,
+                frame_id: Some("frame-1".to_owned()),
+                write_attempt: 2,
+                freshness_deadline: Some(deadline),
+                payload: b"capture-scene".to_vec(),
+            },
+        );
+
+        let Some(WorkerWork::Snapshot(retried_scene)) = take_work(&shared) else {
+            panic!("the failed capture scene should be retried first");
+        };
+        assert_eq!(retried_scene.sequence, 1);
+        assert_eq!(retried_scene.frame_id.as_deref(), Some("frame-1"));
+        let Some(WorkerWork::Snapshot(phase_event)) = take_work(&shared) else {
+            panic!("the newer phase invalidation must follow the retried scene");
+        };
+        assert_eq!(phase_event.sequence, 2);
+        assert!(phase_event.frame_id.is_none());
+        assert_eq!(phase_event.payload, b"phase-event");
+        assert!(lock_state(&shared.0).pending_phase_event.is_none());
+    }
+
+    #[test]
+    fn phase_invalidation_follows_latest_pending_capture_scene() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let (hello_tx, hello_rx) = mpsc::channel();
+        let (release_ready_tx, release_ready_rx) = mpsc::channel();
+        let receiver = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let _hello: Value = serde_json::from_slice(&read_frame(&mut stream)).unwrap();
+            hello_tx.send(()).unwrap();
+            release_ready_rx
+                .recv_timeout(Duration::from_secs(1))
+                .unwrap();
+            write_ready(&mut stream, None);
+            let scene: Value = serde_json::from_slice(&read_frame(&mut stream)).unwrap();
+            let phase: Value = serde_json::from_slice(&read_frame(&mut stream)).unwrap();
+            (scene, phase)
+        });
+
+        let mut writer = LatestSceneWriter::start(config(address)).unwrap();
+        for (sequence, frame_id) in [(1, "frame-1"), (2, "frame-2")] {
+            let scene = json!({
+                "delivery_type": "billiards_public_state_delivery",
+                "delivery_schema_version": 2,
+                "delivery_sequence": sequence,
+                "source_snapshot": {
+                    "source": {"frame_id": frame_id},
+                    "balls": [{"id": "track-1", "is_observed": true}]
+                }
+            });
+            writer
+                .submit_live_with_frame_id_and_deadline(
+                    sequence,
+                    "engine-a",
+                    "session-a",
+                    frame_id,
+                    Instant::now() + Duration::from_secs(3),
+                    serde_json::to_vec(&scene).unwrap(),
+                )
+                .unwrap();
+            if sequence == 1 {
+                hello_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+            }
+        }
+        writer
+            .submit_live_event_with_deadline(
+                3,
+                "engine-a",
+                "session-a",
+                Instant::now() + Duration::from_secs(3),
+                serde_json::to_vec(&json!({
+                    "delivery_type": "billiards_public_state_delivery",
+                    "delivery_schema_version": 2,
+                    "delivery_sequence": 3,
+                    "source_snapshot": null,
+                    "perception": {"guidance_valid": false}
+                }))
+                .unwrap(),
+            )
+            .unwrap();
+        release_ready_tx.send(()).unwrap();
+
+        let stats = writer.shutdown();
+        let (received_scene, received_phase) = receiver.join().unwrap();
+        assert_eq!(received_scene["delivery_sequence"], 2);
+        assert_eq!(
+            received_scene["source_snapshot"]["source"]["frame_id"],
+            "frame-2"
+        );
+        assert_eq!(received_phase["delivery_sequence"], 3);
+        assert_eq!(received_phase["perception"]["guidance_valid"], false);
+        assert_eq!(stats.written_snapshots, 2);
+        assert_eq!(stats.superseded_before_write_snapshots, 1);
+        assert_eq!(stats.dropped_snapshots, 1);
+    }
+
+    #[test]
+    fn phase_event_is_retained_after_a_fresh_pending_scene() {
+        let reserved = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = reserved.local_addr().unwrap();
+        drop(reserved);
+
+        let mut writer = LatestSceneWriter::start(config(address)).unwrap();
+        let (shared, _) = &*writer.shared;
+        {
+            let mut state = lock_state(shared);
+            state.last_queued_sequence = Some(1);
+            state.pending = Some(PendingSnapshot {
+                sequence: 1,
+                identity: ProducerIdentity {
+                    engine_instance_id: "engine-a".to_owned(),
+                    source_session_id: "session-a".to_owned(),
+                },
+                frame_id: Some("frame-1".to_owned()),
+                write_attempt: 1,
+                freshness_deadline: Some(Instant::now() + Duration::from_secs(3)),
+                payload: b"{\"source_snapshot\":{}}".to_vec(),
+            });
+        }
+
+        writer
+            .submit_live_event_with_deadline(
+                2,
+                "engine-a",
+                "session-a",
+                Instant::now() + Duration::from_secs(3),
+                b"{\"source_snapshot\":null}".to_vec(),
+            )
+            .unwrap();
+        let (shared, signal) = &*writer.shared;
+        {
+            let mut state = lock_state(shared);
+            assert_eq!(state.last_queued_sequence, Some(2));
+            assert_eq!(state.stats.dropped_snapshots, 0);
+            let pending = state.pending.as_ref().unwrap();
+            assert_eq!(pending.sequence, 1);
+            assert_eq!(pending.frame_id.as_deref(), Some("frame-1"));
+            let phase = state.pending_phase_event.as_ref().unwrap();
+            assert_eq!(phase.sequence, 2);
+            assert_eq!(phase.frame_id, None);
+            state.pending = None;
+            state.pending_phase_event = None;
+            state.stopping = true;
+            signal.notify_all();
+        }
+        let _ = writer.shutdown();
     }
 
     #[test]

@@ -163,6 +163,46 @@ fn receiver_age_offsets_preserve_upstream_freshness_without_comparing_clocks() {
 }
 
 #[test]
+fn untrusted_layout_keeps_fresh_partial_ball_observed_without_renewing_its_age() {
+    let mut store = lifecycle();
+    activate(&mut store);
+    let observation = scene();
+    let track_id = observation.balls[0].track_id.clone();
+    store.ingest(&observation, 10, 10, None, None).unwrap();
+    store
+        .update_perception_status(
+            "engine-a",
+            "camera-session-a",
+            serde_json::json!({
+                "layout_trusted": false,
+                "guidance_valid": false,
+                "phase": "shot_underway"
+            }),
+            20,
+            20,
+        )
+        .unwrap();
+
+    let partial = store.current(30).unwrap().unwrap();
+    assert_eq!(partial.freshness, StateFreshness::Fresh);
+    assert_eq!(
+        partial.payload.observation_status["perception"]["layout_trusted"],
+        false
+    );
+    assert_eq!(
+        partial.payload.observation_status["perception"]["guidance_valid"],
+        false
+    );
+    assert!(partial.payload.balls[0].is_observed);
+    assert!(partial.payload.balls[0].confidence > 0.0);
+    assert_eq!(partial.ball_age_ns.get(&track_id), Some(&20));
+
+    let stale = store.current(111).unwrap().unwrap();
+    assert!(!stale.payload.balls[0].is_observed);
+    assert_eq!(stale.ball_age_ns.get(&track_id), Some(&101));
+}
+
+#[test]
 fn rejects_duplicate_and_out_of_order_observations_but_accepts_sequence_gaps() {
     let mut store = lifecycle();
     activate(&mut store);

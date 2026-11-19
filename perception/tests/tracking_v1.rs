@@ -216,6 +216,82 @@ fn clean_full_layout_replaces_absent_tracks_and_accepts_a_valid_empty_result() {
 }
 
 #[test]
+fn pocket_side_and_interior_absences_wait_for_a_clean_full_scan() {
+    for (absent_x, absent_y) in [(1_885.0, 1_045.0), (800.0, 540.0)] {
+        let mut tracker = SceneTrackerV1::new(config());
+        let mut process_layout = |batch: &DetectionBatchV1, partial: bool| {
+            let resolved = ResolvedBallMeasurementBatch::from_detection_batch_midpoints(
+                batch,
+                1,
+                "camera-profile-test",
+                7,
+                3,
+            );
+            let published_at = Timestamp {
+                ticks: (2_000_000_000_u64 + batch.batch_sequence).to_string(),
+                unit: TimeUnit::Nanoseconds,
+                clock: ClockKind::Monotonic,
+                domain_id: "scene-writer-clock-a".to_owned(),
+                stage: TimestampStage::SnapshotPublication,
+            };
+            if partial {
+                tracker.process_partial_layout_with_resolved_ball_measurements(
+                    batch,
+                    published_at,
+                    &resolved,
+                )
+            } else {
+                tracker.process_full_layout_with_resolved_ball_measurements(
+                    batch,
+                    published_at,
+                    &resolved,
+                )
+            }
+            .unwrap()
+            .snapshot
+        };
+
+        let initial = process_layout(
+            &frame(
+                1,
+                1_000_000_000,
+                &[ball(400.0, 400.0), ball(absent_x, absent_y)],
+            ),
+            false,
+        );
+        let partial = process_layout(&frame(2, 1_100_000_000, &[ball(401.0, 400.0)]), true);
+        assert_eq!(partial.balls.len(), 2);
+        let retained = partial
+            .balls
+            .iter()
+            .find(|tracked| {
+                tracked.measurement.as_ref().is_some_and(|measurement| {
+                    measurement.image_center_px.x == absent_x
+                        && measurement.image_center_px.y == absent_y
+                })
+            })
+            .expect("the unmatched ball must remain remembered during a partial scan");
+        assert_ne!(retained.status, BallStatus::Observed);
+        assert_eq!(retained.last_observation.frame_id, initial.source.frame_id);
+        assert_eq!(
+            retained.measurement.as_ref().unwrap().image_center_px,
+            Point2d {
+                x: absent_x,
+                y: absent_y,
+            }
+        );
+
+        let reconciled = process_layout(&frame(3, 1_200_000_000, &[ball(402.0, 400.0)]), false);
+        assert_eq!(
+            reconciled.balls.len(),
+            1,
+            "a clean full scan removes absent balls regardless of pocket proximity"
+        );
+        assert_eq!(reconciled.balls[0].track_id, initial.balls[0].track_id);
+    }
+}
+
+#[test]
 fn partial_layout_preserves_unmatched_centers_and_ids_beyond_legacy_expiry() {
     let mut tracker = SceneTrackerV1::new(config());
     let mut scan = |batch: &DetectionBatchV1, partial: bool| {
@@ -772,6 +848,156 @@ fn capacity_pressure_evicts_oldest_unmatched_track_and_publishes_all_current_mea
             .collect::<Vec<_>>(),
         ["track-2", "track-3"]
     );
+}
+
+#[test]
+fn partial_capacity_pressure_keeps_last_good_tracks_and_publishes_overflow_measurements() {
+    let config = TrackingConfigV1::new(
+        1,
+        Some(0),
+        "camera-profile-test",
+        2.5,
+        Duration::from_millis(50),
+        Duration::from_millis(100),
+        Duration::from_millis(500),
+        2,
+        4,
+        7,
+        3,
+    )
+    .unwrap();
+    let mut tracker = SceneTrackerV1::new(config);
+    let initial_batch = frame(1, 1_000_000_000, &[ball(100.0, 100.0), ball(200.0, 100.0)]);
+    let initial_measurements = ResolvedBallMeasurementBatch::from_detection_batch_midpoints(
+        &initial_batch,
+        1,
+        "camera-profile-test",
+        7,
+        3,
+    );
+    let initial = tracker
+        .process_full_layout_with_resolved_ball_measurements(
+            &initial_batch,
+            Timestamp {
+                ticks: "2000000001".to_owned(),
+                unit: TimeUnit::Nanoseconds,
+                clock: ClockKind::Monotonic,
+                domain_id: "scene-writer-clock-a".to_owned(),
+                stage: TimestampStage::SnapshotPublication,
+            },
+            &initial_measurements,
+        )
+        .unwrap();
+    let last_good_ids = initial
+        .snapshot
+        .balls
+        .iter()
+        .map(|ball| ball.track_id.clone())
+        .collect::<Vec<_>>();
+    assert_eq!(last_good_ids, ["track-1", "track-2"]);
+
+    let pressure_batch = frame(2, 1_010_000_000, &[ball(400.0, 100.0), ball(500.0, 100.0)]);
+    let pressure_measurements = ResolvedBallMeasurementBatch::from_detection_batch_midpoints(
+        &pressure_batch,
+        1,
+        "camera-profile-test",
+        7,
+        3,
+    );
+    let pressure = tracker
+        .process_partial_layout_with_resolved_ball_measurements(
+            &pressure_batch,
+            Timestamp {
+                ticks: "2000000002".to_owned(),
+                unit: TimeUnit::Nanoseconds,
+                clock: ClockKind::Monotonic,
+                domain_id: "scene-writer-clock-a".to_owned(),
+                stage: TimestampStage::SnapshotPublication,
+            },
+            &pressure_measurements,
+        )
+        .unwrap();
+    assert_eq!(pressure.association_capacity_evictions, 0);
+    assert_eq!(pressure.snapshot.outcome, Outcome::Degraded);
+    assert_eq!(
+        pressure.snapshot.reason.as_deref(),
+        Some("partial_track_capacity_pressure")
+    );
+    assert_eq!(pressure.snapshot.balls.len(), 4);
+    for id in &last_good_ids {
+        assert!(pressure.snapshot.balls.iter().any(|ball| {
+            &ball.track_id == id && ball.last_observation.frame_id == "frame-0001"
+        }));
+    }
+    let current_centers = pressure
+        .snapshot
+        .balls
+        .iter()
+        .filter(|ball| ball.status == BallStatus::Observed)
+        .filter_map(|ball| {
+            ball.measurement
+                .as_ref()
+                .map(|measurement| measurement.image_center_px.x)
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(current_centers, [400.0, 500.0]);
+    pressure.snapshot.validate().unwrap();
+
+    let repeated_batch = frame(3, 1_020_000_000, &[ball(401.0, 100.0), ball(501.0, 100.0)]);
+    let repeated_measurements = ResolvedBallMeasurementBatch::from_detection_batch_midpoints(
+        &repeated_batch,
+        1,
+        "camera-profile-test",
+        7,
+        3,
+    );
+    let repeated = tracker
+        .process_partial_layout_with_resolved_ball_measurements(
+            &repeated_batch,
+            Timestamp {
+                ticks: "2000000003".to_owned(),
+                unit: TimeUnit::Nanoseconds,
+                clock: ClockKind::Monotonic,
+                domain_id: "scene-writer-clock-a".to_owned(),
+                stage: TimestampStage::SnapshotPublication,
+            },
+            &repeated_measurements,
+        )
+        .unwrap();
+    assert_eq!(repeated.snapshot.balls.len(), 4);
+    for id in &last_good_ids {
+        assert!(repeated.snapshot.balls.iter().any(|ball| {
+            &ball.track_id == id && ball.last_observation.frame_id == "frame-0001"
+        }));
+    }
+
+    let settled_batch = frame(4, 1_030_000_000, &[ball(401.0, 100.0), ball(501.0, 100.0)]);
+    let settled_measurements = ResolvedBallMeasurementBatch::from_detection_batch_midpoints(
+        &settled_batch,
+        1,
+        "camera-profile-test",
+        7,
+        3,
+    );
+    let settled = tracker
+        .process_full_layout_with_resolved_ball_measurements(
+            &settled_batch,
+            Timestamp {
+                ticks: "2000000004".to_owned(),
+                unit: TimeUnit::Nanoseconds,
+                clock: ClockKind::Monotonic,
+                domain_id: "scene-writer-clock-a".to_owned(),
+                stage: TimestampStage::SnapshotPublication,
+            },
+            &settled_measurements,
+        )
+        .unwrap();
+    assert_eq!(settled.association_capacity_evictions, 2);
+    assert_eq!(settled.snapshot.balls.len(), 2);
+    assert!(settled.snapshot.balls.iter().all(|ball| {
+        !last_good_ids.contains(&ball.track_id) && ball.status == BallStatus::Observed
+    }));
+    settled.snapshot.validate().unwrap();
 }
 
 #[test]

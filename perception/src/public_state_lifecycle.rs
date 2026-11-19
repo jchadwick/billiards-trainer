@@ -104,6 +104,11 @@ pub struct PerceptionStateV1 {
     pub phase: String,
     pub layout_revision: u64,
     pub layout_trusted: bool,
+    /// Detector frame whose positively covered full-table scan most recently
+    /// established the currently trusted layout. The gateway uses this to
+    /// reject a trust-only update when that scene was dropped in transit.
+    #[serde(default)]
+    pub layout_basis_frame_id: Option<String>,
     /// True only after the phase scheduler has accepted the configured
     /// number of consistent empty full-table observations after quiet dwell.
     /// Raw empty `source_snapshot` values remain available independently.
@@ -775,7 +780,21 @@ impl SceneStateLifecycle {
                 .and_then(Value::as_bool)
                 != Some(true)
             {
-                mark_payload_stale(&mut payload, None);
+                if payload.balls.is_empty() {
+                    // Without any ball positions, an untrusted layout cannot
+                    // provide useful current coordinates. Keep empty partial
+                    // observations explicitly unavailable.
+                    mark_payload_stale(&mut payload, None);
+                } else {
+                    // Layout trust governs whole-table guidance, not whether a
+                    // measured center from a recent partial scan is current.
+                    // The capture pipeline marks unmatched cached tracks as
+                    // unobserved; preserve these per-ball flags so clients can
+                    // use fresh partial centers while guidance stays invalid
+                    // until a clean layout scan restores trust.
+                    payload.observation_status["layout_trusted"] = json!(false);
+                    payload.observation_status["guidance_valid"] = json!(false);
+                }
             }
         }
         let ball_age_ns = if freshness == StateFreshness::Expired {

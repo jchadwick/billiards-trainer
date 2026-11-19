@@ -51,8 +51,10 @@ pub enum LayoutObservation {
     Failed,
 }
 
-/// Per-phase processing rates in frames/work items per second. A zero rate
-/// disables that job for the phase.
+/// Per-phase processing rates in frames/work items per second. A zero ball
+/// rate requests the lowest configured nonzero ball cadence (falling back to
+/// the default pre-shot rate) so phase scheduling cannot stop observations.
+/// Zero motion and cue rates still disable those optional jobs for the phase.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PhaseCadence {
     pub motion_hz: f64,
@@ -155,13 +157,30 @@ impl SchedulerConfig {
         Ok(())
     }
 
-    fn cadence(&self, phase: Phase) -> PhaseCadence {
-        match phase {
+    fn cadence_for_phase(&self, phase: Phase) -> PhaseCadence {
+        let mut cadence = match phase {
             Phase::Recovering => self.recovering,
             Phase::PreShot => self.pre_shot,
             Phase::Aiming => self.aiming,
             Phase::Shot => self.shot,
+        };
+        if cadence.ball_hz == 0.0 {
+            cadence.ball_hz = self.fallback_ball_cadence();
         }
+        cadence
+    }
+
+    fn fallback_ball_cadence(&self) -> f64 {
+        [
+            self.recovering.ball_hz,
+            self.pre_shot.ball_hz,
+            self.aiming.ball_hz,
+            self.shot.ball_hz,
+        ]
+        .into_iter()
+        .filter(|rate| *rate > 0.0)
+        .reduce(f64::min)
+        .unwrap_or_else(|| Self::default().pre_shot.ball_hz)
     }
 }
 
@@ -523,7 +542,7 @@ impl PhaseScheduler {
         available: WorkAvailability,
     ) -> Result<ScheduleDecision, SchedulerError> {
         let evidence = self.advance_time(now)?;
-        let cadence = self.config.cadence(self.phase);
+        let cadence = self.config.cadence_for_phase(self.phase);
         let rates = [cadence.motion_hz, cadence.ball_hz, cadence.cue_hz];
         let available = [available.motion, available.ball, available.cue];
         let mut due = [false; 3];
@@ -894,6 +913,91 @@ mod tests {
             s.evidence(ms(1_050)).unwrap().trust_reason,
             TrustReason::OccludedOrUncertain
         );
+    }
+
+    #[test]
+    fn zero_shot_ball_rate_uses_a_low_configured_scan_without_restoring_trust() {
+        let config = SchedulerConfig {
+            recovering: PhaseCadence {
+                motion_hz: 15.0,
+                ball_hz: 5.0,
+                cue_hz: 5.0,
+            },
+            pre_shot: PhaseCadence {
+                motion_hz: 15.0,
+                ball_hz: 1.0,
+                cue_hz: 5.0,
+            },
+            aiming: PhaseCadence {
+                motion_hz: 15.0,
+                ball_hz: 1.0,
+                cue_hz: 5.0,
+            },
+            shot: PhaseCadence {
+                motion_hz: 15.0,
+                ball_hz: 0.0,
+                cue_hz: 0.0,
+            },
+            motion_evidence_expiry: ms(2_000),
+            ..SchedulerConfig::default()
+        };
+        let mut s = PhaseScheduler::new(config).unwrap();
+        settle(&mut s, 0);
+        s.observe_motion(ms(950), MotionEvidence::Moving).unwrap();
+        assert_eq!(s.phase(), Phase::Shot);
+
+        let first = s.tick(ms(950), WorkAvailability::default()).unwrap();
+        assert_eq!(first.phase, Phase::Shot);
+        assert!(first.run_ball);
+        assert!(!first.map_trusted);
+
+        // A zero-rate shot preference becomes the slowest configured nonzero
+        // ball cadence; it stays sparse while still allowing observations.
+        let early = s.tick(ms(1_949), WorkAvailability::default()).unwrap();
+        assert!(!early.run_ball);
+        let next = s.tick(ms(1_950), WorkAvailability::default()).unwrap();
+        assert!(next.run_ball);
+        assert!(!next.map_trusted);
+    }
+
+    #[test]
+    fn all_zero_ball_rates_fall_back_to_the_default_pre_shot_cadence() {
+        let disabled = PhaseCadence {
+            motion_hz: 0.0,
+            ball_hz: 0.0,
+            cue_hz: 0.0,
+        };
+        let config = SchedulerConfig {
+            recovering: disabled,
+            pre_shot: disabled,
+            aiming: disabled,
+            shot: disabled,
+            ..SchedulerConfig::default()
+        };
+        let fallback = SchedulerConfig::default().pre_shot.ball_hz;
+        assert!(fallback > 0.0);
+        assert_eq!(config.cadence_for_phase(Phase::Shot).ball_hz, fallback);
+    }
+
+    #[test]
+    fn zero_ball_rate_uses_the_lowest_positive_cadence_from_every_phase() {
+        let disabled = PhaseCadence {
+            motion_hz: 0.0,
+            ball_hz: 0.0,
+            cue_hz: 0.0,
+        };
+        let config = SchedulerConfig {
+            recovering: disabled,
+            pre_shot: disabled,
+            aiming: disabled,
+            shot: PhaseCadence {
+                ball_hz: 3.0,
+                ..disabled
+            },
+            ..SchedulerConfig::default()
+        };
+
+        assert_eq!(config.cadence_for_phase(Phase::Recovering).ball_hz, 3.0);
     }
 
     #[test]

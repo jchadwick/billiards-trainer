@@ -475,8 +475,19 @@ impl SceneTrackerV1 {
             .len()
             .checked_add(unmatched_count)
             .ok_or(TrackingError::ActiveTrackCapacityExceeded)?;
-        let association_capacity_evictions =
+        let preserve_unmatched_partial_tracks = !replace_layout_wholesale && !expire_tracks_by_age;
+        let projected_capacity_overflow =
             projected_track_count.saturating_sub(self.config.maximum_active_tracks);
+        // A partial scan cannot establish that unmatched last-good balls have
+        // disappeared. Keep those bounded active tracks and publish any new
+        // overflow detections as current-frame measurements without adding
+        // them to persistent association history. Clean full scans and legacy
+        // callers retain their existing capacity-eviction policy.
+        let association_capacity_evictions = if preserve_unmatched_partial_tracks {
+            0
+        } else {
+            projected_capacity_overflow
+        };
         if association_capacity_evictions > 0 {
             let assigned_track_indices = assignments
                 .iter()
@@ -524,6 +535,7 @@ impl SceneTrackerV1 {
         }
         let mut matched_track_indices = HashSet::with_capacity(assignments.len());
         let mut matched_detection_indices = HashSet::with_capacity(assignments.len());
+        let mut capacity_limited_detection_indices = Vec::new();
         let last_observation = crate::LastObservation {
             session_id: batch.source.session_id.clone(),
             frame_id: batch.source.frame_id.clone(),
@@ -596,6 +608,12 @@ impl SceneTrackerV1 {
             if matched_detection_indices.contains(&detection_index) {
                 continue;
             }
+            if preserve_unmatched_partial_tracks
+                && self.tracks.len() >= self.config.maximum_active_tracks
+            {
+                capacity_limited_detection_indices.push(detection_index);
+                continue;
+            }
             let id = self.allocate_track_id()?;
             let center = selected_centers[detection_index];
             self.tracks.push(Track {
@@ -639,7 +657,11 @@ impl SceneTrackerV1 {
         }
 
         let lost_after_ns = self.config.lost_after.as_nanos();
-        let mut balls = Vec::with_capacity(self.tracks.len());
+        let mut balls = Vec::with_capacity(
+            self.tracks
+                .len()
+                .saturating_add(capacity_limited_detection_indices.len()),
+        );
         for index in 0..self.tracks.len() {
             if calibration_state != CalibrationState::Valid
                 || self.tracks[index].calibration_revision != calibration_revision
@@ -679,6 +701,38 @@ impl SceneTrackerV1 {
             });
         }
 
+        // Capacity-limited detections remain usable as measured centers in
+        // this scene, but do not evict the remembered layout or grow tracker
+        // history beyond its configured bound. Their allocated IDs are
+        // unique within the session; a later clean full scan can associate
+        // and persist them once it verifies which balls remain on the table.
+        for detection_index in capacity_limited_detection_indices.iter().copied() {
+            let detection = ball_detections[detection_index];
+            let center = selected_centers[detection_index];
+            balls.push(BallState {
+                track_id: self.allocate_track_id()?,
+                status: BallStatus::Observed,
+                last_observation: last_observation.clone(),
+                measurement: Some(image_measurement(
+                    detection,
+                    detection_outlines.get(&detection.detection_index).copied(),
+                    center,
+                    source_image_space,
+                    batch.source.width_px,
+                    batch.source.height_px,
+                    detection_table_centers
+                        .get(&detection.detection_index)
+                        .copied(),
+                )),
+                estimate: None,
+                identity: BallIdentity {
+                    number: None,
+                    confidence: None,
+                    evidence: Vec::new(),
+                },
+            });
+        }
+
         let cue = make_cue_state(
             batch,
             self.config.cue_class_id,
@@ -702,6 +756,9 @@ impl SceneTrackerV1 {
         }
         if association_capacity_evictions > 0 {
             degradation_reasons.push("association_capacity_pressure".to_owned());
+        }
+        if !capacity_limited_detection_indices.is_empty() {
+            degradation_reasons.push("partial_track_capacity_pressure".to_owned());
         }
         let snapshot = SceneSnapshotV1 {
             schema_version: SCENE_SNAPSHOT_SCHEMA_VERSION,

@@ -1,0 +1,41 @@
+{
+  "candidate": "candidate7",
+  "created_utc": "2026-11-19T03:28:05.060846+00:00",
+  "base_repository_commit": "cc0c398323db86b7170bb232c3f9d677bcb3022f",
+  "native_source_snapshot": "/home/jchadwick/build/billiards-deploy-20261114/source",
+  "scoped_source_files_sha256": {
+    "perception/src/capture_pipeline.rs": "32fa8f5a0089143ca5894310aa157328e2af5c76eec8ae5fda5657ad5d96da20",
+    "perception/src/capture_runtime.rs": "b7e3034234690d80ea95048c6546406ae973b1baa9b433ec78494bcf6032a335",
+    "perception/src/public_state_lifecycle.rs": "0dfa6989963d4b90248d65a46de19da27dce2092860a0fac411a2e9b5d5e2504",
+    "perception/src/server.rs": "8f80cfad5d71709b417ec5619adcec2d17bd26ce822f693e089065c013992842",
+    "perception/src/tracking.rs": "e829d9978903cfc8d5a56ede91d68c15e28a0f272b74c424e9687f3d63e71932",
+    "perception/tests/live_capture_runtime.rs": "a6ee23c9de8fdeb3e63b20756641b7f507536b74f9c5592d39b2756183be82fc",
+    "perception/tests/tracking_v1.rs": "e93fd06729b4b72a8567e0920d97bb8ae283cda53abb5f5555daa27817582828",
+    "perception/contracts/public-state/README.md": "a8fb3fe4e4870d9142f67511060abc944488f0773c7b6bc9628e040eddca4648",
+    "perception/contracts/public-state/public-state-delivery-v2.schema.json": "48511c85569c9bb174229cb062297781f0664d0293e7ac4f6deb9a1eadb3a6a8"
+  },
+  "build_command": "cargo build --release --locked --features camera-gstreamer-source --bins",
+  "build_working_directory": "/home/jchadwick/build/billiards-deploy-20261114/source/perception",
+  "build_log_sha256": "42173e3a983e0211e3152dcdac494a868773c7a91273e795eefcd28fd3bc2899",
+  "target_config_sha256": "4fb40299e23a59151f61af01a4724cd5dd5d72d79e35fead8083c00184dbf5e3",
+  "staging_config_sha256": "56a4ebd52fb48e8d4c333652db9778bd0c7beaa10c429b6de67a9d492f5bba02",
+  "staging_config_only_change": {
+    "path": "perception.rust_live.frame_preview_port",
+    "from": 49322,
+    "to": 49342
+  },
+  "camera_viewer_url": "http://192.168.1.31:8001/stream",
+  "binary_sha256": {
+    "billiards-server": "f5026270da82d09ec5aeee137a4dbf9700bf71d4f3e5e2b57b80eb47f6cd452b",
+    "billiards-perception-live": "ff817005046353dae175d4724f2eed7f233a8938cc700b66bb9fb193f219a9e5",
+    "billiards-perception-gstreamer-probe": "4678dd75bc27b4b422ddbbda2c2909a30cfeca3d7c0a9e4dcf70caa695512e2a",
+    "billiards-perception-camera-discovery": "b421b7283345904ad26c08d3bda7aab0463517b8ec89d6644cf9b229eac2c404"
+  },
+  "isolated_ports": {
+    "http": 18000,
+    "scene": 49341,
+    "frame_preview": 49342
+  },
+  "web_root": "/home/jchadwick/apps/billiards-trainer/frontend",
+  "production_promotion": false
+}

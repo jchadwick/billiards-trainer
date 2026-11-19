@@ -42,10 +42,10 @@ pub struct MotionMonitorConfig {
     /// for this long. This allows recovery after a ball has stopped at a new
     /// location without hiding slow movement.
     pub reference_settle_dwell: Duration,
-    /// Minimum changed neighbors in a 3-by-3 sample-grid neighborhood for a
-    /// reference-difference sample to participate in temporal drift tracking.
-    /// This suppresses isolated camera/compression noise while retaining
-    /// spatially coherent ball and occlusion boundaries.
+    /// Minimum changed samples, including the sample itself, in a 3-by-3 grid
+    /// neighborhood for a temporal reference-mask change to count as layout
+    /// drift. This suppresses
+    /// isolated mask flicker while retaining spatially coherent movement.
     pub reference_mask_minimum_neighbors: u8,
 }
 
@@ -355,9 +355,15 @@ impl MotionMonitor {
             );
             fill_difference_mask(
                 &self.current,
+                &self.previous,
                 &self.reference,
-                self.config.luminance_difference_threshold,
-                reference.brightness_shift,
+                ReferenceMaskThresholds {
+                    enter_difference: self.config.luminance_difference_threshold,
+                    reference_brightness_shift: reference.brightness_shift,
+                    frame_brightness_shift: consecutive.brightness_shift,
+                },
+                self.reference_mask_initialized
+                    .then_some(self.previous_reference_mask.as_slice()),
                 &mut self.reference_mask,
             );
             filter_reference_mask(
@@ -368,12 +374,13 @@ impl MotionMonitor {
                 self.config.reference_mask_minimum_neighbors,
             );
             let delta_fraction = if self.reference_mask_initialized {
-                let changed = self
-                    .filtered_reference_mask
-                    .iter()
-                    .zip(&self.previous_reference_mask)
-                    .filter(|(current, previous)| current != previous)
-                    .count();
+                let changed = count_supported_mask_changes(
+                    &self.filtered_reference_mask,
+                    &self.previous_reference_mask,
+                    self.sample_width,
+                    self.sample_height,
+                    self.config.reference_mask_minimum_neighbors,
+                );
                 Some(changed as f64 / count as f64)
             } else {
                 self.reference_mask_initialized = true;
@@ -398,18 +405,22 @@ impl MotionMonitor {
             self.sample_height,
             &self.config,
         );
-        let extreme_brightness = consecutive.brightness_shift.unsigned_abs()
-            > u16::from(self.config.maximum_global_brightness_shift)
-            || reference.is_some_and(|metrics| {
-                metrics.brightness_shift.unsigned_abs()
-                    > u16::from(self.config.maximum_global_brightness_shift)
-            });
+        let maximum_brightness_shift = u16::from(self.config.maximum_global_brightness_shift);
+        let consecutive_extreme_brightness =
+            consecutive.brightness_shift.unsigned_abs() > maximum_brightness_shift;
+        let reference_extreme_brightness = reference.is_some_and(|metrics| {
+            metrics.brightness_shift.unsigned_abs() > maximum_brightness_shift
+        });
         let changed_since_reference = reference
             .is_some_and(|metrics| metrics.fraction >= self.config.movement_fraction_threshold);
         let reference_mask_moved = reference_delta_fraction
             .is_some_and(|fraction| fraction >= self.config.movement_fraction_threshold);
         let consecutive_motion = consecutive.fraction >= self.config.movement_fraction_threshold;
         let layout_drift = changed_since_reference && reference_mask_moved;
+        let reference_settle_dwell_active =
+            self.last_reference_drift_at.is_some_and(|started_at| {
+                observed_at.saturating_sub(started_at) < self.config.reference_settle_dwell
+            });
 
         let (classification, reason) = if is_broad {
             self.last_reference_drift_at = Some(observed_at);
@@ -417,7 +428,11 @@ impl MotionMonitor {
                 MotionClassification::OccludedOrUncertain,
                 MotionReason::BroadChange,
             )
-        } else if extreme_brightness {
+        } else if consecutive_extreme_brightness {
+            // A new abrupt lighting change starts a fresh stabilization
+            // interval; an older reference-drift dwell must not make this
+            // transition appear settled on its first stable frame.
+            self.last_reference_drift_at = Some(observed_at);
             (
                 MotionClassification::OccludedOrUncertain,
                 MotionReason::ExtremeBrightnessShift,
@@ -437,11 +452,21 @@ impl MotionMonitor {
                 MotionClassification::OccludedOrUncertain,
                 MotionReason::Initializing,
             )
-        } else if changed_since_reference {
-            let drift_age = self
-                .last_reference_drift_at
-                .map(|last| observed_at.saturating_sub(last))
-                .unwrap_or_default();
+        } else if changed_since_reference
+            || reference_extreme_brightness
+            || reference_settle_dwell_active
+        {
+            // A gradual change can move the scene outside its verified
+            // reference without ever crossing the per-frame or temporal-mask
+            // thresholds above. Start the settle dwell on the first such
+            // mismatch instead of treating the missing anchor as age zero on
+            // every frame, which would keep a static scene moving forever.
+            // A stable global lighting change has no compensated spatial mask,
+            // but still differs from the retained reference. Let it pass this
+            // finite dwell after the frame-to-frame brightness shift settles;
+            // otherwise the stale reference would report uncertainty forever.
+            let drift_started_at = *self.last_reference_drift_at.get_or_insert(observed_at);
+            let drift_age = observed_at.saturating_sub(drift_started_at);
             if drift_age < self.config.reference_settle_dwell {
                 (MotionClassification::Moving, MotionReason::ReferenceDrift)
             } else {
@@ -672,7 +697,8 @@ fn compare_grids(
     };
     let threshold = i16::from(threshold);
     for (index, delta) in delta_scratch.iter().enumerate() {
-        if (*delta - brightness_shift).abs() >= threshold {
+        let residual_difference = (*delta - brightness_shift).unsigned_abs();
+        if residual_difference >= threshold as u16 {
             let x = index % width;
             let y = index / width;
             metrics.changed_count += 1;
@@ -687,17 +713,47 @@ fn compare_grids(
     metrics
 }
 
+#[derive(Debug, Clone, Copy)]
+struct ReferenceMaskThresholds {
+    enter_difference: u8,
+    reference_brightness_shift: i16,
+    frame_brightness_shift: i16,
+}
+
 fn fill_difference_mask(
     current: &[u8],
+    previous_frame: &[u8],
     reference: &[u8],
-    threshold: u8,
-    brightness_shift: i16,
+    thresholds: ReferenceMaskThresholds,
+    previous_mask: Option<&[u8]>,
     output: &mut [u8],
 ) {
-    let threshold = i16::from(threshold);
-    for ((value, reference), mask) in current.iter().zip(reference).zip(output) {
+    debug_assert!(previous_mask.is_none_or(|previous| previous.len() == current.len()));
+    debug_assert_eq!(previous_frame.len(), current.len());
+    debug_assert_eq!(reference.len(), current.len());
+    debug_assert_eq!(output.len(), current.len());
+
+    let enter_difference = i16::from(thresholds.enter_difference);
+    for (index, ((value, reference), mask)) in current.iter().zip(reference).zip(output).enumerate()
+    {
+        let required_difference = if previous_mask.is_some_and(|previous| previous[index] != 0) {
+            // Hysteresis is local: only temporal variation measured at this
+            // sample changes its release threshold. A moving ball elsewhere
+            // cannot loosen reference comparisons across the whole grid.
+            let local_variation = (i16::from(*value)
+                - i16::from(previous_frame[index])
+                - thresholds.frame_brightness_shift)
+                .unsigned_abs();
+            enter_difference
+                .saturating_sub(local_variation.min(i16::MAX as u16) as i16)
+                .max(1)
+        } else {
+            enter_difference
+        };
         *mask = u8::from(
-            (i16::from(*value) - i16::from(*reference) - brightness_shift).abs() >= threshold,
+            (i16::from(*value) - i16::from(*reference) - thresholds.reference_brightness_shift)
+                .abs()
+                >= required_difference,
         );
     }
 }
@@ -731,6 +787,50 @@ fn filter_reference_mask(
             output[y * width + x] = u8::from(changed_neighbors >= minimum_neighbors);
         }
     }
+}
+
+/// Count temporal mask changes only when a changed sample has enough nearby
+/// changed samples in the same frame pair. Filtering the current reference
+/// mask alone cannot reject a flickering edge cell when its stable neighbors
+/// keep it connected in every individual frame; filtering the XOR mask here
+/// prevents that one cell from repeatedly resetting the quiet dwell.
+fn count_supported_mask_changes(
+    current: &[u8],
+    previous: &[u8],
+    width: usize,
+    height: usize,
+    minimum_neighbors: u8,
+) -> usize {
+    debug_assert_eq!(current.len(), width * height);
+    debug_assert_eq!(previous.len(), current.len());
+
+    let mut supported_changes = 0;
+    for y in 0..height {
+        for x in 0..width {
+            let index = y * width + x;
+            if current[index] == previous[index] {
+                continue;
+            }
+
+            let y_start = y.saturating_sub(1);
+            let y_end = (y + 1).min(height.saturating_sub(1));
+            let x_start = x.saturating_sub(1);
+            let x_end = (x + 1).min(width.saturating_sub(1));
+            let mut changed_neighbors = 0_u8;
+            for neighbor_y in y_start..=y_end {
+                let row_offset = neighbor_y * width;
+                for neighbor_x in x_start..=x_end {
+                    let neighbor_index = row_offset + neighbor_x;
+                    changed_neighbors +=
+                        u8::from(current[neighbor_index] != previous[neighbor_index]);
+                }
+            }
+            if changed_neighbors >= minimum_neighbors {
+                supported_changes += 1;
+            }
+        }
+    }
+    supported_changes
 }
 
 fn is_broad_change(

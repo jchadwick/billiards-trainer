@@ -61,6 +61,13 @@ becomes true after one clean successful full-table scan following quiet dwell.
 Motion, occlusion, context changes, or expired whole-table motion evidence clear
 the flag. Scan-to-scan consensus and scan-age expiry are not used.
 
+`layout_basis_frame_id` identifies the clean detector frame that established the
+currently trusted layout. The gateway accepts trust restoration only after it
+has accepted a scene for that frame, or a later scene carrying the same already
+trusted layout basis. This keeps a delayed phase-only update from making older
+gateway centers appear trustworthy when the matching clean scene expired during
+reconnect.
+
 Run the contract tests with:
 
 ```sh
