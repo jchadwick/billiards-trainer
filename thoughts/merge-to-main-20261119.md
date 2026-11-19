@@ -2,43 +2,62 @@
 
 ## Scope and safety
 
-This preparation covers the complete dirty project state on `codex/native-ball-localization`. The user explicitly authorized committing all modified and untracked project work, including the administration, diagnostics, setup, calibration, and shared video receiver files that had previously remained dirty. No other worktree files are being changed. The existing detached ball-identification worktrees and their changes remain preserved in place.
+This preparation covered the complete dirty project state on `codex/native-ball-localization`. The user authorized committing all modified and untracked project work, including the administration, diagnostics, setup, calibration, and shared video receiver files that had previously remained dirty. All 51 initially modified tracked files and 90 initially untracked project files were preserved and committed. The requested preparation note is also committed.
 
-No reset, clean, stash, push, production deployment, or camera operation is part of this preparation. The existing `main` worktree at `/Users/jchadwick/.codex/worktrees/proven-localization-findings/billiards-trainer` was clean when inspected and will not be modified during preparation.
+No reset, clean, stash, push, production deployment, or camera operation was performed. The existing `main` worktree at `/Users/jchadwick/.codex/worktrees/proven-localization-findings/billiards-trainer` was clean at the start and remains unchanged and clean. The other linked ball-identification worktrees were left untouched with their preexisting changes.
 
-## Initial Git state
+## Starting Git state and audit
 
 - Preparation worktree: `/Users/jchadwick/repos/jchadwick/billiards-trainer`
 - Branch and starting commit: `codex/native-ball-localization`, `3f5cdd211bbe807441c219e43d4c2904a46567dd`
-- Fetched remote main: `origin/main` at `f88b418459edebfb220990df72b870121ca63543`
-- The preparation branch contains fetched `origin/main` as an ancestor.
-- Existing local main worktree: clean at `d57ca3afd3cc031ed83d8d639be63dfde0fada7b`; its history has commits not present on the preparation branch and will be integrated before review.
-- Initial dirty set: 51 modified tracked files and 90 untracked files (141 total).
-- Review of changed and untracked text found no private-key, common access-token, or bearer-token patterns. JSON fields named like credentials were checked; matches were dependency names in the package lockfile, with no credential-bearing configuration field found.
-- Changed/untracked files are source, tests, docs, schemas, configuration, and research notes/data; the scan found no generated binary files to commit.
+- Fetched `origin/main`: `f88b418459edebfb220990df72b870121ca63543`; it is an ancestor of the prepared branch.
+- Local `main`: `d57ca3afd3cc031ed83d8d639be63dfde0fada7b`, clean and 251 commits ahead of fetched `origin/main`.
+- The local-main and feature histories diverged at `ba458767d33b79cc789293f0991f79d1f61f63d8`. The local-main history was merged into the candidate branch and is now an ancestor of it.
+- The audit found no private-key, common access-token, or bearer-token patterns in changed or untracked text files. Credential-like JSON key matches were dependency names in `package-lock.json`; no credential-bearing configuration field was found.
+- Changed and untracked files were source, tests, docs, schemas, configuration, and research notes/data. No generated binaries or temporary files were included. The frontend build output under ignored `backend/static/` remains untracked and is not part of the commits.
+
+## Module-scoped commits
+
+- `943f9bcd` — deployment/runtime configuration and packaging
+- `e5e0bab9` — perception setup, calibration, browser diagnostics, producer diagnostics, and contracts
+- `d211705d` — frontend setup, administration, diagnostics, events, health, and shared video reception
+- `cc34cc44` — workflow/API/deployment documentation and ADRs 0106–0113
+- `4b568320` — high-resolution model-export test
+- `596b809e` — calibration and ball-identification research artifacts, results, and preparation note
+- `4fb6fdaf` — merge local `main` history into the candidate
+
+The candidate retains its 14 preexisting branch-only commits. The integration commit has candidate `596b809e` as its first parent and local `main` `d57ca3af` as its second parent. A local safety ref, `backup/pre-main-integration-2026-11-19`, points to `596b809e` before the history merge.
+
+## Conflict resolution
+
+The merge preview identified conflicts in `perception/src/live_supervisor.rs` and `perception/src/phase_scheduler.rs`.
+
+- The supervisor keeps browser-selected calibration assets and packaged/source model-path fallbacks, along with the local-main OpenVINO GPU-provider error detail. The combined error also retains the existing unsupported-provider key and value context.
+- The scheduler keeps separate regression tests for stale layout evidence under fresh motion evidence and for repeated layout updates during slow inference. Both test scenarios passed in the merged tree.
 
 ## Validation
 
-Validation commands and results will be recorded here after they run.
+The following checks passed against the fully merged candidate:
 
-## Prepared commits and integration
+- `make format-check`
+- `make test` — all Rust targets and 32 Vitest files / 152 browser tests passed
+- `make test-rust-camera` — passed with `camera-gstreamer-source`
+- `make lint` — Rust Clippy with warnings denied and frontend typecheck
+- `make config-check`
+- `make test-deploy`
+- `make test-tooling`
+- `make test-model-export` — 8 Python tests passed
+- `npm --prefix frontend/web run build`
+- `git diff --check` and `git diff --cached --check`
 
-Commits, ancestry reconciliation, final diff statistics, and remaining review notes will be recorded here before handoff. The candidate will stop before merge to `main` or push.
+The first merge-commit hook attempt saw one failure in the existing `temporal_evaluation::tests::ffprobe_output_and_runtime_are_bounded` assertion. The focused test passed immediately when rerun alone, and the complete perception hook passed on the next merge-commit attempt. No source change was required for that transient test failure.
 
-Validation before integration:
+Vite emitted its large-chunk advisory for the configuration editor and health page; the production build succeeded. Check logs are under `/tmp/billiards-merge-to-main-20261119/`.
 
-- `make format-check` — passed.
-- `make test` — passed; all Rust targets passed and Vitest reported 32 files / 152 tests passed.
-- `make test-rust-camera` — passed with `camera-gstreamer-source` enabled.
-- `make lint` — passed (Rust Clippy with warnings denied and frontend TypeScript typecheck).
-- `make config-check` — passed; Rust schema and runtime validation accepted the configuration.
-- `make test-deploy` — passed (distribution packaging and update/restart smoke tests).
-- `make test-tooling` — passed (security-check dispatch/failure smoke test).
-- `make test-model-export` — passed; 8 Python tests passed. Included because this dirty set adds a model-export test.
-- `cd frontend/web && npm run build` — passed; the production Vite bundle was generated. Vite reports the existing large chunk warning for the configuration editor and health page; it does not fail the build.
-- `git diff --check` — passed.
-- Logs are under `/tmp/billiards-merge-to-main-20261119/`.
+## Handoff state
 
-The frontend build output is ignored under `backend/static/`; it is generated validation output and is not part of the source changes.
-
-The pre-integration diff contains 51 modified tracked files and 91 untracked files after adding this preparation note, with 10,011 insertions and 1,903 deletions in tracked files. The exact commit inventory and post-merge verification will be appended before handoff.
+- Integration commit: `4fb6fdafed6eb831803324bc62d0dbf2c77bed87`
+- At integration, local `main` was an ancestor of the candidate; the candidate was 21 commits ahead of local `main` and 272 commits ahead of fetched `origin/main`.
+- The preparation worktree is clean apart from ignored generated build output. The separate `main` worktree remains clean at `d57ca3af`.
+- No merge to `main` and no push has been performed; this candidate is ready for independent review.
+- After review, the existing `main` worktree can fast-forward with `git -C /Users/jchadwick/.codex/worktrees/proven-localization-findings/billiards-trainer merge --ff-only codex/native-ball-localization`.
