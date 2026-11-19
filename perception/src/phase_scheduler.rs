@@ -1137,9 +1137,32 @@ mod tests {
         // frames; current motion evidence is the trust lifetime.
         s.observe_layout(ms(800), layout(10.0)).unwrap();
         assert!(s.evidence(ms(2_300)).unwrap().map_trusted);
+
         assert!(s.evidence(ms(3_800)).unwrap().map_trusted);
         assert_eq!(s.evidence(ms(3_800)).unwrap().layout_at, Some(ms(800)));
         assert_eq!(s.motion_generation(), generation);
+    }
+
+    #[test]
+    fn extended_evidence_windows_preserve_consensus_across_slow_inference() {
+        let config = SchedulerConfig {
+            motion_evidence_expiry: ms(3_000),
+            layout_evidence_expiry: ms(3_000),
+            ..SchedulerConfig::default()
+        };
+        let mut s = PhaseScheduler::new(config).unwrap();
+        s.observe_motion(ms(0), MotionEvidence::Quiet).unwrap();
+        s.observe_motion(ms(800), MotionEvidence::Quiet).unwrap();
+        let generation = s.motion_generation();
+
+        // Slow model inference must keep the capture generation valid long
+        // enough to accept matching layouts needed to establish trust.
+        for time in [800, 2_300, 3_800] {
+            s.observe_layout(ms(time), layout(10.0)).unwrap();
+            assert_eq!(s.motion_generation(), generation);
+        }
+
+        assert!(s.evidence(ms(3_800)).unwrap().map_trusted);
     }
 
     #[test]

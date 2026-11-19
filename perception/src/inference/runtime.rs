@@ -54,8 +54,8 @@ use crate::{
 use crate::video_timeline::{parse_ffprobe_timeline, VideoTimeline, VideoTimelineLimits};
 
 use super::{
-    decode_yolo_v8_output, prepare_rgb8, prepare_rgb_image, Detection, LetterboxGeometry,
-    PreparedInput,
+    decode_yolo_v8_output_with_coordinate_scale, prepare_rgb8, prepare_rgb_image, Detection,
+    LetterboxGeometry, PreparedInput,
 };
 
 const INPUT_NAME: &str = "images";
@@ -147,6 +147,7 @@ pub struct FrameInferenceEngine {
     _environment: Option<Environment>,
     expected_output_shape: Vec<i64>,
     class_names: Vec<String>,
+    output_coordinate_scale: f32,
     image_size: usize,
     confidence: f32,
     iou: f32,
@@ -242,6 +243,7 @@ impl FrameInferenceEngine {
             _environment: environment,
             expected_output_shape,
             class_names: model_contract.class_names,
+            output_coordinate_scale: model_contract.output_coordinate_scale,
             image_size: options.image_size as usize,
             confidence: options.confidence,
             iou: options.iou,
@@ -313,6 +315,7 @@ impl FrameInferenceEngine {
                 _environment: Some(environment),
                 expected_output_shape,
                 class_names: model_contract.class_names,
+                output_coordinate_scale: model_contract.output_coordinate_scale,
                 image_size: options.image_size as usize,
                 confidence: options.confidence,
                 iou: options.iou,
@@ -428,7 +431,7 @@ impl FrameInferenceEngine {
         let decode_start = Instant::now();
         let decode_span = timing
             .and_then(|(context, parent)| context.start_child_span("decode_nms", parent).ok());
-        let detections = decode_yolo_v8_output(
+        let detections = decode_yolo_v8_output_with_coordinate_scale(
             &output_shape
                 .iter()
                 .map(|dimension| *dimension as usize)
@@ -439,6 +442,7 @@ impl FrameInferenceEngine {
             self.confidence,
             self.iou,
             self.max_detections,
+            self.output_coordinate_scale,
         )
         .context("failed to decode model output for RGB frame")?;
         drop(decode_span);
@@ -963,6 +967,7 @@ struct LoadedModelContract {
     artifact_sha256: String,
     source_checkpoint_sha256: String,
     class_names: Vec<String>,
+    output_coordinate_scale: f32,
 }
 
 struct ProviderEvidence {
@@ -3317,6 +3322,7 @@ fn load_and_verify_manifest(
         artifact_sha256: actual_model_hash,
         source_checkpoint_sha256: manifest.source_model.sha256,
         class_names,
+        output_coordinate_scale: 1.0,
     })
 }
 

@@ -203,7 +203,7 @@ impl LiveProcessConfig {
         let provider = required_string(live, "provider")?;
         if provider != "openvino" {
             return Err(format!(
-                "unsupported perception.rust_live.provider: {provider}"
+                "production live inference requires the OpenVINO GPU provider; unsupported perception.rust_live.provider: {provider}"
             ));
         }
         let canonical_onnx = "models/billiards-yolov8n.onnx";
@@ -751,7 +751,7 @@ fn required_string(values: &serde_json::Map<String, Value>, key: &str) -> Result
         .ok_or_else(|| format!("perception.rust_live.{key} must be a non-empty string"))
 }
 
-/// Resolve the common phase schedule directly from live configuration.
+/// Validate and return the single shared phase schedule used by production.
 fn effective_phase_schedule(live: &serde_json::Map<String, Value>) -> Result<Value, String> {
     live.get("phase_schedule")
         .cloned()
@@ -922,6 +922,7 @@ mod tests {
             Value::String("models/balls.onnx".to_owned());
         configuration["perception"]["rust_live"]["source_checkpoint_path"] =
             Value::String("models/balls.pt".to_owned());
+        configuration["perception"]["rust_live"]["provider"] = Value::String("openvino".to_owned());
         configuration["perception"]["rust_live"]["capture_helper_executable_path"] = Value::String(
             "perception/target/release/billiards-perception-gstreamer-probe".to_owned(),
         );
@@ -1078,29 +1079,6 @@ mod tests {
     }
 
     #[test]
-    fn rejects_non_openvino_providers_before_spawn() {
-        for provider in ["cpu", "auto", "coral"] {
-            let project = tempfile::tempdir().unwrap();
-            let mut configuration = remote_stream_config();
-            configuration["perception"]["rust_live"]["provider"] =
-                Value::String(provider.to_owned());
-
-            let error = LiveProcessConfig::from_effective_configuration(
-                &configuration,
-                project.path(),
-                "127.0.0.1:49321".parse().unwrap(),
-                None,
-                None,
-                None,
-            )
-            .unwrap_err();
-            assert!(error.contains(&format!(
-                "unsupported perception.rust_live.provider: {provider}"
-            )));
-        }
-    }
-
-    #[test]
     fn rejects_invalid_or_missing_phase_schedule_before_spawn() {
         let project = tempfile::tempdir().unwrap();
         for (path, invalid_value, expected_error) in [
@@ -1151,6 +1129,26 @@ mod tests {
         )
         .unwrap_err();
         assert!(error.contains("perception.rust_live.phase_schedule is missing"));
+    }
+
+    #[test]
+    fn rejects_non_openvino_production_provider_before_spawn() {
+        let project = tempfile::tempdir().unwrap();
+        for provider in ["cpu", "auto", "coral"] {
+            let mut configuration = remote_stream_config();
+            configuration["perception"]["rust_live"]["provider"] =
+                Value::String(provider.to_owned());
+            let error = LiveProcessConfig::from_effective_configuration(
+                &configuration,
+                project.path(),
+                "127.0.0.1:49321".parse().unwrap(),
+                None,
+                None,
+                None,
+            )
+            .unwrap_err();
+            assert!(error.contains("requires the OpenVINO GPU provider"));
+        }
     }
 
     #[test]

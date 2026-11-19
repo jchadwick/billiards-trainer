@@ -1333,8 +1333,9 @@ mod tests {
     }
 
     #[test]
-    fn capture_uses_the_generic_maximum_frame_age_for_all_providers() {
+    fn capture_uses_generic_maximum_frame_age() {
         let mut configuration = remote_stream_configuration("http://127.0.0.1:8001/stream.mjpg");
+        configuration["perception"]["rust_live"]["provider"] = json!("openvino");
         configuration["perception"]["capture"]["maximum_frame_age_ms"] = json!(100);
 
         let settings = build_capture_settings_v3(&configuration).unwrap();

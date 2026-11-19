@@ -1,5 +1,10 @@
 # Localization decision after the larger-board evaluation — 2026-10-28
 
+## Implementation outcome — 2026-10-30
+
+The user later directed that useful improvements be merged without waiting for perfect qualification. The deterministic native-pixel localization implementation and its integration have now been merged into local `main`; the earlier two-image proposal and “do not change runtime APIs” scope below are historical planning context, not active instructions. The merge is not a deployment. Current evidence and limitations are summarized in `native-resolution-ball-localization-status.md`. No new image, jig, or ball measurement is required for the software work completed here.
+
+
 ## Superseding user direction — 2026-10-29
 
 Continue localization implementation from saved data. Do not request or take

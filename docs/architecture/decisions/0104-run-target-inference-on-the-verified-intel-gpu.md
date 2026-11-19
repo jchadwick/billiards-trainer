@@ -94,19 +94,14 @@ selected target configuration and preserve a separate recoverable release.
 ## Follow-up — 2026-10-29: saved 5 FPS replay is stable on a repeated static image
 
 The target Rust qualification package used VA-API JPEG decode and explicit
-OpenVINO Intel GPU inference with Coral's existing `[1,1280,1280,3]` input
-geometry preserved. In a 60.0-second run, a saved 1280 × 720 image enlarged to
-3840 × 2160 was repeatedly supplied as a 5 FPS MJPEG stream. The source
-delivered 304 frames (5.002 FPS); all 304 received motion checks. The app
-published 600 fresh state samples with 15/15 precise positions each, 57
-detector calls, and 171 cue observations, with no detector, cue, overload, or
-obsolete-result failures. The 15 Hz motion schedule was only a ceiling; source
-cadence limited effective checks to about 5 Hz.
+OpenVINO Intel GPU inference with the existing `[1,1280,1280,3]` model input.
+In a 60-second replay, a saved 1280 × 720 image enlarged to 3840 × 2160 was
+repeatedly supplied at 5 FPS. The source delivered 304 frames (5.002 FPS), all
+304 received motion checks, and 600 public-state samples had fresh positions
+for all 15 balls, with no detector, cue, overload, or obsolete-result failures.
 
-This supports continuous availability for that saved static fixture and
-configuration. It is not a live-camera, native-4K, moving-ball, changing-light,
-or independent physical-accuracy test. It does not select a production FPS,
-qualify shot invalidation or coaching, or authorize deployment. The production
-service and camera configuration were left unchanged; exact replay inputs,
-binary hash, per-frame output, and limitations are recorded in
+This supports continuous availability on that static fixture and configuration.
+It is not a live-camera, native-4K, moving-ball, changing-light, or independent
+physical-accuracy test. It does not select production FPS, qualify shot coaching,
+or authorize deployment. Exact inputs, outputs, and limitations are recorded in
 `thoughts/calibration/refiner-r10-validation-20261029/r10-scheduler-and-corner-availability.md`.

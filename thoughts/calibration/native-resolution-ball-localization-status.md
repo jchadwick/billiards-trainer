@@ -1,4 +1,32 @@
-## Active result — 2026-10-29, refiner revision 6
+# Native-resolution 2D ball localization: status and implementation record
+
+Last updated: 2026-10-30
+
+## Current merged status
+
+The user selected improvement over perfection and authorized merging the
+localization implementation into `main`. The merge includes the deterministic
+native-pixel ball-center refiner, center-calibration path, frame-bound tracking
+integration, scheduler and capture changes, and the accepted ADR follow-ups.
+Coral is retired from live production inference; the live path uses OpenVINO on
+the Intel GPU. These changes are committed locally but have not been pushed or
+deployed.
+
+The best recent continuity evidence is the R10 saved-pipeline replay: 3840 ×
+2160 processing at 5 FPS, 600/600 fresh public-state samples, and all 15 balls
+with precise positions in each sample. The input was one static 720p image
+upscaled to 4K, and the exact source snapshot that produced the recorded run
+is unavailable. This supports improving availability on that fixture; it does
+not establish physical X/Y accuracy or prove the exact checked-in refiner
+reproduces the run.
+
+The nine-point diagnostic mapping has about 8.8 mm RMS and 11.1 mm maximum
+error, with unknown reference uncertainty. Independent physical position
+accuracy, native-camera edge/corner performance, and shot-coaching response
+remain unqualified. These are limits to characterize while improving the
+product, not reasons to withhold this user-authorized code merge.
+
+## Prior saved-image result — 2026-10-29, refiner revision 6
 
 Production fixes are committed through `af1f9055`; exact-frame frontend contour
 rendering is also committed. Frozen actual detector boxes accept **13/15**, with
@@ -30,18 +58,18 @@ Target SSH was unreachable during this continuation, so nothing was deployed.
 
 ---
 
-# Native-resolution 2D ball localization: implementation record
+## Implementation record and historical evidence
 
 Last updated: 2026-10-28
 
-Current execution plan and latest next step:
-`native-ball-localization-next-steps-plan.md`. The initial review in
-`review-and-next-step-20261027.md` is historical. Detection-index and
-proposal-order invariance is fixed; the current revision-2 estimator still
-rejects the nine measured positions at production seed 716, so no calibration
-fit or FPS selection has been made.
+The notes below preserve the sequence of implementation and research results.
+Earlier rejection counts and suggested experiments are historical; the current
+merged implementation and latest saved-image findings are summarized above and
+in `refiner-r10-validation-20261029/r10-scheduler-and-corner-availability.md`.
+The broader qualification checklist remains in
+`native-ball-localization-next-steps-plan.md`.
 
-## Active correction — 2026-10-29
+## Historical correction direction — 2026-10-29
 
 The user explicitly directs continuing with all existing saved data and no
 further checkerboard or other camera images. This supersedes the earlier
@@ -179,18 +207,16 @@ establish identical intrinsics, table millimeter accuracy, or ball-center
 accuracy. Do not activate a scaled profile as ground truth without binding it
 to a verified camera profile and qualifying its effect.
 
-## Current implementation on `codex/native-ball-localization`
+## Implementation details now merged into local `main`
 
 - The GStreamer capture probe parses MJPEG, drops stale compressed frames
   before decode, uses `vaapijpegdec`, converts its native YUY2 output to RGB,
   and bounds app-sink buffering. It does not silently use software decode.
 - The Rust local-view refiner works on borrowed native RGB, returns explicit
   fit/reject evidence per proposal, and has bounded sample counts, work time,
-  ROI size, and scratch allocation. Its revision-2 selection is invariant to
-  detection identity and proposal order for the frozen audit inputs, but it
-  currently accepts 0/15 final measured-scene proposals at production seed
-  716 (14 ambiguous, one insufficient) and 0/9 proposals with physical
-  references. The 18-run cap audit found that cap 16 is untruncated on all
+  ROI size, and scratch allocation. The revision-2 selection was invariant to detection identity and proposal
+  order for its frozen audit inputs, but at that historical revision accepted
+  0/15 measured-scene proposals and 0/9 proposals with physical references. The 18-run cap audit found that cap 16 is untruncated on all
   three tested crops and still leaves 4, 2, and 8 individually qualified
   boundary fits for the purple, orange, and striped balls respectively; every
   cap/proposal run remains ambiguous. Earlier 4/9, 3/3, and 5/9 acceptance
@@ -317,49 +343,19 @@ accuracy.
 
 ## Remaining qualification
 
-The ordered next estimator investigation is recorded in
-`native-ball-localization-next-steps-plan.md`. Identity, sensitivity,
-nine-reference, sample-provenance, candidate-cap, contour-color, fisheye,
-fixed-sphere, static-feature registration, and playing-area-rectangle audits
-are complete. Relative frame registration is strong, but the metric rectangle
-mapping is unstable because the visible edge is not known to be the physical
-nose. The mark-grid audit replaces the earlier assumption that exact dot XY
-must first be supplied as a separate record. The long-rail lattice is a strong
-candidate based on official fractions and saved pixels, but it is not yet a
-table-specific qualified map.
+The replacement localization implementation is now part of local `main`, as
+a deliberate improvement over the previous path. It has not been deployed to
+the target device. The latest saved 60-second replay reported fresh positions
+for all 15 balls in 600/600 state samples with no detector, cue, overload, or
+obsolete-result failures. That replay repeated a static 720p image upscaled to
+4K; its exact refiner source snapshot is missing, so treat it as encouraging
+continuity evidence rather than a reproducible accuracy result for the current
+checkout.
 
-The next step is to use the prepared larger rigid-backed checkerboard at the
-unchanged camera setting, then re-estimate intrinsics and rerun the
-rail-cap-to-cloth plane bridge against the saved two cloth spots. Keep those
-spots held out one at a time. The board's active grid is 20 x 14 inches, with
-2-inch squares and 9 x 6 inner corners; its print-ready file is
-`output/pdf/ball-localization-checkerboard-20x14in.pdf`. Capture sharp native
-resolution JPEGs across the image center and corners with tilts around both
-axes. No jig, ball measurements, or pocket coordinates are needed. Until the
-plane bridge and ball-center estimator are independently validated, keep
-precise X/Y unavailable and do not alter FPS or production localization.
-
-1. Verify and select the native source geometry in the live capture request
-   without changing the Coral input tensor shape. The repository default has
-   no optics or center-calibration asset configured, so precise X/Y correctly
-   remains unavailable until qualified assets are supplied.
-2. Benchmark 3840 × 2160, 2560 × 1440, and 1920 × 1080 with camera rates
-   5, 7.5, 10, 15, and 20 FPS on the target. Include actual source delivery,
-   decoded/analyzed/published/dropped counts, detector/refiner age, motion
-   invalidation, CPU/GPU use, and memory trend. Select the most responsive
-   configuration that keeps measurements consistently available; do not
-   choose a nominal FPS that falls behind. Treat desired latency/accuracy
-   metrics as goals; prefer continuous available positions at a lower rate to
-   frequent drops or unavailable measurements at a higher rate.
-3. Qualify the exact optics profile and local-view fit on real source crops,
-   including highlights, stripe edges, shadows, cushion contact, touching
-   balls, and partial contours.
-4. Add operator acquisition/export for accepted image centers paired with the
-   existing measured references; do not require a jig or new pocket-ball
-   measurements.
-5. Run whatever independent held-out physical X/Y validation the known dots,
-   rail contacts, and saved positions support. Report actual available
-   reference coverage and accepted-measurement rate alongside residuals.
-6. Only then deploy a selected single configuration. The old deployment and
-   the separate GPU discovery can each be retained or rolled back
-   independently.
+Physical X/Y accuracy remains uncertain. The nine existing references have
+unknown measurement uncertainty; their diagnostic mapping reports about
+8.8 mm RMS and 11.1 mm maximum error. No independent held-out corner or pocket
+accuracy qualification has been completed. The saved replay's 5 FPS cadence
+does not select a live camera rate or establish motion-coaching behavior. The
+user does not need to provide another checkerboard image, build a jig, or repeat
+ball measurements for this implementation merge.
