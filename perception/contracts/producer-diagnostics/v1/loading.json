@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "generation_id": "generation-test-1",
+  "process_id": "process-test-1",
+  "sequence": 1,
+  "metadata": {
+    "build": {
+      "package_name": "billiards-perception",
+      "package_version": "0.1.0",
+      "git_revision": null,
+      "dirty": null
+    },
+    "model_state": "loading",
+    "model": null,
+    "engine_instance_id": "engine-test-1",
+    "capture_session_id": null,
+    "failure_code": null
+  },
+  "stages": []
+}

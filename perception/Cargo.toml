@@ -69,6 +69,7 @@ name = "billiards-temporal-import-cvat"
 path = "src/bin/temporal_import_cvat.rs"
 
 [dependencies]
+base64 = "0.22"
 anyhow = "1.0"
 axum = { version = "0.8.9", features = ["ws", "multipart"] }
 chrono = { version = "0.4", default-features = false, features = ["clock"] }

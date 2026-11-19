@@ -1,0 +1,226 @@
+{
+  "schema_version": 1,
+  "gateway": {
+    "instance_id": "gateway-test-1",
+    "revision": 1,
+    "assessed_at_utc": "2026-11-02T12:00:00.000Z",
+    "uptime_ms": 25,
+    "build": {
+      "package_name": "billiards-perception",
+      "package_version": "0.1.0",
+      "git_revision": null,
+      "dirty": null
+    }
+  },
+  "producer": {
+    "state": "expired",
+    "generation_id": "generation-test-1",
+    "report_sequence": null,
+    "report_age_ms": 3500,
+    "expires_in_ms": null,
+    "metadata": null,
+    "exit_reason": null,
+    "last_known": {
+      "report": {
+        "schema_version": 1,
+        "generation_id": "generation-test-1",
+        "process_id": "process-test-1",
+        "sequence": 3,
+        "metadata": {
+          "build": {
+            "package_name": "billiards-perception",
+            "package_version": "0.1.0",
+            "git_revision": null,
+            "dirty": null
+          },
+          "model_state": "active",
+          "model": {
+            "identity": {
+              "artifact_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "source_checkpoint_sha256": null,
+              "classes": [
+                {
+                  "class_id": 0,
+                  "class_name": "cue"
+                },
+                {
+                  "class_id": 1,
+                  "class_name": "ball"
+                }
+              ]
+            },
+            "input_width_px": 1280,
+            "input_height_px": 1280,
+            "requested_provider": "openvino",
+            "execution_provider": null,
+            "execution_device": null,
+            "execution_proof": null
+          },
+          "engine_instance_id": "engine-test-1",
+          "capture_session_id": "capture-test-1",
+          "failure_code": null
+        },
+        "stages": [
+          {
+            "stage": "capture_progress",
+            "status": "healthy",
+            "reason_code": "capture_frame_received",
+            "detail": null,
+            "last_progress_age_ms": 120,
+            "in_flight": false,
+            "work_started_age_ms": null,
+            "expected_jobs": null,
+            "completed_jobs": null,
+            "failed_jobs": null,
+            "scheduler_state": null,
+            "active_job_kind": null,
+            "last_completion_age_ms": null,
+            "last_failure_code": null,
+            "last_failure_age_ms": null,
+            "deadline_ms": null
+          }
+        ]
+      },
+      "report_age_ms": 3500
+    }
+  },
+  "stream": {
+    "heartbeat_interval_ms": 1000,
+    "stale_after_ms": 3000
+  },
+  "stages": [
+    {
+      "stage": "gateway_service",
+      "status": "healthy",
+      "reason_code": "gateway_running",
+      "source": "gateway_runtime",
+      "detail": null,
+      "last_progress_age_ms": 0,
+      "deadline_ms": null,
+      "in_flight": false,
+      "work_started_age_ms": null,
+      "expected_jobs": null,
+      "completed_jobs": null,
+      "failed_jobs": null,
+      "scheduler_state": null,
+      "active_job_kind": null,
+      "last_completion_age_ms": null,
+      "last_failure_code": null,
+      "last_failure_age_ms": null
+    },
+    {
+      "stage": "source_lifecycle",
+      "status": "unknown",
+      "reason_code": "producer_evidence_absent",
+      "source": "supervisor_registry",
+      "detail": null,
+      "last_progress_age_ms": null,
+      "deadline_ms": null,
+      "in_flight": false,
+      "work_started_age_ms": null,
+      "expected_jobs": null,
+      "completed_jobs": null,
+      "failed_jobs": null,
+      "scheduler_state": null,
+      "active_job_kind": null,
+      "last_completion_age_ms": null,
+      "last_failure_code": null,
+      "last_failure_age_ms": null
+    },
+    {
+      "stage": "capture_progress",
+      "status": "unknown",
+      "reason_code": "producer_evidence_absent",
+      "source": "producer_report",
+      "detail": null,
+      "last_progress_age_ms": null,
+      "deadline_ms": null,
+      "in_flight": false,
+      "work_started_age_ms": null,
+      "expected_jobs": null,
+      "completed_jobs": null,
+      "failed_jobs": null,
+      "scheduler_state": null,
+      "active_job_kind": null,
+      "last_completion_age_ms": null,
+      "last_failure_code": null,
+      "last_failure_age_ms": null
+    },
+    {
+      "stage": "model_initialization",
+      "status": "unknown",
+      "reason_code": "producer_evidence_absent",
+      "source": "producer_report",
+      "detail": null,
+      "last_progress_age_ms": null,
+      "deadline_ms": null,
+      "in_flight": false,
+      "work_started_age_ms": null,
+      "expected_jobs": null,
+      "completed_jobs": null,
+      "failed_jobs": null,
+      "scheduler_state": null,
+      "active_job_kind": null,
+      "last_completion_age_ms": null,
+      "last_failure_code": null,
+      "last_failure_age_ms": null
+    },
+    {
+      "stage": "scheduled_perception_work",
+      "status": "unknown",
+      "reason_code": "producer_evidence_absent",
+      "source": "producer_report",
+      "detail": null,
+      "last_progress_age_ms": null,
+      "deadline_ms": null,
+      "in_flight": false,
+      "work_started_age_ms": null,
+      "expected_jobs": null,
+      "completed_jobs": null,
+      "failed_jobs": null,
+      "scheduler_state": null,
+      "active_job_kind": null,
+      "last_completion_age_ms": null,
+      "last_failure_code": null,
+      "last_failure_age_ms": null
+    },
+    {
+      "stage": "scene_delivery",
+      "status": "starting",
+      "reason_code": "scene_not_received",
+      "source": "scene_lifecycle",
+      "detail": null,
+      "last_progress_age_ms": null,
+      "deadline_ms": null,
+      "in_flight": false,
+      "work_started_age_ms": null,
+      "expected_jobs": null,
+      "completed_jobs": null,
+      "failed_jobs": null,
+      "scheduler_state": null,
+      "active_job_kind": null,
+      "last_completion_age_ms": null,
+      "last_failure_code": null,
+      "last_failure_age_ms": null
+    },
+    {
+      "stage": "localization",
+      "status": "unknown",
+      "reason_code": "localization_not_received",
+      "source": "scene_lifecycle",
+      "detail": null,
+      "last_progress_age_ms": null,
+      "deadline_ms": null,
+      "in_flight": false,
+      "work_started_age_ms": null,
+      "expected_jobs": null,
+      "completed_jobs": null,
+      "failed_jobs": null,
+      "scheduler_state": null,
+      "active_job_kind": null,
+      "last_completion_age_ms": null,
+      "last_failure_code": null,
+      "last_failure_age_ms": null
+    }
+  ]
+}

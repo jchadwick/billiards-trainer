@@ -184,6 +184,24 @@ impl ConfigurationAuthority {
         .map_err(|error| format!("{}: {}", error.code, error.message))
     }
 
+    /// Apply setup's source-only patch under the ordinary revision and store lock.
+    pub(crate) fn update_setup_source(&self, expected_revision: u64, data: Value) -> Value {
+        let request = Request {
+            protocol_version: CONFIGURATION_CONTRACT_VERSION,
+            operation: "update".to_owned(),
+            expected_revision: Some(expected_revision),
+            data: Some(data),
+            sections: None,
+            section: None,
+            merge: None,
+            force_update: false,
+            include_defaults: false,
+            include_metadata: true,
+        };
+        self.mutate(&request, Mutation::SetupSource)
+            .unwrap_or_else(error_response)
+    }
+
     /// Process exactly one bounded JSON request and return exactly one JSON response.
     /// Errors are serialized to stdout as protocol responses; the boolean is the
     /// process success status used by the command wrapper.
@@ -413,11 +431,18 @@ impl ConfigurationAuthority {
             }
 
             let (mut candidate, force_update) = match mutation {
-                Mutation::Update => {
+                Mutation::Update | Mutation::SetupSource => {
                     let data = required_object_data(request)?;
                     reject_store_revision_in_update(data)?;
+                    let base = if matches!(mutation, Mutation::SetupSource)
+                        && !self.config_path.exists()
+                    {
+                        json!({"metadata": {"configuration_revision": loaded.revision}})
+                    } else {
+                        loaded.document.clone()
+                    };
                     (
-                        deep_merge(&loaded.document, &Value::Object(data.clone())),
+                        deep_merge(&base, &Value::Object(data.clone())),
                         request.force_update,
                     )
                 }
@@ -823,6 +848,7 @@ impl ConfigurationAuthority {
 #[derive(Debug, Clone, Copy)]
 enum Mutation {
     Update,
+    SetupSource,
     Replace,
     ResetSections,
 }
@@ -1328,6 +1354,16 @@ fn validate_cross_field_rules(document: &Value, schema: &Value, errors: &mut Vec
 }
 
 fn validate_runtime_rules(document: &Value, errors: &mut Vec<ValidationError>) {
+    if let Err(error) =
+        crate::producer_diagnostics_contract::DiagnosticsConfig::from_configuration(document)
+    {
+        errors.push(validation_error(
+            "perception.rust_live.diagnostics",
+            &error,
+            value_at_path(document, "perception.rust_live.diagnostics").unwrap_or(&Value::Null),
+            "valid bounded loopback diagnostics policy",
+        ));
+    }
     let maximum_age_path = "perception.freshness.maximum_observation_age_seconds";
     let expiry_path = "perception.freshness.expire_after_ms";
     if let (Some(maximum_age_seconds), Some(expiry_value)) = (
@@ -1508,7 +1544,7 @@ fn validate_selector(document: &Value, path: &str, errors: &mut Vec<ValidationEr
     }
 }
 
-fn is_gstreamer_selector(value: &str) -> bool {
+pub(crate) fn is_gstreamer_selector(value: &str) -> bool {
     value
         .strip_prefix("gstreamer-device-v1:")
         .is_some_and(|hash| {

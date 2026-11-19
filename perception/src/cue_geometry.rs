@@ -354,6 +354,7 @@ pub fn estimate_cue_geometry(
             height_px,
             config,
             &mut point_visits,
+            true,
             rgb8,
         ) {
             select_best(&mut best, fit, Some(proposal_index));
@@ -376,6 +377,7 @@ pub fn estimate_cue_geometry(
         height_px,
         config,
         &mut point_visits,
+        false,
         rgb8,
     ) {
         select_best(&mut best, fit, None);
@@ -589,6 +591,7 @@ fn fit_region(
     height: u32,
     config: CueGeometryConfig,
     point_visits: &mut usize,
+    detector_proposal: bool,
     rgb8: &[u8],
 ) -> Option<Fit> {
     inliers.clear();
@@ -605,7 +608,14 @@ fn fit_region(
         return None;
     }
 
-    let mut line = principal_line(inliers, config.minimum_eigenvalue_ratio)?;
+    // A diagonal detector box can contain more clutter than shaft pixels.
+    // Seed its fit with the strongest narrow line before trimming residuals.
+    let mut line = if detector_proposal {
+        proposal_line_seed(inliers, width, height, config, point_visits)
+            .or_else(|| principal_line(inliers, config.minimum_eigenvalue_ratio))?
+    } else {
+        principal_line(inliers, config.minimum_eigenvalue_ratio)?
+    };
     for _ in 0..config.max_refinements {
         inliers.clear();
         for point in points {
@@ -1176,6 +1186,69 @@ fn sample_luminance_bilinear(
     Some(top * (1.0 - y_fraction) + bottom * y_fraction)
 }
 
+fn proposal_line_seed(
+    points: &[EdgePoint],
+    width: u32,
+    height: u32,
+    config: CueGeometryConfig,
+    point_visits: &mut usize,
+) -> Option<PrincipalLine> {
+    // Coarse angular voting is capped independently of frame resolution.
+    // The subsequent residual fit restores subpixel angle and position.
+    const ANGLES: usize = 180;
+    const MAX_SAMPLES: usize = 2_048;
+    // Keep room for the residual and occupancy passes for this candidate.
+    let remaining = config.max_point_visits.saturating_sub(*point_visits);
+    let edge_reserved = config
+        .max_edge_samples
+        .saturating_mul(config.max_refinements + 1);
+    let profile_reserved = profile_visit_budget(width, height, config)?;
+    let reserved = edge_reserved.saturating_add(profile_reserved);
+    let sample_budget = (remaining.saturating_sub(reserved) / ANGLES).min(MAX_SAMPLES);
+    if sample_budget == 0 {
+        return None;
+    }
+    let stride = points.len().div_ceil(sample_budget);
+    let bin_width = config.maximum_fit_residual_px.max(1.0);
+    let diagonal = f64::from(width).hypot(f64::from(height));
+    let bin_count = (2.0 * diagonal / bin_width).ceil() as usize + 1;
+    let point_bytes = config.max_edge_samples * 2 * std::mem::size_of::<EdgePoint>();
+    if bin_count * std::mem::size_of::<u16>()
+        > config.max_temporary_bytes.saturating_sub(point_bytes)
+    {
+        return None;
+    }
+    let mut votes = vec![0_u16; bin_count];
+    let mut best = None;
+    let mut best_count = 0;
+    for angle in 0..ANGLES {
+        let theta = angle as f64 * std::f64::consts::PI / ANGLES as f64;
+        let (ny, nx) = theta.sin_cos();
+        votes.fill(0);
+        for point in points.iter().step_by(stride) {
+            if *point_visits >= config.max_point_visits {
+                return best;
+            }
+            *point_visits += 1;
+            let offset = nx * point.x + ny * point.y;
+            let bin = ((offset + diagonal) / bin_width) as usize;
+            let Some(vote) = votes.get_mut(bin) else {
+                continue;
+            };
+            *vote += 1;
+            if *vote > best_count {
+                best_count = *vote;
+                let offset = (bin as f64 + 0.5) * bin_width - diagonal;
+                best = Some(PrincipalLine {
+                    center: [nx * offset, ny * offset],
+                    axis: [-ny, nx],
+                });
+            }
+        }
+    }
+    best
+}
+
 fn in_region(point: EdgePoint, region: Region) -> bool {
     point.x >= region.left
         && point.x < region.right
@@ -1346,6 +1419,27 @@ mod tests {
         TableCalibrationV1, TableCoordinateFrame, TABLE_CALIBRATION_SCHEMA_VERSION,
     };
     use crate::ImageSpace;
+
+    #[test]
+    fn proposal_seed_finds_diagonal_shaft_among_clutter() {
+        let mut points: Vec<_> = (0..1500)
+            .map(|i| EdgePoint {
+                x: f64::from((i * 137) % 460 + 90),
+                y: f64::from((i * i * 31) % 245 + 60),
+            })
+            .collect();
+        points.extend((100..540).map(|x| EdgePoint {
+            x: f64::from(x),
+            y: f64::from(x) * 0.5 + 20.0,
+        }));
+        let mut visits = 0;
+        let fit = proposal_line_seed(&points, 640, 360, CueGeometryConfig::default(), &mut visits)
+            .expect("a diagonal shaft should produce a strong line seed");
+        assert!((fit.axis[1] / fit.axis[0] - 0.5).abs() < 0.03);
+        assert!(
+            perpendicular_distance(EdgePoint { x: 320.0, y: 180.0 }, fit.center, fit.axis) < 2.5
+        );
+    }
 
     fn calibration() -> ValidatedTableCalibrationV1 {
         TableCalibrationV1 {

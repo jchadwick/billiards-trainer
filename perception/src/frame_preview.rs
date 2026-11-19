@@ -7,7 +7,8 @@
 //! bounded preview worker threads.
 //!
 //! Local protocol v1 is unauthenticated and binds only to a loopback address.
-//! A client sends the eight bytes `BTPV0001`. The response is a four-byte
+//! A client sends `BTPV0001` to select a calibration still or `BTSV0001`
+//! for an ordinary stream frame. Both responses start with a four-byte
 //! big-endian JSON-header length, that many UTF-8 JSON bytes, and exactly the
 //! `jpeg_bytes` raw JPEG bytes named by an `ok` header. The response header has
 //! `schema_version`, `status`, `descriptor`, `jpeg_bytes`, and `error` fields.
@@ -15,6 +16,8 @@
 //! `oversized`, and `encode_failed`. Non-`ok` responses have a null descriptor,
 //! zero JPEG length, and a short error code or null. There is no authentication
 //! mechanism; loopback binding is the only network boundary.
+//! Ball placement command `BTBP0001` exchanges bounded, length-prefixed
+//! JSON. It inspects the latest raw frame and returns only observation metadata.
 
 use std::error::Error;
 use std::fmt::{Display, Formatter};
@@ -29,6 +32,10 @@ use image::codecs::jpeg::JpegEncoder;
 use image::ExtendedColorType;
 use serde::{Deserialize, Serialize};
 
+use crate::browser_ball_placement::{
+    PlacementObservation, PlacementRequest, BALL_PLACEMENT_REQUEST_V1,
+    MAXIMUM_PLACEMENT_MESSAGE_BYTES,
+};
 use crate::calibration_control::{
     handle_request as handle_calibration_request, write_busy_response, CalibrationControlConfig,
     CALIBRATION_APPLY_REQUEST_V1, CALIBRATION_READ_REQUEST_V1,
@@ -36,9 +43,12 @@ use crate::calibration_control::{
 use crate::calibration_store::CalibrationCaptureContextV1;
 use crate::capture::{CaptureTimestampSemantics, RgbFrameEnvelope};
 use crate::detection_batch::{BatchTimestamp, ClockKind, TimeUnit, TimestampStage};
+use crate::framing::{read_framed_message, write_framed_message};
 use crate::live_config::CaptureSessionCompatibility;
 
 pub const PREVIEW_REQUEST_V1: &[u8; 8] = b"BTPV0001";
+/// Ordinary stream reads must leave the operator-selected calibration frame pinned.
+pub const STREAM_PREVIEW_REQUEST_V1: &[u8; 8] = b"BTSV0001";
 const PREVIEW_PROTOCOL_VERSION: u8 = 1;
 const MAXIMUM_PREVIEW_HEADER_BYTES: usize = 1_048_576;
 const MAXIMUM_PREVIEW_JPEG_BYTES: usize = 16 * 1_048_576;
@@ -198,6 +208,7 @@ pub struct PreviewHostTimestampV1 {
 pub struct CapturedFramePreview {
     frame: Arc<RgbFrameEnvelope>,
     descriptor: FramePreviewDescriptorV1,
+    maximum_frame_age: Duration,
 }
 
 impl CapturedFramePreview {
@@ -207,6 +218,11 @@ impl CapturedFramePreview {
 
     pub fn rgb8(&self) -> &[u8] {
         self.frame.rgb8()
+    }
+
+    fn is_current_after(&self, processing_budget: Duration) -> bool {
+        self.frame.host_read_completed_at().elapsed()
+            <= self.maximum_frame_age.saturating_add(processing_budget)
     }
 }
 
@@ -383,7 +399,11 @@ impl LatestCapturedFrameSlot {
                 semantics: "read_completion_only".to_owned(),
             },
         };
-        Some(CapturedFramePreview { frame, descriptor })
+        Some(CapturedFramePreview {
+            frame,
+            descriptor,
+            maximum_frame_age: metadata.maximum_frame_age,
+        })
     }
 
     /// Retain the exact frame that was successfully delivered as a still
@@ -670,7 +690,7 @@ fn frame_preview_accept_loop(
             if stream.read_exact(&mut request).is_err() {
                 continue;
             }
-            if &request == PREVIEW_REQUEST_V1 {
+            if &request == PREVIEW_REQUEST_V1 || &request == STREAM_PREVIEW_REQUEST_V1 {
                 let _ = stream.set_write_timeout(Some(config.write_timeout));
                 let _ = write_header(
                     &mut stream,
@@ -687,7 +707,7 @@ fn frame_preview_accept_loop(
                     && discard_saturated_calibration_body(&mut stream, &config))
             {
                 let _ = stream.set_write_timeout(Some(config.write_timeout));
-                let _ = write_busy_response(&mut stream, config.maximum_header_bytes);
+                let _ = write_busy_response(&mut stream, calibration_response_limit(&config));
             }
             continue;
         }
@@ -737,6 +757,17 @@ fn discard_saturated_calibration_body(stream: &mut TcpStream, config: &FramePrev
     true
 }
 
+// The control envelope includes the durable snapshot, including appearance
+// evidence, and can be larger than a still frame's descriptor header.
+fn calibration_response_limit(config: &FramePreviewConfig) -> usize {
+    config.maximum_header_bytes.saturating_add(
+        config
+            .calibration_control
+            .as_ref()
+            .map_or(0, |control| control.store.maximum_file_bytes()),
+    )
+}
+
 fn handle_multiplexed_connection(
     mut stream: TcpStream,
     slot: &LatestCapturedFrameSlot,
@@ -744,8 +775,8 @@ fn handle_multiplexed_connection(
 ) -> io::Result<()> {
     let mut request = [0; PREVIEW_REQUEST_V1.len()];
     stream.read_exact(&mut request)?;
-    if &request == PREVIEW_REQUEST_V1 {
-        return handle_frame_preview(stream, slot, config);
+    if &request == PREVIEW_REQUEST_V1 || &request == STREAM_PREVIEW_REQUEST_V1 {
+        return handle_frame_preview(stream, slot, config, &request == PREVIEW_REQUEST_V1);
     }
     if &request == CALIBRATION_READ_REQUEST_V1 || &request == CALIBRATION_APPLY_REQUEST_V1 {
         return handle_calibration_request(
@@ -753,8 +784,11 @@ fn handle_multiplexed_connection(
             request,
             slot,
             config.calibration_control.as_ref(),
-            config.maximum_header_bytes,
+            calibration_response_limit(config),
         );
+    }
+    if &request == BALL_PLACEMENT_REQUEST_V1 && config.calibration_control.is_some() {
+        return handle_ball_placement(&mut stream, slot);
     }
     write_header(
         &mut stream,
@@ -768,10 +802,43 @@ fn handle_multiplexed_connection(
     )
 }
 
+/// Inspect the current RGB frame without encoding it or changing the
+/// operator-selected calibration still.
+fn handle_ball_placement(stream: &mut TcpStream, slot: &LatestCapturedFrameSlot) -> io::Result<()> {
+    let bytes =
+        read_framed_message(stream, MAXIMUM_PLACEMENT_MESSAGE_BYTES).map_err(io::Error::other)?;
+    let request: PlacementRequest = serde_json::from_slice(&bytes)?;
+    let observation = match slot
+        .snapshot()
+        .filter(|preview| request.matches(preview.descriptor()))
+    {
+        Some(preview) => {
+            let candidate = request
+                .target
+                .refine(preview.rgb8(), &request.intrinsics, &request.parameters)
+                .map_err(io::Error::other)?;
+            preview
+                .is_current_after(Duration::from_millis(request.parameters.batch_budget_ms))
+                .then_some(PlacementObservation {
+                    candidate,
+                    frame: preview.descriptor,
+                })
+        }
+        None => None,
+    };
+    write_framed_message(
+        stream,
+        &serde_json::to_vec(&observation)?,
+        MAXIMUM_PLACEMENT_MESSAGE_BYTES,
+    )
+    .map_err(io::Error::other)
+}
+
 fn handle_frame_preview(
     mut stream: TcpStream,
     slot: &LatestCapturedFrameSlot,
     config: &FramePreviewConfig,
+    pin_for_calibration: bool,
 ) -> io::Result<()> {
     let Some(preview) = slot.snapshot() else {
         return write_header(
@@ -828,9 +895,10 @@ fn handle_frame_preview(
         ),
         config.maximum_header_bytes,
     )?;
-    stream.write_all(&jpeg).map(|()| {
+    if pin_for_calibration {
         slot.retain_calibration_selection(preview);
-    })
+    }
+    stream.write_all(&jpeg)
 }
 
 fn response(
@@ -995,7 +1063,7 @@ mod tests {
 
     use super::{
         BoundedJpegOutput, FramePreviewConfig, FramePreviewServer, FramePreviewSlotError,
-        LatestCapturedFrameSlot, PREVIEW_REQUEST_V1,
+        LatestCapturedFrameSlot, PREVIEW_REQUEST_V1, STREAM_PREVIEW_REQUEST_V1,
     };
 
     fn make_slot_and_compatibility(
@@ -1011,6 +1079,18 @@ mod tests {
     fn make_slot_and_compatibility_for_session(
         maximum_frame_age: Duration,
         session_id: &str,
+    ) -> (
+        Arc<LatestCapturedFrameSlot>,
+        CaptureSessionCompatibility,
+        CaptureFrameBudget,
+    ) {
+        make_slot_for_image_space(maximum_frame_age, session_id, ImageSpace::Rectified)
+    }
+
+    fn make_slot_for_image_space(
+        maximum_frame_age: Duration,
+        session_id: &str,
+        image_space: ImageSpace,
     ) -> (
         Arc<LatestCapturedFrameSlot>,
         CaptureSessionCompatibility,
@@ -1032,7 +1112,7 @@ mod tests {
             profile.clone(),
             profile.clone(),
             "profile-test",
-            ImageSpace::Rectified,
+            image_space,
             9,
             11,
             None,
@@ -1048,8 +1128,7 @@ mod tests {
             aggregate_limit,
         )
         .unwrap();
-        let applied =
-            CaptureAppliedFrameGeometry::new(7, "profile-test", ImageSpace::Rectified, 9).unwrap();
+        let applied = CaptureAppliedFrameGeometry::new(7, "profile-test", image_space, 9).unwrap();
         let metadata = super::super::capture::CaptureSourceMetadata::new(
             "test-device",
             Some("Test Camera".to_owned()),
@@ -1198,6 +1277,77 @@ mod tests {
         let mut bytes = vec![0; u32::from_be_bytes(length) as usize];
         stream.read_exact(&mut bytes)?;
         Ok(serde_json::from_slice(&bytes).unwrap())
+    }
+
+    #[test]
+    fn live_ball_placement_reads_metadata_without_replacing_the_pinned_still() {
+        use crate::browser_ball_placement::BALL_PLACEMENT_REQUEST_V1;
+
+        let maximum_age = Duration::from_secs(3);
+        let (slot, _, budget) =
+            make_slot_for_image_space(maximum_age, "session-preview", ImageSpace::Raw);
+        let directory = tempfile::tempdir().unwrap();
+        let mut server_config = config("127.0.0.1:0".parse().unwrap());
+        server_config.calibration_control = Some(CalibrationControlConfig {
+            store: CalibrationStore::new(
+                directory.path().join("table.json"),
+                Duration::from_millis(100),
+                64 * 1024,
+            )
+            .unwrap(),
+            maximum_request_bytes: 4096,
+            table_visibility: crate::table_visibility::TableVisibilityConfig::default(),
+        });
+        let server = FramePreviewServer::bind(server_config, Arc::clone(&slot)).unwrap();
+        slot.publish(frame(&budget, "pinned", 1, 120, Instant::now()))
+            .unwrap();
+        let (header, _) = request(server.address(), PREVIEW_REQUEST_V1).unwrap();
+        slot.publish(frame(&budget, "live", 2, 120, Instant::now()))
+            .unwrap();
+        let mut body = serde_json::json!({
+            "target": {"seed": [32.0, 24.0], "center": [32.0, 24.0],
+                "tolerance": [8.0, 8.0], "ball_radius": 8.0},
+            "intrinsics": {"source_width_px": 64, "source_height_px": 48,
+                "fx": 100.0, "fy": 100.0, "cx": 32.0, "cy": 24.0},
+            "parameters": {"reference_width_px": 64},
+            "camera_profile_id": "profile-test",
+            "configuration_revision": 7,
+            "calibration_revision": 11,
+            "rectification_revision": 9,
+        });
+        let read = |body: &Value| {
+            control_request(
+                server.address(),
+                BALL_PLACEMENT_REQUEST_V1,
+                Some(&serde_json::to_vec(body).unwrap()),
+            )
+            .unwrap()
+        };
+        let observation = read(&body);
+        assert_eq!(observation["frame"]["source_frame_id"], "live");
+        assert_eq!(observation["candidate"], Value::Null);
+        assert_eq!(observation.as_object().unwrap().len(), 2);
+        let pinned: super::FramePreviewDescriptorV1 =
+            serde_json::from_value(header["descriptor"].clone()).unwrap();
+        assert_eq!(
+            slot.confirmed_calibration_preview(&pinned)
+                .unwrap()
+                .descriptor(),
+            &pinned
+        );
+
+        body["calibration_revision"] = serde_json::json!(10);
+        assert_eq!(read(&body), Value::Null);
+        body["calibration_revision"] = serde_json::json!(11);
+        slot.publish(frame(
+            &budget,
+            "stale",
+            3,
+            120,
+            Instant::now() - maximum_age,
+        ))
+        .unwrap();
+        assert_eq!(read(&body), Value::Null);
     }
 
     #[test]
@@ -1361,8 +1511,8 @@ mod tests {
         assert_eq!(decoded.get_pixel(0, 0).0, [180, 180, 180]);
     }
 
-    #[test]
-    fn calibration_control_checks_stable_context_cas_and_persists_frozen_frame_selection() {
+    #[tokio::test]
+    async fn calibration_control_checks_stable_context_cas_and_persists_frozen_frame_selection() {
         let (slot, _compatibility, budget) = make_slot_and_compatibility(Duration::from_secs(3));
         let directory = tempfile::tempdir().unwrap();
         let store = CalibrationStore::new(
@@ -1372,7 +1522,7 @@ mod tests {
         )
         .unwrap();
         let mut server_config = config("127.0.0.1:0".parse().unwrap());
-        server_config.maximum_header_bytes = 64 * 1024;
+        let response_limit = server_config.maximum_header_bytes + store.maximum_file_bytes();
         server_config.calibration_control = Some(CalibrationControlConfig {
             store: store.clone(),
             maximum_request_bytes: 4096,
@@ -1388,6 +1538,11 @@ mod tests {
 
         let later = frame(&budget, "newest-frame", 2, 71, Instant::now());
         slot.publish(later).unwrap();
+        let (stream_header, _) = request(server.address(), STREAM_PREVIEW_REQUEST_V1).unwrap();
+        assert_eq!(
+            stream_header["descriptor"]["source_frame_id"],
+            "newest-frame"
+        );
         let mut submit = serde_json::json!({
             "schema_version": 1,
             "descriptor": descriptor,
@@ -1401,11 +1556,13 @@ mod tests {
             ],
             "expected_store_revision": null
         });
-        let saved = control_request(
+        let saved = crate::calibration_control::apply_gateway_calibration(
             server.address(),
-            CALIBRATION_APPLY_REQUEST_V1,
-            Some(&serde_json::to_vec(&submit).unwrap()),
+            Duration::from_secs(2),
+            response_limit,
+            &serde_json::to_vec(&submit).unwrap(),
         )
+        .await
         .unwrap();
         assert_eq!(saved["status"], "ok");
         assert_eq!(saved["snapshot"]["revision"], 1);
@@ -1442,7 +1599,13 @@ mod tests {
         assert_eq!(mismatch["status"], "stale_context");
         assert_eq!(store.load().unwrap().revision, Some(1));
 
-        let read = control_request(server.address(), CALIBRATION_READ_REQUEST_V1, None).unwrap();
+        let read = crate::calibration_control::read_gateway_snapshot(
+            server.address(),
+            Duration::from_secs(2),
+            response_limit,
+        )
+        .await
+        .unwrap();
         assert_eq!(read["status"], "ok");
         assert_eq!(read["snapshot"]["revision"], 1);
     }

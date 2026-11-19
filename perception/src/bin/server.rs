@@ -33,7 +33,7 @@ struct ServerArgs {
     /// Maximum payload size for one framed scene message, excluding its header (hard limit: 32 MiB).
     #[arg(long, default_value_t = 262_144)]
     maximum_scene_bytes: usize,
-    /// Active configuration file. Required for live capture and configuration HTTP routes.
+    /// Configuration storage path. Live mode defaults to data/config.json.
     #[arg(long = "config")]
     configuration: Option<PathBuf>,
     /// Deployment project/data root. Relative state-store paths stay inside it; defaults to the service working directory.
@@ -273,8 +273,17 @@ impl ServerArgs {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let arguments = ServerArgs::parse();
+    let mut arguments = ServerArgs::parse();
     let live_options = arguments.live_options().map_err(std::io::Error::other)?;
+    if arguments.configuration.is_none() && live_options.enabled {
+        arguments.configuration = Some(
+            arguments
+                .project_root
+                .as_deref()
+                .unwrap_or(std::path::Path::new("."))
+                .join("data/config.json"),
+        );
+    }
     let config = arguments.config().map_err(std::io::Error::other)?;
     run_with_live(config, live_options).await
 }
@@ -532,6 +541,7 @@ mod tests {
         .unwrap();
         document["perception"]["freshness"]["maximum_observation_age_seconds"] =
             serde_json::json!(0.25);
+        document["perception"]["freshness"]["expire_after_ms"] = serde_json::json!(1_000);
         fs::write(&config_path, serde_json::to_vec(&document).unwrap()).unwrap();
 
         let args = ServerArgs::try_parse_from([
@@ -594,6 +604,7 @@ mod tests {
         .unwrap();
         document["perception"]["freshness"]["maximum_observation_age_seconds"] =
             serde_json::json!(0.25);
+        document["perception"]["freshness"]["expire_after_ms"] = serde_json::json!(1_000);
         fs::write(&config_path, serde_json::to_vec(&document).unwrap()).unwrap();
 
         let args = ServerArgs::try_parse_from([

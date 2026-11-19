@@ -622,6 +622,77 @@
             "capture_helper_child_exit_poll_interval_ms": {
               "type": "integer",
               "minimum": 1
+            },
+            "diagnostics": {
+              "type": "object",
+              "properties": {
+                "enabled": {
+                  "type": "boolean",
+                  "default": true
+                },
+                "bind_address": {
+                  "type": "string",
+                  "default": "127.0.0.1",
+                  "description": "Loopback IP literal only; validated by Rust."
+                },
+                "port": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 65535,
+                  "default": 0
+                },
+                "maximum_message_bytes": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 65536,
+                  "default": 65536
+                },
+                "heartbeat_interval_ms": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 300000,
+                  "default": 1000
+                },
+                "report_expiry_ms": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 300000,
+                  "default": 3000,
+                  "description": "Must exceed heartbeat_interval_ms; validated by Rust."
+                },
+                "stream_heartbeat_interval_ms": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 300000,
+                  "default": 1000
+                },
+                "stream_stale_after_ms": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 300000,
+                  "default": 3000,
+                  "description": "Must exceed stream_heartbeat_interval_ms; validated by Rust."
+                },
+                "processing_stall_timeout_ms": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 300000,
+                  "default": 30000,
+                  "description": "Applied only while scheduled work is explicitly in flight."
+                }
+              },
+              "additionalProperties": false,
+              "default": {
+                "enabled": true,
+                "bind_address": "127.0.0.1",
+                "port": 0,
+                "maximum_message_bytes": 65536,
+                "heartbeat_interval_ms": 1000,
+                "report_expiry_ms": 3000,
+                "stream_heartbeat_interval_ms": 1000,
+                "stream_stale_after_ms": 3000,
+                "processing_stall_timeout_ms": 30000
+              }
             }
           },
           "additionalProperties": false
@@ -764,7 +835,7 @@
               "type": "boolean"
             },
             "video_file_path": {
-              "type": "string"
+              "type": ["string", "null"]
             },
             "loop_video": {
               "type": "boolean"
@@ -830,9 +901,6 @@
               "type": "string"
             },
             "enable_ball_detection": {
-              "type": "boolean"
-            },
-            "enable_opencv_classification": {
               "type": "boolean"
             },
             "use_opencv_validation": {
@@ -1439,201 +1507,6 @@
                 },
                 "morph_kernel_size": {
                   "type": "integer"
-                }
-              },
-              "additionalProperties": false
-            },
-            "ball_colors": {
-              "type": "object",
-              "properties": {
-                "cue": {
-                  "type": "object",
-                  "properties": {
-                    "lower": {
-                      "type": "array",
-                      "items": {
-                        "type": "integer"
-                      }
-                    },
-                    "upper": {
-                      "type": "array",
-                      "items": {
-                        "type": "integer"
-                      }
-                    }
-                  },
-                  "additionalProperties": false
-                },
-                "yellow": {
-                  "type": "object",
-                  "properties": {
-                    "lower": {
-                      "type": "array",
-                      "items": {
-                        "type": "integer"
-                      }
-                    },
-                    "upper": {
-                      "type": "array",
-                      "items": {
-                        "type": "integer"
-                      }
-                    }
-                  },
-                  "additionalProperties": false
-                },
-                "blue": {
-                  "type": "object",
-                  "properties": {
-                    "lower": {
-                      "type": "array",
-                      "items": {
-                        "type": "integer"
-                      }
-                    },
-                    "upper": {
-                      "type": "array",
-                      "items": {
-                        "type": "integer"
-                      }
-                    }
-                  },
-                  "additionalProperties": false
-                },
-                "red": {
-                  "type": "object",
-                  "properties": {
-                    "lower": {
-                      "type": "array",
-                      "items": {
-                        "type": "integer"
-                      }
-                    },
-                    "upper": {
-                      "type": "array",
-                      "items": {
-                        "type": "integer"
-                      }
-                    }
-                  },
-                  "additionalProperties": false
-                },
-                "purple": {
-                  "type": "object",
-                  "properties": {
-                    "lower": {
-                      "type": "array",
-                      "items": {
-                        "type": "integer"
-                      }
-                    },
-                    "upper": {
-                      "type": "array",
-                      "items": {
-                        "type": "integer"
-                      }
-                    }
-                  },
-                  "additionalProperties": false
-                },
-                "orange": {
-                  "type": "object",
-                  "properties": {
-                    "lower": {
-                      "type": "array",
-                      "items": {
-                        "type": "integer"
-                      }
-                    },
-                    "upper": {
-                      "type": "array",
-                      "items": {
-                        "type": "integer"
-                      }
-                    }
-                  },
-                  "additionalProperties": false
-                },
-                "green": {
-                  "type": "object",
-                  "properties": {
-                    "lower": {
-                      "type": "array",
-                      "items": {
-                        "type": "integer"
-                      }
-                    },
-                    "upper": {
-                      "type": "array",
-                      "items": {
-                        "type": "integer"
-                      }
-                    }
-                  },
-                  "additionalProperties": false
-                },
-                "maroon": {
-                  "type": "object",
-                  "properties": {
-                    "lower": {
-                      "type": "array",
-                      "items": {
-                        "type": "integer"
-                      }
-                    },
-                    "upper": {
-                      "type": "array",
-                      "items": {
-                        "type": "integer"
-                      }
-                    }
-                  },
-                  "additionalProperties": false
-                },
-                "black": {
-                  "type": "object",
-                  "properties": {
-                    "lower": {
-                      "type": "array",
-                      "items": {
-                        "type": "integer"
-                      }
-                    },
-                    "upper": {
-                      "type": "array",
-                      "items": {
-                        "type": "integer"
-                      }
-                    }
-                  },
-                  "additionalProperties": false
-                }
-              },
-              "additionalProperties": false
-            },
-            "brightness_filters": {
-              "type": "object",
-              "properties": {
-                "min_avg_brightness": {
-                  "type": "integer"
-                },
-                "min_max_brightness": {
-                  "type": "integer"
-                },
-                "eight_ball_min_highlight": {
-                  "type": "integer"
-                },
-                "eight_ball_max_avg": {
-                  "type": "integer"
-                },
-                "ball_mask_radius_ratio": {
-                  "type": "number"
-                },
-                "ball_mask_inner_ratio": {
-                  "type": "number"
-                },
-                "region_expansion_ratio": {
-                  "type": "number"
                 }
               },
               "additionalProperties": false

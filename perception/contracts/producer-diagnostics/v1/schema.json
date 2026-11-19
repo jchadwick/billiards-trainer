@@ -1,0 +1,595 @@
+{
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "generation_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+    },
+    "process_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+    },
+    "sequence": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991
+    },
+    "metadata": {
+      "type": "object",
+      "properties": {
+        "build": {
+          "type": "object",
+          "properties": {
+            "package_name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+            },
+            "package_version": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+            },
+            "git_revision": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^[a-fA-F0-9]{7,64}$"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "dirty": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "package_name",
+            "package_version"
+          ],
+          "additionalProperties": false
+        },
+        "model_state": {
+          "enum": [
+            "loading",
+            "active",
+            "failed",
+            "stopped"
+          ]
+        },
+        "model": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "identity": {
+                  "type": "object",
+                  "properties": {
+                    "artifact_sha256": {
+                      "type": "string",
+                      "pattern": "^[a-fA-F0-9]{64}$"
+                    },
+                    "source_checkpoint_sha256": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "pattern": "^[a-fA-F0-9]{64}$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "classes": {
+                      "type": "array",
+                      "minItems": 1,
+                      "maxItems": 256,
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "class_id": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 4294967295
+                          },
+                          "class_name": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 128,
+                            "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+                          }
+                        },
+                        "required": [
+                          "class_id",
+                          "class_name"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "artifact_sha256",
+                    "source_checkpoint_sha256",
+                    "classes"
+                  ],
+                  "additionalProperties": false
+                },
+                "input_width_px": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 4294967295
+                },
+                "input_height_px": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 4294967295
+                },
+                "requested_provider": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+                },
+                "execution_provider": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 256,
+                      "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "execution_device": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 256,
+                      "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "execution_proof": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 256,
+                      "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "identity",
+                "input_width_px",
+                "input_height_px",
+                "requested_provider",
+                "execution_provider",
+                "execution_device",
+                "execution_proof"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "engine_instance_id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "capture_session_id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "failure_code": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "build",
+        "model_state",
+        "model",
+        "engine_instance_id",
+        "capture_session_id",
+        "failure_code"
+      ],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "model_state": {
+                "const": "active"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "model": {
+                "type": "object",
+                "properties": {
+                  "identity": {
+                    "type": "object",
+                    "properties": {
+                      "artifact_sha256": {
+                        "type": "string",
+                        "pattern": "^[a-fA-F0-9]{64}$"
+                      },
+                      "source_checkpoint_sha256": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "pattern": "^[a-fA-F0-9]{64}$"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "classes": {
+                        "type": "array",
+                        "minItems": 1,
+                        "maxItems": 256,
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "class_id": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 4294967295
+                            },
+                            "class_name": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 128,
+                              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+                            }
+                          },
+                          "required": [
+                            "class_id",
+                            "class_name"
+                          ],
+                          "additionalProperties": false
+                        }
+                      }
+                    },
+                    "required": [
+                      "artifact_sha256",
+                      "source_checkpoint_sha256",
+                      "classes"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "input_width_px": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 4294967295
+                  },
+                  "input_height_px": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 4294967295
+                  },
+                  "requested_provider": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128,
+                    "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+                  },
+                  "execution_provider": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 256,
+                        "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "execution_device": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 256,
+                        "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "execution_proof": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 256,
+                        "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "identity",
+                  "input_width_px",
+                  "input_height_px",
+                  "requested_provider",
+                  "execution_provider",
+                  "execution_device",
+                  "execution_proof"
+                ],
+                "additionalProperties": false
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "model": {
+                "type": "null"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "stages": {
+      "type": "array",
+      "maxItems": 16,
+      "items": {
+        "type": "object",
+        "properties": {
+          "stage": {
+            "enum": [
+              "source_lifecycle",
+              "capture_progress",
+              "model_initialization",
+              "scheduled_perception_work"
+            ]
+          },
+          "status": {
+            "enum": [
+              "starting",
+              "healthy",
+              "idle",
+              "degraded",
+              "stalled",
+              "failed",
+              "stopped",
+              "unknown"
+            ]
+          },
+          "reason_code": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 256,
+                "pattern": "^[^\\u0000-\\u001f\\u007f]*$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "last_progress_age_ms": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "in_flight": {
+            "type": "boolean"
+          },
+          "work_started_age_ms": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "expected_jobs": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "completed_jobs": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "failed_jobs": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "deadline_ms": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "scheduler_state": {
+            "enum": [
+              "unknown",
+              "idle",
+              "phase_gated",
+              "due",
+              "in_flight",
+              "result_ready",
+              "failed",
+              null
+            ]
+          },
+          "active_job_kind": {
+            "enum": [
+              "motion_assessment",
+              "ball_detection",
+              "cue_geometry",
+              null
+            ]
+          },
+          "last_completion_age_ms": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "last_failure_code": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 128,
+            "pattern": "^[^\\u0000-\\u001f\\u007f]*$"
+          },
+          "last_failure_age_ms": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "stage",
+          "status",
+          "reason_code",
+          "detail",
+          "last_progress_age_ms",
+          "in_flight",
+          "work_started_age_ms",
+          "expected_jobs",
+          "completed_jobs",
+          "failed_jobs",
+          "scheduler_state",
+          "active_job_kind",
+          "last_completion_age_ms",
+          "last_failure_code",
+          "last_failure_age_ms",
+          "deadline_ms"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "schema_version",
+    "generation_id",
+    "process_id",
+    "sequence",
+    "metadata",
+    "stages"
+  ],
+  "additionalProperties": false,
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://billiards-trainer.local/contracts/producer-diagnostics/v1/schema.json",
+  "title": "Producer diagnostics v1"
+}

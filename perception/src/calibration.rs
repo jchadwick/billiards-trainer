@@ -517,6 +517,29 @@ impl ValidatedTableCalibrationV1 {
         )
     }
 
+    /// Include the actual calibration geometry without its save revision.
+    pub(crate) fn capture_geometry_key(&self) -> impl Serialize + '_ {
+        (
+            &self.calibration.coordinate_frame,
+            self.playing_surface_dimensions_mm(),
+            &self.calibration.pixel_to_table_mm,
+        )
+    }
+
+    /// Locate a table-plane point in the image for an approximate search seed.
+    /// A ball center lies above this plane, so this is not a correspondence.
+    pub(crate) fn image_search_seed(&self, [x, y]: [f64; 2]) -> Option<[f64; 2]> {
+        let [a, b, c] = self.calibration.pixel_to_table_mm;
+        let a = [a[0] - x * c[0], a[1] - x * c[1], x * c[2] - a[2]];
+        let b = [b[0] - y * c[0], b[1] - y * c[1], y * c[2] - b[2]];
+        let determinant = a[0] * b[1] - a[1] * b[0];
+        let point = [
+            (a[2] * b[1] - a[1] * b[2]) / determinant,
+            (a[0] * b[2] - a[2] * b[0]) / determinant,
+        ];
+        point.into_iter().all(f64::is_finite).then_some(point)
+    }
+
     /// Whether a projected point lies on the calibrated playing surface.
     /// The calibration maps the cloth boundary to a center-origin rectangle;
     /// points exactly on its edge count as inside so an endpoint on the rail

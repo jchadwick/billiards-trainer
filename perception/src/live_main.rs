@@ -17,7 +17,7 @@ use billiards_perception::gstreamer_capture_source::{
 use billiards_perception::inference::ProviderSelection;
 use billiards_perception::live_application::{
     parse_ball_localization_settings_json, parse_phase_schedule_json, read_capture_settings,
-    run_live_application_with_audit, scene_transport_config, LiveApplicationSettings,
+    run_live_application_with_diagnostics, scene_transport_config, LiveApplicationSettings,
 };
 use billiards_perception::live_audit::LiveAuditConfig;
 use billiards_perception::table_visibility::TableVisibilityConfig;
@@ -327,7 +327,38 @@ struct Arguments {
 }
 
 fn main() -> Result<()> {
-    let arguments = Arguments::parse();
+    // Report before stdin, model initialization and capture preflight.
+    let reporter = billiards_perception::producer_diagnostics::ProducerReporter::from_environment()
+        .map_err(anyhow::Error::msg)?;
+    let diagnostics = reporter.as_ref().map(|reporter| reporter.handle());
+    let result = run_process(diagnostics.as_ref());
+    if let Some(diagnostics) = diagnostics {
+        if result.is_err() {
+            diagnostics.fail();
+        } else {
+            diagnostics.stopped();
+        }
+    }
+    if let Some(reporter) = reporter {
+        reporter.finish();
+    }
+    result
+}
+
+fn run_process(
+    diagnostics: Option<&billiards_perception::producer_diagnostics::ReporterHandle>,
+) -> Result<()> {
+    let arguments = match Arguments::try_parse() {
+        Ok(arguments) => arguments,
+        Err(error) if !error.use_stderr() => {
+            error.print()?;
+            return Ok(());
+        }
+        Err(error) => return Err(anyhow::Error::new(error)),
+    };
+    if let Some(diagnostics) = diagnostics {
+        diagnostics.set_engine_identity(arguments.engine_instance_id.clone());
+    }
     ensure!(
         arguments.capture_settings_stdin,
         "--capture-settings-stdin is required"
@@ -407,29 +438,36 @@ fn main() -> Result<()> {
     };
 
     match source_factory {
-        LiveCaptureSourceFactory::Unavailable(factory) => run_live_application_with_audit(
+        LiveCaptureSourceFactory::Unavailable(factory) => run_live_application_with_diagnostics(
             &exact_capture_settings,
             settings,
             factory,
             &termination_requested,
             live_audit_config,
+            diagnostics,
         ),
         #[cfg(feature = "camera-gstreamer-source")]
-        LiveCaptureSourceFactory::GstreamerPhysical(factory) => run_live_application_with_audit(
-            &exact_capture_settings,
-            settings,
-            *factory,
-            &termination_requested,
-            live_audit_config,
-        ),
+        LiveCaptureSourceFactory::GstreamerPhysical(factory) => {
+            run_live_application_with_diagnostics(
+                &exact_capture_settings,
+                settings,
+                *factory,
+                &termination_requested,
+                live_audit_config,
+                diagnostics,
+            )
+        }
         #[cfg(feature = "camera-gstreamer-source")]
-        LiveCaptureSourceFactory::GstreamerHttpMjpeg(factory) => run_live_application_with_audit(
-            &exact_capture_settings,
-            settings,
-            *factory,
-            &termination_requested,
-            live_audit_config,
-        ),
+        LiveCaptureSourceFactory::GstreamerHttpMjpeg(factory) => {
+            run_live_application_with_diagnostics(
+                &exact_capture_settings,
+                settings,
+                *factory,
+                &termination_requested,
+                live_audit_config,
+                diagnostics,
+            )
+        }
     }
 }
 

@@ -15,22 +15,33 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
-use axum::body::Body;
 use axum::extract::ws::{CloseFrame, Message, WebSocket, WebSocketUpgrade};
-use axum::extract::{Extension, Query, State};
-use axum::http::header::{CACHE_CONTROL, CONTENT_TYPE};
+use axum::extract::{DefaultBodyLimit, Extension, Path, Query, State};
+use axum::http::header::CACHE_CONTROL;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use axum::routing::get;
+use axum::routing::{get, post, put};
 use axum::{Json, Router};
+use base64::Engine as _;
 use chrono::{DateTime, SecondsFormat, Utc};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::{watch, Mutex as AsyncMutex, Semaphore};
+use tokio::sync::{watch, Mutex as AsyncMutex, RwLock as AsyncRwLock, Semaphore};
 use tokio::time::{sleep, timeout};
 
+use crate::browser_ball_placement::{
+    BallSearchTarget, PlacementObservation, PlacementRequest, BALL_PLACEMENT_REQUEST_V1,
+    MAXIMUM_PLACEMENT_MESSAGE_BYTES,
+};
+use crate::browser_capture_archive::CaptureMode;
+use crate::browser_diagnostics_contract::{
+    BrowserDiagnosticsSnapshot, BrowserDiagnosticsStage, BrowserDiagnosticsStreamPolicy,
+    DiagnosticsStageName, GatewayRuntimeSnapshot, ProducerLastKnownSnapshot,
+    ProducerReportSnapshot, ProducerReportState, StageEvidenceSource,
+    BROWSER_DIAGNOSTICS_SCHEMA_VERSION,
+};
 use crate::capture_settings_wire::{parse_capture_settings_json, ResolvedCaptureSettings};
 use crate::configuration_authority::{AuthorityLimits, ConfigurationAuthority};
 use crate::frame_preview::{
@@ -45,6 +56,10 @@ use crate::live_audit::{
 };
 use crate::live_handshake::{validate_live_v3_hello, ValidatedLiveHandshake};
 use crate::live_supervisor::LiveProcessConfig;
+use crate::producer_diagnostics::DiagnosticsRegistry;
+use crate::producer_diagnostics_contract::{
+    BuildInfo, DiagnosticsConfig, ProducerStageName, StageStatus,
+};
 use crate::public_state::PublicStateConfig;
 use crate::public_state_lifecycle::{
     CurrentSceneState, IngestOutcome, PerceptionStateV1, SceneStateLifecycle, SourceStateMetadata,
@@ -71,8 +86,7 @@ const POSITION_RETENTION_CONTEXT_FIELDS: [&str; 6] = [
     "calibration_revision",
     "calibration_state",
 ];
-const IDENTIFIED_MJPEG_BOUNDARY: &str = "billiards-frame-v1";
-const IDENTIFIED_MJPEG_PATH: &str = "/api/v1/video/identified.mjpg";
+const DIAGNOSTICS_WEBSOCKET_PATH: &str = "/api/v1/diagnostics/ws";
 pub const DEFAULT_MAX_CONFIGURATION_REQUESTS: usize = 4;
 
 /// Runtime options for the independently launchable gateway.
@@ -264,23 +278,40 @@ struct GatewayInner {
     latest: watch::Sender<Option<Arc<PublishedState>>>,
     shutdown: watch::Sender<bool>,
     producer_connected: AtomicBool,
+    producer_connection_updates: watch::Sender<bool>,
     producer_control_stream: Mutex<Option<std::net::TcpStream>>,
     websocket_slots: Arc<Semaphore>,
     configuration_slots: Arc<Semaphore>,
     frame_preview_stream: Option<FramePreviewStreamSettings>,
-    frame_preview_stream_slots: Arc<Semaphore>,
+    frame_preview_requests: AsyncRwLock<()>,
+    ball_placement_last_request: AsyncMutex<Option<Instant>>,
     configuration_mutation_lock: Arc<AsyncMutex<()>>,
+    setup_reload: watch::Sender<()>,
+    calibration_stills: Mutex<std::collections::VecDeque<(String, [u8; 32])>>,
+    setup_enabled: AtomicBool,
+    setup_error: Mutex<Option<String>>,
     gateway_audit: Option<Arc<GatewayAudit>>,
+    diagnostics: DiagnosticsRegistry,
+    diagnostics_policy: DiagnosticsConfig,
+    gateway_instance_id: String,
+    diagnostics_revision: AtomicU64,
+    diagnostics_snapshots: watch::Sender<BrowserDiagnosticsSnapshot>,
+    diagnostics_websocket_slots: Arc<Semaphore>,
 }
 
 #[derive(Debug, Clone)]
 struct FramePreviewStreamSettings {
     address: SocketAddr,
     request_timeout: Duration,
-    poll_interval: Duration,
     maximum_header_bytes: usize,
     maximum_jpeg_bytes: usize,
-    maximum_clients: usize,
+    calibration: Option<CalibrationPreviewLimits>,
+}
+
+#[derive(Debug, Clone)]
+struct CalibrationPreviewLimits {
+    maximum_request_bytes: usize,
+    maximum_response_bytes: usize,
 }
 
 #[derive(Debug)]
@@ -367,6 +398,7 @@ struct IngressState {
     localization_received_at: Option<DateTime<Utc>>,
     updated_at: Option<DateTime<Utc>>,
     live_source_geometry: Option<(u32, u32)>,
+    live_configuration_revision: Option<u64>,
 }
 
 #[derive(Debug, Clone)]
@@ -388,7 +420,16 @@ impl Gateway {
         config: ServerConfig,
         audit: Option<(LiveAuditRecorder, String)>,
     ) -> Result<Self, String> {
+        Self::new_with_audit_and_diagnostics(config, audit, DiagnosticsConfig::default())
+    }
+
+    fn new_with_audit_and_diagnostics(
+        config: ServerConfig,
+        audit: Option<(LiveAuditRecorder, String)>,
+        diagnostics_policy: DiagnosticsConfig,
+    ) -> Result<Self, String> {
         config.validate()?;
+        diagnostics_policy.validate()?;
         let configuration_authority = config
             .configuration_path
             .as_ref()
@@ -402,11 +443,6 @@ impl Gateway {
                     None
                 }
             };
-        let frame_preview_stream_slots = Arc::new(Semaphore::new(
-            frame_preview_stream
-                .as_ref()
-                .map_or(1, |settings| settings.maximum_clients),
-        ));
         let game_session_store = configuration_authority.as_ref().and_then(|authority| {
             let root = config
                 .project_root
@@ -425,11 +461,18 @@ impl Gateway {
                 .map_err(|error| format!("invalid scene state lifecycle: {error}"))?;
         let (latest, _) = watch::channel(None);
         let (shutdown, _) = watch::channel(false);
+        let gateway_instance_id = uuid::Uuid::new_v4().to_string();
+        let (producer_connection_updates, _) = watch::channel(false);
+        let initial_diagnostics =
+            initial_browser_diagnostics_snapshot(&gateway_instance_id, &diagnostics_policy);
+        let (diagnostics_snapshots, _) = watch::channel(initial_diagnostics);
+        let diagnostics_websocket_slots =
+            Arc::new(Semaphore::new(config.maximum_websocket_clients));
         let gateway_audit = audit.map(|(recorder, run_id)| {
             Arc::new(GatewayAudit {
                 recorder,
                 run_id,
-                gateway_instance_id: uuid::Uuid::new_v4().to_string(),
+                gateway_instance_id: gateway_instance_id.clone(),
                 monotonic_clock_domain_id: uuid::Uuid::new_v4().to_string(),
                 next_client_id: AtomicU64::new(1),
             })
@@ -441,8 +484,13 @@ impl Gateway {
                     config.maximum_configuration_requests,
                 )),
                 frame_preview_stream,
-                frame_preview_stream_slots,
+                frame_preview_requests: AsyncRwLock::new(()),
+                ball_placement_last_request: AsyncMutex::new(None),
                 configuration_mutation_lock: Arc::new(AsyncMutex::new(())),
+                setup_reload: watch::channel(()).0,
+                calibration_stills: Mutex::new(std::collections::VecDeque::new()),
+                setup_enabled: AtomicBool::new(false),
+                setup_error: Mutex::new(None),
                 configuration_authority,
                 game_session_store,
                 config,
@@ -457,22 +505,475 @@ impl Gateway {
                     localization_received_at: None,
                     updated_at: None,
                     live_source_geometry: None,
+                    live_configuration_revision: None,
                 }),
                 latest,
                 shutdown,
                 producer_connected: AtomicBool::new(false),
+                producer_connection_updates,
                 producer_control_stream: Mutex::new(None),
                 gateway_audit,
+                diagnostics: DiagnosticsRegistry::default(),
+                diagnostics_policy,
+                gateway_instance_id,
+                diagnostics_revision: AtomicU64::new(1),
+                diagnostics_snapshots,
+                diagnostics_websocket_slots,
             }),
         })
+    }
+
+    /// Producer metadata is independent of localization readiness and scene epochs.
+    pub fn diagnostics_registry(&self) -> DiagnosticsRegistry {
+        self.inner.diagnostics.clone()
+    }
+
+    fn publish_diagnostics_snapshot(&self) {
+        let revision = self
+            .inner
+            .diagnostics_revision
+            .fetch_add(1, Ordering::AcqRel)
+            .saturating_add(1);
+        let snapshot = self.assess_diagnostics_snapshot(revision);
+        self.inner.diagnostics_snapshots.send_replace(snapshot);
+    }
+
+    fn assess_diagnostics_snapshot(&self, revision: u64) -> BrowserDiagnosticsSnapshot {
+        let now = Instant::now();
+        let producer = self.inner.diagnostics.snapshot();
+        let report_age = producer
+            .received_at
+            .and_then(|received_at| now.checked_duration_since(received_at));
+        let expiry = Duration::from_millis(self.inner.diagnostics_policy.report_expiry_ms);
+        let report_fresh = !producer.exited
+            && producer.report.is_some()
+            && report_age.is_some_and(|age| age < expiry);
+        let producer_state = if producer.exited {
+            ProducerReportState::Stopped
+        } else if report_fresh {
+            ProducerReportState::Fresh
+        } else if producer.report.is_some() {
+            ProducerReportState::Expired
+        } else {
+            ProducerReportState::Unknown
+        };
+        let producer_snapshot = ProducerReportSnapshot {
+            state: producer_state,
+            generation_id: producer.generation_id.clone(),
+            report_sequence: report_fresh
+                .then(|| producer.report.as_ref().map(|report| report.sequence))
+                .flatten(),
+            report_age_ms: (report_fresh || producer.report.is_some())
+                .then(|| report_age.map(duration_millis))
+                .flatten(),
+            expires_in_ms: report_fresh
+                .then(|| expiry.saturating_sub(report_age.unwrap_or_default()))
+                .map(duration_millis),
+            metadata: report_fresh
+                .then(|| {
+                    producer
+                        .report
+                        .as_ref()
+                        .map(|report| report.metadata.clone())
+                })
+                .flatten(),
+            exit_reason: producer.exited.then_some(producer.exit_reason).flatten(),
+            last_known: (!report_fresh)
+                .then(|| {
+                    producer
+                        .last_known
+                        .as_ref()
+                        .map(|last_known| ProducerLastKnownSnapshot {
+                            report: last_known.report.clone(),
+                            report_age_ms: duration_millis(
+                                now.saturating_duration_since(last_known.received_at),
+                            ),
+                        })
+                })
+                .flatten(),
+        };
+        let report = report_fresh.then_some(producer.report.as_ref()).flatten();
+        let report_age_ms = report_age.map(duration_millis).unwrap_or_default();
+        let mut stages = Vec::with_capacity(7);
+        stages.push(stage_assessment(
+            DiagnosticsStageName::GatewayService,
+            StageStatus::Healthy,
+            "gateway_running",
+            StageEvidenceSource::GatewayRuntime,
+            None,
+            Some(0),
+            None,
+        ));
+        for (producer_stage, browser_stage) in [
+            (
+                ProducerStageName::SourceLifecycle,
+                DiagnosticsStageName::SourceLifecycle,
+            ),
+            (
+                ProducerStageName::CaptureProgress,
+                DiagnosticsStageName::CaptureProgress,
+            ),
+            (
+                ProducerStageName::ModelInitialization,
+                DiagnosticsStageName::ModelInitialization,
+            ),
+            (
+                ProducerStageName::ScheduledPerceptionWork,
+                DiagnosticsStageName::ScheduledPerceptionWork,
+            ),
+        ] {
+            stages.push(self.assess_producer_stage(
+                &producer,
+                report,
+                producer_stage,
+                browser_stage,
+                report_age_ms,
+            ));
+        }
+
+        // Diagnostics read the latest accepted lifecycle snapshot without
+        // triggering scene-watch publication. Existing scene freshness
+        // behavior remains owned by its independent scheduler.
+        let state = self.inner.latest.borrow().clone();
+        let now_ns = self.monotonic_ns();
+        stages.push(self.assess_scene_delivery(state.as_deref(), now_ns));
+        stages.push(self.assess_localization(state.as_deref(), now_ns));
+        let snapshot = BrowserDiagnosticsSnapshot {
+            schema_version: BROWSER_DIAGNOSTICS_SCHEMA_VERSION,
+            gateway: GatewayRuntimeSnapshot {
+                instance_id: self.inner.gateway_instance_id.clone(),
+                revision,
+                assessed_at_utc: Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true),
+                uptime_ms: duration_millis(self.inner.started_at.elapsed()),
+                build: BuildInfo::current(),
+            },
+            producer: producer_snapshot,
+            stream: BrowserDiagnosticsStreamPolicy {
+                heartbeat_interval_ms: self.inner.diagnostics_policy.stream_heartbeat_interval_ms,
+                stale_after_ms: self.inner.diagnostics_policy.stream_stale_after_ms,
+            },
+            stages,
+        };
+        debug_assert!(snapshot.validate().is_ok());
+        snapshot
+    }
+
+    fn assess_producer_stage(
+        &self,
+        producer: &crate::producer_diagnostics::ReceivedDiagnostics,
+        report: Option<&crate::producer_diagnostics_contract::ProducerDiagnosticsReport>,
+        producer_stage: ProducerStageName,
+        browser_stage: DiagnosticsStageName,
+        report_age_ms: u64,
+    ) -> BrowserDiagnosticsStage {
+        if let Some(observation) = report.and_then(|report| {
+            report
+                .stages
+                .iter()
+                .find(|stage| stage.stage == producer_stage)
+        }) {
+            let age = observation
+                .last_progress_age_ms
+                .map(|age| age.saturating_add(report_age_ms));
+            let overdue = producer_stage == ProducerStageName::ScheduledPerceptionWork
+                && observation.in_flight
+                && observation.status == StageStatus::Healthy
+                && observation.deadline_ms.is_some_and(|deadline| {
+                    observation
+                        .work_started_age_ms
+                        .is_some_and(|age| age.saturating_add(report_age_ms) >= deadline)
+                });
+            let mut assessment = stage_assessment(
+                browser_stage,
+                if overdue {
+                    StageStatus::Stalled
+                } else {
+                    observation.status
+                },
+                if overdue {
+                    "active_work_deadline_exceeded"
+                } else {
+                    observation.reason_code.as_str()
+                },
+                StageEvidenceSource::ProducerReport,
+                observation.detail.as_deref(),
+                age,
+                observation.deadline_ms,
+            );
+            assessment.in_flight = observation.in_flight;
+            assessment.work_started_age_ms = observation
+                .work_started_age_ms
+                .map(|age| age.saturating_add(report_age_ms));
+            assessment.expected_jobs = observation.expected_jobs;
+            assessment.completed_jobs = observation.completed_jobs;
+            assessment.failed_jobs = observation.failed_jobs;
+            assessment.scheduler_state = observation.scheduler_state;
+            assessment.active_job_kind = observation.active_job_kind;
+            assessment.last_completion_age_ms = observation
+                .last_completion_age_ms
+                .map(|age| age.saturating_add(report_age_ms));
+            assessment.last_failure_code = observation.last_failure_code.clone();
+            assessment.last_failure_age_ms = observation
+                .last_failure_age_ms
+                .map(|age| age.saturating_add(report_age_ms));
+            if !observation.in_flight {
+                assessment.deadline_ms = None;
+            }
+            return assessment;
+        }
+        if producer.exited && producer_stage == ProducerStageName::SourceLifecycle {
+            let (status, reason) = match producer.exit_reason.unwrap_or(
+                crate::producer_diagnostics_contract::ProducerExitReason::Unknown,
+            ) {
+                crate::producer_diagnostics_contract::ProducerExitReason::GracefulStop => {
+                    (StageStatus::Stopped, "producer_graceful_stop")
+                }
+                crate::producer_diagnostics_contract::ProducerExitReason::ProcessExitedSuccessfully => {
+                    (StageStatus::Stopped, "producer_process_exited_successfully")
+                }
+                crate::producer_diagnostics_contract::ProducerExitReason::ProcessExitedNonzero => {
+                    (StageStatus::Failed, "producer_process_exited_nonzero")
+                }
+                crate::producer_diagnostics_contract::ProducerExitReason::ProcessWaitFailed => {
+                    (StageStatus::Failed, "producer_process_wait_failed")
+                }
+                crate::producer_diagnostics_contract::ProducerExitReason::SpawnFailed => {
+                    (StageStatus::Failed, "producer_spawn_failed")
+                }
+                crate::producer_diagnostics_contract::ProducerExitReason::LaunchRequestFailed => {
+                    (StageStatus::Failed, "producer_launch_request_failed")
+                }
+                crate::producer_diagnostics_contract::ProducerExitReason::ForcedTermination => {
+                    (StageStatus::Failed, "producer_forced_termination")
+                }
+                crate::producer_diagnostics_contract::ProducerExitReason::Unknown => {
+                    (StageStatus::Unknown, "producer_exit_outcome_unknown")
+                }
+            };
+            return stage_assessment(
+                browser_stage,
+                status,
+                reason,
+                StageEvidenceSource::SupervisorRegistry,
+                None,
+                None,
+                None,
+            );
+        }
+        stage_assessment(
+            browser_stage,
+            StageStatus::Unknown,
+            if producer.exited {
+                "producer_process_exited"
+            } else if producer.report.is_some() {
+                "producer_report_expired"
+            } else if producer.generation_id.is_some() {
+                "producer_report_unavailable"
+            } else {
+                "producer_evidence_absent"
+            },
+            if producer.exited {
+                StageEvidenceSource::SupervisorRegistry
+            } else {
+                StageEvidenceSource::ProducerReport
+            },
+            None,
+            None,
+            None,
+        )
+    }
+
+    fn assess_scene_delivery(
+        &self,
+        state: Option<&PublishedState>,
+        now_ns: u128,
+    ) -> BrowserDiagnosticsStage {
+        let Some(state) = state else {
+            return stage_assessment(
+                DiagnosticsStageName::SceneDelivery,
+                StageStatus::Starting,
+                "scene_not_received",
+                StageEvidenceSource::SceneLifecycle,
+                None,
+                None,
+                None,
+            );
+        };
+        let age_ns = now_ns.saturating_sub(state.current.updated_monotonic_ns);
+        let age_ms = u64::try_from(age_ns / 1_000_000).unwrap_or(u64::MAX);
+        let age = Duration::from_nanos(u64::try_from(age_ns).unwrap_or(u64::MAX));
+        let (status, reason) = if age < self.inner.config.stale_after {
+            (StageStatus::Healthy, "scene_delivery_recent")
+        } else if age < self.inner.config.expire_after {
+            (StageStatus::Degraded, "scene_delivery_stale")
+        } else {
+            (StageStatus::Stalled, "scene_delivery_expired")
+        };
+        stage_assessment(
+            DiagnosticsStageName::SceneDelivery,
+            status,
+            reason,
+            StageEvidenceSource::SceneLifecycle,
+            None,
+            Some(age_ms),
+            None,
+        )
+    }
+
+    fn assess_localization(
+        &self,
+        state: Option<&PublishedState>,
+        now_ns: u128,
+    ) -> BrowserDiagnosticsStage {
+        let Some(received_ns) =
+            state.and_then(|state| state.current.localization_received_monotonic_ns)
+        else {
+            return stage_assessment(
+                DiagnosticsStageName::Localization,
+                StageStatus::Unknown,
+                "localization_not_received",
+                StageEvidenceSource::SceneLifecycle,
+                None,
+                None,
+                None,
+            );
+        };
+        let age_ns = now_ns.saturating_sub(received_ns);
+        let age_ms = u64::try_from(age_ns / 1_000_000).unwrap_or(u64::MAX);
+        let age = Duration::from_nanos(u64::try_from(age_ns).unwrap_or(u64::MAX));
+        let (status, reason) = if age < self.inner.config.stale_after {
+            (StageStatus::Healthy, "localization_fresh")
+        } else if age < self.inner.config.expire_after {
+            (StageStatus::Degraded, "localization_stale")
+        } else {
+            (StageStatus::Stalled, "localization_expired")
+        };
+        stage_assessment(
+            DiagnosticsStageName::Localization,
+            status,
+            reason,
+            StageEvidenceSource::SceneLifecycle,
+            None,
+            Some(age_ms),
+            None,
+        )
+    }
+
+    fn diagnostics_next_delay(&self) -> Duration {
+        let now = Instant::now();
+        let heartbeat =
+            Duration::from_millis(self.inner.diagnostics_policy.stream_heartbeat_interval_ms);
+        let producer = self.inner.diagnostics.snapshot();
+        let mut deadline = if producer.exited {
+            None
+        } else {
+            producer
+                .received_at
+                .and_then(|received| {
+                    received.checked_add(Duration::from_millis(
+                        self.inner.diagnostics_policy.report_expiry_ms,
+                    ))
+                })
+                .filter(|deadline| *deadline > now)
+        };
+        let Some(_received_at) = producer.received_at else {
+            return heartbeat;
+        };
+        let Some(report) = producer.report else {
+            return heartbeat;
+        };
+        for stage in &report.stages {
+            if stage.status != StageStatus::Healthy || !stage.in_flight {
+                continue;
+            }
+            let (Some(deadline_ms), Some(work_started_age_ms)) =
+                (stage.deadline_ms, stage.work_started_age_ms)
+            else {
+                continue;
+            };
+            let report_age_ms = producer
+                .received_at
+                .and_then(|received| now.checked_duration_since(received))
+                .map(duration_millis)
+                .unwrap_or_default();
+            if let Some(work_deadline) = now
+                .checked_add(Duration::from_millis(
+                    deadline_ms.saturating_sub(work_started_age_ms.saturating_add(report_age_ms)),
+                ))
+                .filter(|deadline| *deadline > now)
+            {
+                deadline =
+                    Some(deadline.map_or(work_deadline, |current| current.min(work_deadline)));
+            }
+        }
+        deadline
+            .map(|deadline| deadline.saturating_duration_since(now).min(heartbeat))
+            .unwrap_or(heartbeat)
     }
 
     pub fn router(&self) -> Router {
         let scene_router = Router::new()
             .route("/api/v1/health/live", get(health_live))
             .route("/api/v1/health/ready", get(health_ready))
-            .route(IDENTIFIED_MJPEG_PATH, get(identified_mjpeg_stream))
+            .route("/api/v1/setup", get(setup_status))
+            .route("/api/v1/setup/cameras", get(setup_cameras))
+            .route(
+                "/api/v1/setup/source",
+                put(setup_source).layer(DefaultBodyLimit::max(4096)),
+            )
+            .route(
+                "/api/v1/setup/calibration/frame",
+                get(setup_calibration_frame),
+            )
+            .route(
+                "/api/v1/setup/calibration",
+                post(setup_calibration_apply).layer(DefaultBodyLimit::max(
+                    crate::calibration_control::MAXIMUM_CALIBRATION_REQUEST_BYTES,
+                )),
+            )
+            .route(
+                "/api/v1/setup/calibration/checkerboard.pdf",
+                get(setup_checkerboard_pdf),
+            )
+            .route(
+                "/api/v1/setup/calibration/optics",
+                post(setup_fit_optics).layer(DefaultBodyLimit::max(
+                    crate::browser_precision_calibration::MAXIMUM_FIT_REQUEST_BYTES,
+                )),
+            )
+            .route(
+                "/api/v1/setup/calibration/ball-centers",
+                post(setup_fit_ball_centers).layer(DefaultBodyLimit::max(
+                    crate::browser_precision_calibration::MAXIMUM_FIT_REQUEST_BYTES,
+                )),
+            )
+            .route(
+                "/api/v1/setup/calibration/captures/{mode}",
+                get(setup_list_captures).delete(setup_clear_captures),
+            )
+            .route(
+                "/api/v1/setup/calibration/captures/{mode}/{slot}",
+                put(setup_store_capture)
+                    .delete(setup_remove_capture)
+                    .layer(DefaultBodyLimit::max(
+                        crate::browser_precision_calibration::MAXIMUM_STILL_REQUEST_BYTES,
+                    )),
+            )
+            .route(
+                "/api/v1/setup/calibration/ball-candidate",
+                post(setup_ball_candidate).layer(DefaultBodyLimit::max(
+                    crate::browser_precision_calibration::MAXIMUM_STILL_REQUEST_BYTES,
+                )),
+            )
+            .route(
+                "/api/v1/setup/calibration/ball-placement",
+                get(setup_ball_placement),
+            )
             .route("/api/v1/websocket/ws", get(websocket_upgrade))
+            .route(
+                DIAGNOSTICS_WEBSOCKET_PATH,
+                get(diagnostics_websocket_upgrade),
+            )
             .with_state(self.clone());
         let scene_gateway = self.clone();
         let session_router = GameSessionHttpState::new(
@@ -576,13 +1077,72 @@ impl Gateway {
         table: Option<Value>,
         game_type: Option<String>,
     ) -> Result<(), String> {
+        self.accept_scene_with_capture_age_and_perception(
+            snapshot,
+            localization_age_offset_ns,
+            ball_age_offsets_ns,
+            table,
+            game_type,
+            None,
+        )
+    }
+
+    /// Ingest a scene and its matching perception envelope as one gateway
+    /// state transition. Publishing between these updates would expose new
+    /// measured centers with the previous frame's trust and guidance flags.
+    fn accept_scene_with_capture_age_and_perception(
+        &self,
+        snapshot: SceneSnapshotV1,
+        localization_age_offset_ns: u128,
+        ball_age_offsets_ns: HashMap<String, u128>,
+        table: Option<Value>,
+        game_type: Option<String>,
+        perception_update: Option<PerceptionDeliveryUpdate<'_>>,
+    ) -> Result<(), String> {
+        let mut perception_status = perception_update
+            .as_ref()
+            .map(|update| serde_json::to_value(update.perception))
+            .transpose()
+            .map_err(|error| format!("could not encode perception status: {error}"))?;
         let mut state = lock_unpoisoned(&self.inner.state);
+        if let Some(update) = perception_update.as_ref() {
+            if !state
+                .producer_identity
+                .as_ref()
+                .is_some_and(|(engine, session)| {
+                    engine == update.engine_instance_id && session == update.source_session_id
+                })
+            {
+                return Err("perception delivery source is not the active producer".into());
+            }
+            if state
+                .last_delivery_sequence
+                .is_some_and(|previous| update.delivery_sequence <= previous)
+            {
+                return Err("perception delivery sequence is duplicate or out of order".into());
+            }
+        }
         if let Some((width_px, height_px)) = state.live_source_geometry {
             if (snapshot.source.width_px, snapshot.source.height_px) != (width_px, height_px) {
                 return Err("scene dimensions differ from acknowledged capture geometry".into());
             }
         }
         let now_ns = self.monotonic_ns();
+        if let Some(update) = perception_update.as_ref() {
+            let current_before_scene = state
+                .lifecycle
+                .current(now_ns)
+                .map_err(|error| error.to_string())?;
+            if !layout_basis_is_accepted(
+                current_before_scene.as_ref(),
+                Some(&snapshot),
+                update.perception,
+            ) {
+                if let Some(status) = perception_status.as_mut() {
+                    fail_closed_unaccepted_layout_basis(status);
+                }
+            }
+        }
         let received_at = Utc::now();
         let outcome = state
             .lifecycle
@@ -599,12 +1159,25 @@ impl Gateway {
             )
             .map_err(|error| error.to_string())?;
         state.last_transport_sequence = Some(snapshot.transport_sequence);
-        if outcome == IngestOutcome::AnnotationIgnored {
+        if outcome == IngestOutcome::AnnotationIgnored && perception_update.is_none() {
             return Ok(());
         }
 
         if outcome == IngestOutcome::LocalizationUpdated {
             state.localization_received_at = Some(received_at);
+        }
+        if let (Some(update), Some(status)) = (perception_update.as_ref(), perception_status) {
+            state
+                .lifecycle
+                .update_perception_status(
+                    update.engine_instance_id,
+                    update.source_session_id,
+                    status,
+                    now_ns,
+                    now_ns,
+                )
+                .map_err(|error| error.to_string())?;
+            state.last_delivery_sequence = Some(update.delivery_sequence);
         }
         state.updated_at = Some(received_at);
         let current = state
@@ -612,7 +1185,7 @@ impl Gateway {
             .current(now_ns)
             .map_err(|error| error.to_string())?;
         if let Some(current) = current {
-            if current.localization_received_monotonic_ns.is_some() {
+            if current.localization_received_monotonic_ns.is_some() || perception_update.is_some() {
                 state.publication_sequence = state.publication_sequence.saturating_add(1);
                 state.published_signature = Some((
                     current.epoch,
@@ -707,8 +1280,9 @@ impl Gateway {
         .map_err(|error| error.to_string())?;
         self.activate_producer_epoch(engine, session)?;
         let geometry = handshake.compatibility.output_frame_geometry();
-        lock_unpoisoned(&self.inner.state).live_source_geometry =
-            Some((geometry.width_px(), geometry.height_px()));
+        let mut state = lock_unpoisoned(&self.inner.state);
+        state.live_source_geometry = Some((geometry.width_px(), geometry.height_px()));
+        state.live_configuration_revision = Some(handshake.acknowledgement.configuration_revision);
         Ok(())
     }
 
@@ -738,6 +1312,7 @@ impl Gateway {
             state.localization_received_at = None;
             state.updated_at = None;
             state.live_source_geometry = None;
+            state.live_configuration_revision = None;
             state.published_signature = None;
             // Commit epoch state and clear public state atomically with respect to
             // accept_scene/snapshot_now and all watch publications.
@@ -869,13 +1444,19 @@ impl Gateway {
                     ),
                     None => (0, HashMap::new(), None, None),
                 };
-            self.accept_scene_with_capture_age(
+            return self.accept_scene_with_capture_age_and_perception(
                 snapshot,
                 localization_age_offset_ns,
                 ball_age_offsets_ns,
                 table,
                 game_type,
-            )?;
+                Some(PerceptionDeliveryUpdate {
+                    delivery_sequence: delivery.delivery_sequence,
+                    engine_instance_id: &delivery.engine_instance_id,
+                    source_session_id: &delivery.source_session_id,
+                    perception: &delivery.perception,
+                }),
+            );
         } else if let Some(current) = delivery.current_state.as_ref() {
             if current.epoch == 0
                 || current.payload.balls.len() > StateLifecycleConfig::default().maximum_balls
@@ -920,8 +1501,15 @@ impl Gateway {
         }
         let now_ns = self.monotonic_ns();
         let received_at = Utc::now();
-        let status = serde_json::to_value(perception)
+        let mut status = serde_json::to_value(&perception)
             .map_err(|error| format!("could not encode perception status: {error}"))?;
+        let current_before_update = state
+            .lifecycle
+            .current(now_ns)
+            .map_err(|error| error.to_string())?;
+        if !layout_basis_is_accepted(current_before_update.as_ref(), None, &perception) {
+            fail_closed_unaccepted_layout_basis(&mut status);
+        }
         state
             .lifecycle
             .update_perception_status(
@@ -972,6 +1560,122 @@ impl Gateway {
         if let Some(stream) = lock_unpoisoned(&self.inner.producer_control_stream).as_ref() {
             let _ = stream.shutdown(std::net::Shutdown::Both);
         }
+    }
+}
+
+fn duration_millis(duration: Duration) -> u64 {
+    u64::try_from(duration.as_millis()).unwrap_or(u64::MAX)
+}
+
+fn stage_assessment(
+    stage: DiagnosticsStageName,
+    status: StageStatus,
+    reason_code: &str,
+    source: StageEvidenceSource,
+    detail: Option<&str>,
+    last_progress_age_ms: Option<u64>,
+    deadline_ms: Option<u64>,
+) -> BrowserDiagnosticsStage {
+    BrowserDiagnosticsStage {
+        stage,
+        status,
+        reason_code: reason_code.to_owned(),
+        source,
+        detail: detail.map(str::to_owned),
+        last_progress_age_ms,
+        in_flight: false,
+        work_started_age_ms: None,
+        expected_jobs: None,
+        completed_jobs: None,
+        failed_jobs: None,
+        scheduler_state: None,
+        active_job_kind: None,
+        last_completion_age_ms: None,
+        last_failure_code: None,
+        last_failure_age_ms: None,
+        deadline_ms,
+    }
+}
+
+fn initial_browser_diagnostics_snapshot(
+    gateway_instance_id: &str,
+    policy: &DiagnosticsConfig,
+) -> BrowserDiagnosticsSnapshot {
+    let mut stages = vec![stage_assessment(
+        DiagnosticsStageName::GatewayService,
+        StageStatus::Healthy,
+        "gateway_running",
+        StageEvidenceSource::GatewayRuntime,
+        None,
+        Some(0),
+        None,
+    )];
+    for (name, status, reason, source) in [
+        (
+            DiagnosticsStageName::SourceLifecycle,
+            StageStatus::Unknown,
+            "producer_evidence_absent",
+            StageEvidenceSource::SupervisorRegistry,
+        ),
+        (
+            DiagnosticsStageName::CaptureProgress,
+            StageStatus::Unknown,
+            "producer_evidence_absent",
+            StageEvidenceSource::ProducerReport,
+        ),
+        (
+            DiagnosticsStageName::ModelInitialization,
+            StageStatus::Unknown,
+            "producer_evidence_absent",
+            StageEvidenceSource::ProducerReport,
+        ),
+        (
+            DiagnosticsStageName::ScheduledPerceptionWork,
+            StageStatus::Unknown,
+            "producer_evidence_absent",
+            StageEvidenceSource::ProducerReport,
+        ),
+        (
+            DiagnosticsStageName::SceneDelivery,
+            StageStatus::Starting,
+            "scene_not_received",
+            StageEvidenceSource::SceneLifecycle,
+        ),
+        (
+            DiagnosticsStageName::Localization,
+            StageStatus::Unknown,
+            "localization_not_received",
+            StageEvidenceSource::SceneLifecycle,
+        ),
+    ] {
+        stages.push(stage_assessment(
+            name, status, reason, source, None, None, None,
+        ));
+    }
+    BrowserDiagnosticsSnapshot {
+        schema_version: BROWSER_DIAGNOSTICS_SCHEMA_VERSION,
+        gateway: GatewayRuntimeSnapshot {
+            instance_id: gateway_instance_id.to_owned(),
+            revision: 1,
+            assessed_at_utc: Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true),
+            uptime_ms: 0,
+            build: BuildInfo::current(),
+        },
+        producer: ProducerReportSnapshot {
+            state: ProducerReportState::Unknown,
+            generation_id: None,
+            report_sequence: None,
+            report_age_ms: None,
+            expires_in_ms: None,
+            metadata: None,
+            exit_reason: None,
+            last_known: None,
+        },
+        stream: BrowserDiagnosticsStreamPolicy {
+            heartbeat_interval_ms: policy.stream_heartbeat_interval_ms,
+            stale_after_ms: policy.stream_stale_after_ms,
+        },
+        stages,
     }
 }
 
@@ -1090,7 +1794,9 @@ struct ActiveProducerGuard(Arc<GatewayInner>);
 impl Drop for ActiveProducerGuard {
     fn drop(&mut self) {
         lock_unpoisoned(&self.0.producer_control_stream).take();
+        lock_unpoisoned(&self.0.state).live_configuration_revision = None;
         self.0.producer_connected.store(false, Ordering::Release);
+        self.0.producer_connection_updates.send_replace(false);
     }
 }
 
@@ -1123,6 +1829,13 @@ struct PublicStateDeliveryV2Input {
     #[serde(deserialize_with = "required_delivery_option")]
     current_state: Option<CurrentSceneState>,
     perception: PerceptionStateV1,
+}
+
+struct PerceptionDeliveryUpdate<'a> {
+    delivery_sequence: u64,
+    engine_instance_id: &'a str,
+    source_session_id: &'a str,
+    perception: &'a PerceptionStateV1,
 }
 
 fn required_delivery_option<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
@@ -1224,6 +1937,10 @@ fn validate_perception_state(state: &PerceptionStateV1) -> Result<(), String> {
         != state.decision_rectification_revision.is_some()
         || (state.decision_frame_id.is_some()
             && (state.image_width_px.is_none() || state.image_height_px.is_none()))
+        || state
+            .layout_basis_frame_id
+            .as_ref()
+            .is_some_and(|frame_id| frame_id.is_empty() || frame_id.len() > 128)
         || state
             .decision_frame_id
             .as_ref()
@@ -1341,6 +2058,56 @@ fn validate_perception_state(state: &PerceptionStateV1) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+/// Trust can be restored only when its exact verified layout basis has already
+/// reached the gateway, either as the scene currently being ingested or as an
+/// already accepted trusted layout. This prevents a later phase-only update
+/// from blessing older centers when its clean scene expired during reconnect.
+fn layout_basis_is_accepted(
+    current: Option<&CurrentSceneState>,
+    incoming_scene: Option<&SceneSnapshotV1>,
+    perception: &PerceptionStateV1,
+) -> bool {
+    if !perception.layout_trusted {
+        return true;
+    }
+    let Some(basis_frame_id) = perception.layout_basis_frame_id.as_deref() else {
+        return false;
+    };
+    if incoming_scene.is_some_and(|snapshot| {
+        snapshot.update_kind == crate::UpdateKind::Observation
+            && snapshot.outcome == crate::Outcome::Success
+            && snapshot.source.frame_id == basis_frame_id
+    }) {
+        return true;
+    }
+    let Some(current) = current else {
+        return false;
+    };
+    let status = &current.payload.observation_status;
+    let accepted_source_frame_id = status
+        .get("source_frame_id")
+        .or_else(|| status.pointer("/observation_identity/frame_id"))
+        .and_then(Value::as_str);
+    if accepted_source_frame_id == Some(basis_frame_id) {
+        return true;
+    }
+    status
+        .pointer("/perception/layout_trusted")
+        .and_then(Value::as_bool)
+        == Some(true)
+        && status
+            .pointer("/perception/layout_basis_frame_id")
+            .and_then(Value::as_str)
+            == Some(basis_frame_id)
+}
+
+fn fail_closed_unaccepted_layout_basis(status: &mut Value) {
+    status["layout_trusted"] = json!(false);
+    status["empty_layout_verified"] = json!(false);
+    status["guidance_valid"] = json!(false);
+    status["trust_reason"] = json!("layout_basis_scene_not_accepted");
 }
 
 fn validate_live_public_ball(
@@ -1534,106 +2301,28 @@ fn configured_frame_preview_stream(
         .ok_or_else(|| {
             "perception.rust_live.frame_preview_request_timeout_ms must be positive".to_owned()
         })?;
-    let maximum_clients = positive_size("frame_preview_max_concurrent_encodes")?;
-    let framerate = configuration
-        .pointer("/api/stream/framerate")
-        .and_then(Value::as_object)
-        .ok_or_else(|| "api.stream.framerate is missing or invalid".to_owned())?;
-    let minimum_fps = framerate
-        .get("min_fps")
-        .and_then(Value::as_u64)
-        .filter(|value| *value > 0)
-        .ok_or_else(|| "api.stream.framerate.min_fps must be positive".to_owned())?;
-    let maximum_fps = framerate
-        .get("max_fps")
-        .and_then(Value::as_u64)
-        .filter(|value| *value >= minimum_fps)
-        .ok_or_else(|| "api.stream.framerate.max_fps is invalid".to_owned())?;
-    let fps = framerate
-        .get("default_fps")
-        .and_then(Value::as_u64)
-        .filter(|value| (minimum_fps..=maximum_fps).contains(value))
-        .ok_or_else(|| "api.stream.framerate.default_fps is invalid".to_owned())?;
+    let maximum_header_bytes = positive_size("frame_preview_max_header_bytes")?;
+    let calibration = if live
+        .get("frame_preview_calibration_control_enabled")
+        .and_then(Value::as_bool)
+        == Some(true)
+    {
+        Some(CalibrationPreviewLimits {
+            maximum_request_bytes: positive_size("frame_preview_calibration_max_request_bytes")?,
+            maximum_response_bytes: maximum_header_bytes.saturating_add(positive_size(
+                "frame_preview_calibration_store_max_file_bytes",
+            )?),
+        })
+    } else {
+        None
+    };
     Ok(Some(FramePreviewStreamSettings {
         address: SocketAddr::new(bind_address, port),
         request_timeout: Duration::from_millis(request_timeout_ms),
-        poll_interval: Duration::from_secs_f64(1.0 / fps as f64),
-        maximum_header_bytes: positive_size("frame_preview_max_header_bytes")?,
+        maximum_header_bytes,
         maximum_jpeg_bytes: positive_size("frame_preview_max_jpeg_bytes")?,
-        maximum_clients,
+        calibration,
     }))
-}
-
-async fn identified_mjpeg_stream(State(gateway): State<Gateway>) -> Response {
-    let Some(settings) = gateway.inner.frame_preview_stream.clone() else {
-        return (
-            StatusCode::SERVICE_UNAVAILABLE,
-            "identity-preserving frame preview is not configured",
-        )
-            .into_response();
-    };
-    let permit = match Arc::clone(&gateway.inner.frame_preview_stream_slots).try_acquire_owned() {
-        Ok(permit) => permit,
-        Err(_) => {
-            return (
-                StatusCode::SERVICE_UNAVAILABLE,
-                "identity-preserving frame preview is at capacity",
-            )
-                .into_response();
-        }
-    };
-    let initial_state = (
-        gateway,
-        settings,
-        permit,
-        None::<String>,
-        tokio::time::Instant::now(),
-    );
-    let stream = futures_util::stream::unfold(initial_state, |state| async move {
-        let (gateway, settings, permit, mut last_frame_id, mut next_poll) = state;
-        loop {
-            if *gateway.inner.shutdown.borrow() {
-                return None;
-            }
-            if next_poll > tokio::time::Instant::now() {
-                tokio::time::sleep_until(next_poll).await;
-            }
-            if *gateway.inner.shutdown.borrow() {
-                return None;
-            }
-            next_poll = tokio::time::Instant::now() + settings.poll_interval;
-            let mut bytes = None;
-            if let Some(frame) =
-                request_preview_frame(settings.address, *PREVIEW_REQUEST_V1, &settings).await
-            {
-                if last_frame_id.as_deref() != Some(frame.descriptor.source_frame_id.as_str()) {
-                    last_frame_id = Some(frame.descriptor.source_frame_id.clone());
-                    bytes = encode_identified_mjpeg_part(&frame);
-                }
-            }
-            if let Some(bytes) = bytes {
-                return Some((
-                    Ok::<Vec<u8>, std::convert::Infallible>(bytes),
-                    (gateway, settings, permit, last_frame_id, next_poll),
-                ));
-            }
-        }
-    });
-    let mut response = Response::new(Body::from_stream(stream));
-    *response.status_mut() = StatusCode::OK;
-    response.headers_mut().insert(
-        CONTENT_TYPE,
-        format!("multipart/x-mixed-replace; boundary={IDENTIFIED_MJPEG_BOUNDARY}")
-            .parse()
-            .expect("static multipart content type is valid"),
-    );
-    response.headers_mut().insert(
-        CACHE_CONTROL,
-        "no-store, no-cache, must-revalidate"
-            .parse()
-            .expect("static cache control is valid"),
-    );
-    response
 }
 
 async fn request_preview_frame(
@@ -1673,36 +2362,6 @@ async fn request_preview_frame(
     .flatten()
 }
 
-fn encode_identified_mjpeg_part(frame: &IdentifiedMjpegFrame) -> Option<Vec<u8>> {
-    let descriptor = &frame.descriptor;
-    for value in [
-        descriptor.source_frame_id.as_str(),
-        descriptor.engine_instance_id.as_str(),
-        descriptor.capture_session_id.as_str(),
-    ] {
-        if value.is_empty()
-            || value.len() > MAX_IDENTIFIER_CHARACTERS
-            || value.chars().any(char::is_control)
-        {
-            return None;
-        }
-    }
-    let mut part = format!(
-        "--{IDENTIFIED_MJPEG_BOUNDARY}\r\nContent-Type: image/jpeg\r\nContent-Length: {}\r\nX-Frame-Id: {}\r\nX-Engine-Instance-Id: {}\r\nX-Source-Session-Id: {}\r\nX-Configuration-Revision: {}\r\nX-Calibration-Revision: {}\r\nX-Rectification-Revision: {}\r\n\r\n",
-        frame.jpeg.len(),
-        descriptor.source_frame_id,
-        descriptor.engine_instance_id,
-        descriptor.capture_session_id,
-        descriptor.configuration_revision,
-        descriptor.calibration_revision,
-        descriptor.rectification_revision,
-    )
-    .into_bytes();
-    part.extend_from_slice(&frame.jpeg);
-    part.extend_from_slice(b"\r\n");
-    Some(part)
-}
-
 async fn health_live() -> Json<Value> {
     Json(json!({"status": "alive"}))
 }
@@ -1728,6 +2387,88 @@ async fn health_ready(State(gateway): State<Gateway>) -> Response {
             .into_response(),
         None => not_ready_response(),
     }
+}
+
+async fn diagnostics_websocket_upgrade(
+    State(gateway): State<Gateway>,
+    upgrade: WebSocketUpgrade,
+) -> Response {
+    // Subscribe before upgrade completion; watch retains only the newest full
+    // snapshot, including any restart/evidence transition during the handshake.
+    let snapshots = gateway.inner.diagnostics_snapshots.subscribe();
+    let permit = match Arc::clone(&gateway.inner.diagnostics_websocket_slots).try_acquire_owned() {
+        Ok(permit) => permit,
+        Err(_) => {
+            return (
+                StatusCode::SERVICE_UNAVAILABLE,
+                "diagnostics websocket capacity reached",
+            )
+                .into_response()
+        }
+    };
+    upgrade
+        .on_upgrade(move |socket| run_diagnostics_websocket(socket, snapshots, gateway, permit))
+        .into_response()
+}
+
+async fn run_diagnostics_websocket(
+    mut socket: WebSocket,
+    mut snapshots: watch::Receiver<BrowserDiagnosticsSnapshot>,
+    gateway: Gateway,
+    _permit: tokio::sync::OwnedSemaphorePermit,
+) {
+    let send_deadline = gateway.inner.config.websocket_send_deadline;
+    let initial = snapshots.borrow_and_update().clone();
+    if !send_diagnostics_snapshot(&mut socket, &initial, send_deadline).await {
+        return;
+    }
+    let mut last_revision = initial.gateway.revision;
+    loop {
+        tokio::select! {
+            changed = snapshots.changed() => {
+                if changed.is_err() {
+                    return;
+                }
+                let next = snapshots.borrow_and_update().clone();
+                if next.gateway.revision <= last_revision {
+                    continue;
+                }
+                if !send_diagnostics_snapshot(&mut socket, &next, send_deadline).await {
+                    return;
+                }
+                last_revision = next.gateway.revision;
+            }
+            message = socket.recv() => {
+                match message {
+                    Some(Ok(Message::Close(_))) | None | Some(Err(_)) => return,
+                    Some(Ok(Message::Ping(payload))) => {
+                        let result = within_send_deadline(
+                            send_deadline,
+                            socket.send(Message::Pong(payload)),
+                        ).await;
+                        if !matches!(result, Some(Ok(()))) {
+                            return;
+                        }
+                    }
+                    Some(Ok(_)) => {}
+                }
+            }
+        }
+    }
+}
+
+async fn send_diagnostics_snapshot(
+    socket: &mut WebSocket,
+    snapshot: &BrowserDiagnosticsSnapshot,
+    deadline: Duration,
+) -> bool {
+    let Ok(encoded) = serde_json::to_string(snapshot) else {
+        return false;
+    };
+    matches!(
+        within_send_deadline(deadline, socket.send(Message::Text(encoded.into()))).await,
+        Some(Ok(()))
+    )
 }
 
 fn not_ready_response() -> Response {
@@ -2455,13 +3196,982 @@ async fn run_freshness_scheduler(gateway: Gateway) {
     }
 }
 
+/// Publish complete newest-only snapshots. Evidence changes wake this task;
+/// the configured timer handles browser heartbeats and exact producer expiry or
+/// active-work deadlines without polling any HTTP or scene endpoint.
+async fn run_diagnostics_snapshot_publisher(gateway: Gateway) {
+    let mut reports = gateway.inner.diagnostics.subscribe();
+    let mut scenes = gateway.inner.latest.subscribe();
+    let mut connections = gateway.inner.producer_connection_updates.subscribe();
+    let mut shutdown = gateway.inner.shutdown.subscribe();
+    loop {
+        gateway.publish_diagnostics_snapshot();
+        let delay = gateway.diagnostics_next_delay();
+        tokio::select! {
+            changed = reports.changed() => {
+                if changed.is_err() {
+                    return;
+                }
+                let _ = reports.borrow_and_update();
+            }
+            changed = scenes.changed() => {
+                if changed.is_err() {
+                    return;
+                }
+                let _ = scenes.borrow_and_update();
+            }
+            changed = connections.changed() => {
+                if changed.is_err() {
+                    return;
+                }
+                let _ = connections.borrow_and_update();
+            }
+            changed = shutdown.changed() => {
+                if changed.is_err() || *shutdown.borrow_and_update() {
+                    return;
+                }
+            }
+            _ = sleep(delay) => {}
+        }
+    }
+}
+
 /// Start HTTP and live-v3 loopback scene listeners until shutdown.
 pub async fn run(config: ServerConfig) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     run_with_live(config, LiveProcessLaunchOptions::default()).await
 }
 
-/// Start the HTTP/WebSocket gateway and, when requested, supervise the Rust
-/// capture/inference child that publishes to its loopback scene ingress.
+fn configured_setup_source(configuration: &Value) -> Option<&str> {
+    configuration
+        .pointer("/perception/capture/device_selector")
+        .and_then(Value::as_str)
+        .filter(|source| crate::configuration_authority::is_gstreamer_selector(source))
+        .or_else(|| {
+            configuration
+                .pointer("/vision/camera/device_id")
+                .and_then(Value::as_str)
+                .filter(|source| crate::configuration_authority::valid_http_uri(source))
+        })
+}
+
+fn setup_failure(status: StatusCode, message: impl ToString) -> Response {
+    (status, Json(json!({"error": message.to_string()}))).into_response()
+}
+
+fn setup_table_calibrated(status: &Value) -> bool {
+    // Scene calibration describes precise ball coordinates, which require
+    // separate optics and ball-center assets. A visibility comparison is
+    // evidence that the producer loaded the operator's table reference.
+    status["calibration_state"] == "valid"
+        || matches!(
+            status
+                .pointer("/perception/table_visibility/reason")
+                .and_then(Value::as_str),
+            Some(
+                "reference_match"
+                    | "extreme_brightness_shift"
+                    | "extreme_color_shift"
+                    | "lost_rail_contrast"
+                    | "cloth_mismatch"
+                    | "rail_mismatch"
+            )
+        )
+}
+
+fn precision_capture(
+    configuration: &Value,
+    root: &std::path::Path,
+) -> anyhow::Result<crate::capture_settings_wire::ResolvedCaptureSettings> {
+    use crate::capture_settings_wire::{build_capture_settings_v3, parse_capture_settings_json};
+    let live = &configuration["perception"]["rust_live"];
+    let request = build_capture_settings_v3(configuration)?;
+    let mut capture = parse_capture_settings_json(&request.to_string())?;
+    if live["frame_preview_enabled"] == true
+        && live["frame_preview_calibration_control_enabled"] == true
+    {
+        if let (Some(path), Some(timeout), Some(maximum)) = (
+            live["frame_preview_calibration_store_path"].as_str(),
+            live["frame_preview_calibration_store_lock_timeout_ms"].as_u64(),
+            live["frame_preview_calibration_store_max_file_bytes"].as_u64(),
+        ) {
+            let store = crate::calibration_store::CalibrationStore::new(
+                root.join(path),
+                Duration::from_millis(timeout),
+                usize::try_from(maximum)?,
+            )?;
+            crate::live_application::install_calibration_store_state(&mut capture, &store);
+        }
+    }
+    Ok(capture)
+}
+
+/// Evaluate configured files against the same capture and table context used
+/// by the producer. This is independent of whether any balls are visible.
+fn setup_precision_calibration(configuration: &Value, root: &std::path::Path) -> Value {
+    use crate::ball_localization_profile::{
+        BallLocalizationSettings, LoadedBallLocalizationProfile,
+    };
+    let live = &configuration["perception"]["rust_live"];
+    let mut settings: BallLocalizationSettings =
+        match serde_json::from_value(live["ball_localization"].clone()) {
+            Ok(settings) => settings,
+            Err(_) => {
+                return json!({"optics": {"state": "invalid"}, "ball_centers": {"state": "invalid"}})
+            }
+        };
+    if let Ok(request) = crate::capture_settings_wire::build_capture_settings_v3(configuration) {
+        if let Some(profile) = request
+            .pointer("/requested/camera_profile_id")
+            .and_then(Value::as_str)
+        {
+            crate::browser_precision_calibration::select_assets(&mut settings, root, profile);
+        }
+    }
+    let mut optics = json!({"state": if settings.optics_profile_path.is_some() { "unverified" } else { "missing" }});
+    let mut centers = json!({"state": if settings.ball_center_calibration_path.is_some() { "unverified" } else { "missing" }});
+    if settings.optics_profile_path.is_some() {
+        let check = || -> anyhow::Result<_> {
+            let capture = precision_capture(configuration, root)?;
+            let expected = &capture.expected;
+            let (width, height) = expected
+                .output_frame_geometry()
+                .map(|geometry| (geometry.width_px(), geometry.height_px()))
+                .unwrap_or_else(|| {
+                    let profile = expected.expected_negotiated_profile();
+                    (profile.width_px(), profile.height_px())
+                });
+            let mut settings = settings.clone();
+            settings.resolve_paths(root);
+            let profile = LoadedBallLocalizationProfile::load_with_table(
+                settings,
+                expected.camera_profile_id(),
+                expected.image_space(),
+                width,
+                height,
+                expected.rectification_revision(),
+                expected.calibration(),
+            );
+            Ok((profile, expected.calibration().is_some()))
+        };
+        match check() {
+            Ok((Ok(profile), _)) if profile.optics.is_none() => {
+                // Loading a usable coarse/table-only profile is not evidence
+                // that the optional precision asset itself is ready.
+                optics = json!({"state": "invalid", "detail": profile.calibration_error});
+                if settings.ball_center_calibration_path.is_some() {
+                    centers = json!({"state": "blocked", "detail": "Fix the camera optics profile first."});
+                }
+            }
+            Ok((Ok(profile), table_active)) => {
+                optics = json!({"state": "ready"});
+                if settings.ball_center_calibration_path.is_some() {
+                    centers = if !table_active {
+                        json!({"state": "blocked", "detail": "Calibrate the table for the current camera before validating ball centers."})
+                    } else if let Some(error) = profile.calibration_error {
+                        json!({"state": "invalid", "detail": error})
+                    } else if profile.calibration.is_some() {
+                        json!({"state": "ready"})
+                    } else {
+                        centers
+                    };
+                }
+            }
+            Ok((Err(error), _)) => {
+                optics = json!({"state": "invalid", "detail": error.to_string()});
+                if settings.ball_center_calibration_path.is_some() {
+                    centers = json!({"state": "blocked", "detail": "Fix the camera optics profile first."});
+                }
+            }
+            Err(error) => {
+                optics["detail"] = json!(error.to_string());
+            }
+        }
+    }
+    json!({"optics": optics, "ball_centers": centers})
+}
+
+async fn setup_status(State(gateway): State<Gateway>) -> Response {
+    let Ok(_permit) = gateway
+        .inner
+        .configuration_slots
+        .clone()
+        .try_acquire_owned()
+    else {
+        return setup_failure(StatusCode::TOO_MANY_REQUESTS, "Camera setup is busy");
+    };
+    let Some(authority) = gateway.inner.configuration_authority.clone() else {
+        return Json(json!({"state": "disabled"})).into_response();
+    };
+    let root = gateway.inner.config.project_root.clone();
+    let (configuration, precision_calibration) = match tokio::task::spawn_blocking(move || {
+        let configuration = authority.effective_configuration()?;
+        let root = root
+            .map_or_else(std::env::current_dir, Ok)
+            .map_err(|error| error.to_string())?;
+        let precision = setup_precision_calibration(&configuration, &root);
+        Ok::<_, String>((configuration, precision))
+    })
+    .await
+    {
+        Ok(Ok(result)) => result,
+        _ => {
+            return setup_failure(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "Unable to read setup configuration",
+            )
+        }
+    };
+    let source = configured_setup_source(&configuration);
+    let diagnostics = gateway.inner.diagnostics.snapshot();
+    let stage_error = diagnostics
+        .report
+        .as_ref()
+        .or_else(|| {
+            diagnostics
+                .last_known
+                .as_ref()
+                .filter(|_| diagnostics.exited)
+                .map(|last| &last.report)
+        })
+        .and_then(|report| {
+            report.stages.iter().find(|stage| {
+                stage.status == crate::producer_diagnostics_contract::StageStatus::Failed
+            })
+        })
+        .map(|stage| {
+            stage
+                .detail
+                .clone()
+                .unwrap_or_else(|| stage.reason_code.clone())
+        });
+    let snapshot = gateway.snapshot_now();
+    let revision = configuration["metadata"]["configuration_revision"].as_u64();
+    // Cue and visibility evidence can arrive before the first localization.
+    // The validated producer handshake identifies the active revision in both cases.
+    let producer_revision = lock_unpoisoned(&gateway.inner.state).live_configuration_revision;
+    let connected = gateway.inner.producer_connected.load(Ordering::Acquire)
+        && revision.is_some()
+        && producer_revision == revision
+        && snapshot.is_some();
+    let error = stage_error.or_else(|| {
+        if connected {
+            None
+        } else {
+            lock_unpoisoned(&gateway.inner.setup_error).clone()
+        }
+    });
+    let state = if !gateway.inner.setup_enabled.load(Ordering::Acquire) {
+        "disabled"
+    } else if source.is_none() {
+        "idle"
+    } else if connected {
+        "running"
+    } else if error.is_some() {
+        "error"
+    } else {
+        "starting"
+    };
+    (
+        [(CACHE_CONTROL, "no-store")],
+        Json(json!({
+            "state": state,
+            "error": error,
+            "configured_source": source,
+            "precision_calibration": precision_calibration,
+            "configuration_revision": configuration.pointer("/metadata/configuration_revision"),
+            "calibrated": connected && snapshot.as_ref().is_some_and(|snapshot|
+                setup_table_calibrated(&snapshot.current.payload.observation_status)),
+        })),
+    )
+        .into_response()
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SetupSource {
+    expected_revision: u64,
+    source: String,
+}
+
+async fn setup_source(
+    State(gateway): State<Gateway>,
+    Json(request): Json<SetupSource>,
+) -> Response {
+    if !gateway.inner.setup_enabled.load(Ordering::Acquire) {
+        return setup_failure(StatusCode::SERVICE_UNAVAILABLE, "Live capture is disabled");
+    }
+    let source = request.source.trim();
+    let physical = crate::configuration_authority::is_gstreamer_selector(source);
+    if !physical && !crate::configuration_authority::valid_http_uri(source) {
+        return setup_failure(
+            StatusCode::BAD_REQUEST,
+            "Choose a discovered camera or enter an HTTP(S) MJPEG URL",
+        );
+    }
+    let Ok(permit) = gateway
+        .inner
+        .configuration_slots
+        .clone()
+        .try_acquire_owned()
+    else {
+        return setup_failure(StatusCode::TOO_MANY_REQUESTS, "Camera setup is busy");
+    };
+    let Some(authority) = gateway.inner.configuration_authority.clone() else {
+        return setup_failure(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Setup storage is unavailable",
+        );
+    };
+    let expected_revision = request.expected_revision;
+    let patch = json!({
+        "perception": {"capture": {"device_selector": physical.then_some(source)}},
+        "vision": {"camera": {"device_id": source, "video_file_path": null}}
+    });
+    // Once accepted, finish the store write and notify the supervisor even
+    // if the browser disconnects before reading the response.
+    let response = tokio::spawn(async move {
+        let _permit = permit;
+        let _guard = gateway.inner.configuration_mutation_lock.lock().await;
+        let response = tokio::task::spawn_blocking(move || {
+            authority.update_setup_source(expected_revision, patch)
+        })
+        .await;
+        if let Ok(response) = &response {
+            if response["ok"] == true {
+                *lock_unpoisoned(&gateway.inner.setup_error) = None;
+                gateway.inner.setup_reload.send_replace(());
+            }
+        }
+        response
+    })
+    .await;
+    let Ok(Ok(response)) = response else {
+        return setup_failure(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Unable to save the camera source",
+        );
+    };
+    if response["ok"] != true {
+        let error = &response["error"];
+        let status = match error["code"].as_str() {
+            Some("revision_conflict") => StatusCode::CONFLICT,
+            Some("store_error" | "lock_timeout") => StatusCode::SERVICE_UNAVAILABLE,
+            _ => StatusCode::BAD_REQUEST,
+        };
+        return setup_failure(
+            status,
+            error["message"]
+                .as_str()
+                .unwrap_or("Unable to save the camera source"),
+        );
+    }
+    Json(json!({
+        "state": "starting", "configured_source": source,
+        "configuration_revision": response["revision"], "calibrated": false,
+    }))
+    .into_response()
+}
+
+async fn setup_calibration_frame(State(gateway): State<Gateway>) -> Response {
+    if !gateway.inner.setup_enabled.load(Ordering::Acquire) {
+        return setup_failure(StatusCode::SERVICE_UNAVAILABLE, "Live capture is disabled");
+    }
+    let Some(settings) = gateway.inner.frame_preview_stream.as_ref() else {
+        return setup_failure(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Calibration preview is disabled",
+        );
+    };
+    let Some(limits) = settings.calibration.as_ref() else {
+        return setup_failure(StatusCode::SERVICE_UNAVAILABLE, "Calibration is disabled");
+    };
+    let Ok(_permit) = gateway
+        .inner
+        .configuration_slots
+        .clone()
+        .try_acquire_owned()
+    else {
+        return setup_failure(StatusCode::TOO_MANY_REQUESTS, "Calibration is busy");
+    };
+    // Give calibration priority over the continuous preview so a stream
+    // cannot occupy the producer's only encoder during the operator action.
+    let _preview = gateway.inner.frame_preview_requests.write().await;
+    let Ok(store) = crate::calibration_control::read_gateway_snapshot(
+        settings.address,
+        settings.request_timeout,
+        limits.maximum_response_bytes,
+    )
+    .await
+    else {
+        return setup_failure(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Calibration store is unavailable",
+        );
+    };
+    if store["status"] != "ok" {
+        return calibration_control_failure(store);
+    }
+    let Some(frame) = request_preview_frame(settings.address, *PREVIEW_REQUEST_V1, settings).await
+    else {
+        return setup_failure(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "No calibration frame is available",
+        );
+    };
+    let capture_token = uuid::Uuid::new_v4().to_string();
+    {
+        const RETAINED_CALIBRATION_STILLS: usize = 64;
+        let mut stills = lock_unpoisoned(&gateway.inner.calibration_stills);
+        stills.push_back((
+            capture_token.clone(),
+            crate::browser_precision_calibration::fingerprint(&frame.descriptor, &frame.jpeg),
+        ));
+        if stills.len() > RETAINED_CALIBRATION_STILLS {
+            stills.pop_front();
+        }
+    }
+    (
+        [(CACHE_CONTROL, "no-store")],
+        Json(json!({
+            "descriptor": frame.descriptor,
+            "capture_token": capture_token,
+            "jpeg_base64": base64::engine::general_purpose::STANDARD.encode(frame.jpeg),
+            "expected_store_revision": store["snapshot"]["revision"],
+        })),
+    )
+        .into_response()
+}
+
+async fn setup_checkerboard_pdf() -> impl IntoResponse {
+    const PDF: &[u8] =
+        include_bytes!("../../output/pdf/ball-localization-checkerboard-letter-tiles.pdf");
+    (
+        [
+            (axum::http::header::CONTENT_TYPE, "application/pdf"),
+            (
+                axum::http::header::CONTENT_DISPOSITION,
+                "attachment; filename=ball-localization-checkerboard-letter-tiles.pdf",
+            ),
+        ],
+        PDF,
+    )
+}
+
+async fn setup_fit_optics(
+    State(gateway): State<Gateway>,
+    Json(request): Json<crate::browser_precision_calibration::OpticsRequest>,
+) -> Response {
+    setup_precision_operation(gateway, true, move |context| context.fit_optics(request)).await
+}
+
+async fn setup_fit_ball_centers(
+    State(gateway): State<Gateway>,
+    Json(request): Json<crate::browser_precision_calibration::BallRequest>,
+) -> Response {
+    setup_precision_operation(gateway, true, move |context| {
+        context.fit_ball_centers(request)
+    })
+    .await
+}
+
+async fn setup_list_captures(
+    State(gateway): State<Gateway>,
+    Path(mode): Path<CaptureMode>,
+) -> Response {
+    setup_precision_operation(gateway, false, move |context| context.archive(mode)?.list()).await
+}
+
+async fn setup_store_capture(
+    State(gateway): State<Gateway>,
+    Path((mode, slot)): Path<(CaptureMode, usize)>,
+    Json(capture): Json<Value>,
+) -> Response {
+    setup_precision_operation(gateway, false, move |context| {
+        context.archive_capture(mode, slot, capture)
+    })
+    .await
+}
+
+async fn setup_remove_capture(
+    State(gateway): State<Gateway>,
+    Path((mode, slot)): Path<(CaptureMode, usize)>,
+) -> Response {
+    setup_precision_operation(gateway, false, move |context| {
+        context.archive(mode)?.remove(Some(slot))
+    })
+    .await
+}
+
+async fn setup_clear_captures(
+    State(gateway): State<Gateway>,
+    Path(mode): Path<CaptureMode>,
+) -> Response {
+    setup_precision_operation(gateway, false, move |context| {
+        context.archive(mode)?.remove(None)
+    })
+    .await
+}
+
+async fn setup_ball_candidate(
+    State(gateway): State<Gateway>,
+    Json(request): Json<crate::browser_precision_calibration::BallCandidateRequest>,
+) -> Response {
+    setup_precision_operation(gateway, false, move |context| {
+        context.ball_candidate(request)
+    })
+    .await
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct BallPlacementQuery {
+    x_mm: f64,
+    y_mm: f64,
+}
+
+async fn setup_ball_placement(
+    State(gateway): State<Gateway>,
+    Query(query): Query<BallPlacementQuery>,
+) -> Response {
+    // Bound this optional preview independently of browser poll frequency.
+    // The fixed ceiling leaves time for operator stills on the same listener.
+    const MINIMUM_PLACEMENT_INTERVAL: Duration = Duration::from_millis(250);
+    if !gateway.inner.setup_enabled.load(Ordering::Acquire) {
+        return setup_failure(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Live calibration is disabled",
+        );
+    }
+    let Some(preview) = gateway
+        .inner
+        .frame_preview_stream
+        .as_ref()
+        .filter(|settings| settings.calibration.is_some())
+    else {
+        return setup_failure(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Calibration preview is unavailable",
+        );
+    };
+    let Ok(mut last_request) = gateway.inner.ball_placement_last_request.try_lock() else {
+        return setup_failure(StatusCode::TOO_MANY_REQUESTS, "Placement preview is busy");
+    };
+    if last_request.is_some_and(|previous| previous.elapsed() < MINIMUM_PLACEMENT_INTERVAL) {
+        return setup_failure(StatusCode::TOO_MANY_REQUESTS, "Placement preview is busy");
+    }
+    *last_request = Some(Instant::now());
+    let request_gateway = gateway.clone();
+    let request = tokio::task::spawn_blocking(move || -> anyhow::Result<PlacementRequest> {
+        let authority = request_gateway
+            .inner
+            .configuration_authority
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("Configuration is unavailable"))?;
+        let configuration = authority
+            .effective_configuration()
+            .map_err(anyhow::Error::msg)?;
+        let root = request_gateway
+            .inner
+            .config
+            .project_root
+            .clone()
+            .map_or_else(std::env::current_dir, Ok)?;
+        let capture = precision_capture(&configuration, &root)?;
+        let expected = &capture.expected;
+        let mut settings = serde_json::from_value(
+            configuration["perception"]["rust_live"]["ball_localization"].clone(),
+        )?;
+        crate::browser_precision_calibration::select_assets(
+            &mut settings,
+            &root,
+            expected.camera_profile_id(),
+        );
+        let context = crate::browser_precision_calibration::FitContext {
+            root: &root,
+            capture: &capture,
+            settings,
+            tokens: &Default::default(),
+            maximum_jpeg_bytes: 0,
+        };
+        let optics = context.load_optics()?;
+        let table = expected
+            .calibration()
+            .ok_or_else(|| anyhow::anyhow!("Calibrate table geometry first."))?;
+        let target = BallSearchTarget::project(
+            table,
+            &optics.intrinsics,
+            &context.settings.parameters,
+            [query.x_mm, query.y_mm],
+        )?;
+        Ok(PlacementRequest {
+            target,
+            intrinsics: optics.intrinsics,
+            parameters: context.settings.parameters,
+            camera_profile_id: expected.camera_profile_id().to_owned(),
+            configuration_revision: expected.configuration_revision(),
+            calibration_revision: expected.calibration_revision(),
+            rectification_revision: expected.rectification_revision(),
+        })
+    })
+    .await;
+    let request = match request {
+        Ok(Ok(request)) => request,
+        Ok(Err(error)) => return setup_failure(StatusCode::UNPROCESSABLE_ENTITY, error),
+        Err(error) => return setup_failure(StatusCode::SERVICE_UNAVAILABLE, error),
+    };
+    let Ok(_preview) = gateway.inner.frame_preview_requests.try_read() else {
+        return setup_failure(StatusCode::TOO_MANY_REQUESTS, "Placement preview is busy");
+    };
+    let observation = request_ball_placement(preview, &request)
+        .await
+        .filter(|observation| request.matches(&observation.frame));
+    let observation_available = observation.is_some();
+    let ball_center = observation
+        .and_then(|observation| observation.candidate)
+        .map(|candidate| candidate.image_center_px);
+    (
+        [(CACHE_CONTROL, "no-store")],
+        Json(json!({
+            "width_px": request.intrinsics.source_width_px,
+            "height_px": request.intrinsics.source_height_px,
+            "target_center_px": request.target.center,
+            "target_radius_px": request.target.tolerance,
+            "observation_available": observation_available,
+            "ball_center_px": ball_center,
+            "in_target": ball_center.is_some_and(|center| request.target.contains(center)),
+        })),
+    )
+        .into_response()
+}
+
+async fn request_ball_placement(
+    preview: &FramePreviewStreamSettings,
+    request: &PlacementRequest,
+) -> Option<PlacementObservation> {
+    tokio::time::timeout(preview.request_timeout, async {
+        let bytes = serde_json::to_vec(request).ok()?;
+        if bytes.len() > MAXIMUM_PLACEMENT_MESSAGE_BYTES {
+            return None;
+        }
+        let mut stream = TcpStream::connect(preview.address).await.ok()?;
+        stream.write_all(BALL_PLACEMENT_REQUEST_V1).await.ok()?;
+        stream.write_u32(bytes.len() as u32).await.ok()?;
+        stream.write_all(&bytes).await.ok()?;
+        let length = stream.read_u32().await.ok()? as usize;
+        if length == 0 || length > MAXIMUM_PLACEMENT_MESSAGE_BYTES {
+            return None;
+        }
+        let mut response = vec![0_u8; length];
+        stream.read_exact(&mut response).await.ok()?;
+        serde_json::from_slice(&response).ok().flatten()
+    })
+    .await
+    .ok()
+    .flatten()
+}
+
+async fn setup_precision_operation(
+    gateway: Gateway,
+    reload_producer: bool,
+    operation: impl FnOnce(crate::browser_precision_calibration::FitContext<'_>) -> anyhow::Result<Value>
+        + Send
+        + 'static,
+) -> Response {
+    if !gateway.inner.setup_enabled.load(Ordering::Acquire) {
+        return setup_failure(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Live calibration is disabled",
+        );
+    }
+    let Some(maximum_jpeg_bytes) = gateway
+        .inner
+        .frame_preview_stream
+        .as_ref()
+        .filter(|settings| settings.calibration.is_some())
+        .map(|settings| settings.maximum_jpeg_bytes)
+    else {
+        return setup_failure(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Calibration preview is unavailable",
+        );
+    };
+    let Ok(_permit) = gateway
+        .inner
+        .configuration_slots
+        .clone()
+        .try_acquire_owned()
+    else {
+        return setup_failure(StatusCode::TOO_MANY_REQUESTS, "Calibration is busy");
+    };
+    let Ok(_lock) = gateway
+        .inner
+        .configuration_mutation_lock
+        .clone()
+        .try_lock_owned()
+    else {
+        return setup_failure(StatusCode::CONFLICT, "Another setup change is in progress");
+    };
+    let result = tokio::task::spawn_blocking(move || -> anyhow::Result<Value> {
+        // Keep the mutation guard until the capture or fit operation completes.
+        let _lock = _lock;
+        let _permit = _permit;
+        let authority = gateway
+            .inner
+            .configuration_authority
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("Configuration is unavailable"))?;
+        let configuration = authority
+            .effective_configuration()
+            .map_err(anyhow::Error::msg)?;
+        let root = gateway
+            .inner
+            .config
+            .project_root
+            .clone()
+            .map_or_else(std::env::current_dir, Ok)?;
+        let capture = precision_capture(&configuration, &root)?;
+        let mut settings = serde_json::from_value(
+            configuration["perception"]["rust_live"]["ball_localization"].clone(),
+        )?;
+        crate::browser_precision_calibration::select_assets(
+            &mut settings,
+            &root,
+            capture.expected.camera_profile_id(),
+        );
+        let tokens = lock_unpoisoned(&gateway.inner.calibration_stills).clone();
+        let result = operation(crate::browser_precision_calibration::FitContext {
+            root: &root,
+            capture: &capture,
+            settings,
+            tokens: &tokens,
+            maximum_jpeg_bytes,
+        })?;
+        if reload_producer {
+            gateway.inner.setup_reload.send_replace(());
+        }
+        Ok(result)
+    })
+    .await;
+    match result {
+        Ok(Ok(report)) => ([(CACHE_CONTROL, "no-store")], Json(report)).into_response(),
+        Ok(Err(error)) => setup_failure(StatusCode::UNPROCESSABLE_ENTITY, error),
+        Err(error) => setup_failure(StatusCode::SERVICE_UNAVAILABLE, error),
+    }
+}
+
+async fn setup_calibration_apply(
+    State(gateway): State<Gateway>,
+    Json(request): Json<Value>,
+) -> Response {
+    match tokio::spawn(save_setup_calibration(gateway, request)).await {
+        Ok(response) => response,
+        Err(error) => setup_failure(StatusCode::SERVICE_UNAVAILABLE, error),
+    }
+}
+
+async fn save_setup_calibration(gateway: Gateway, request: Value) -> Response {
+    if !gateway.inner.setup_enabled.load(Ordering::Acquire) {
+        return setup_failure(StatusCode::SERVICE_UNAVAILABLE, "Live capture is disabled");
+    }
+    let Some(settings) = gateway.inner.frame_preview_stream.as_ref() else {
+        return setup_failure(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Calibration preview is disabled",
+        );
+    };
+    let Some(limits) = settings.calibration.as_ref() else {
+        return setup_failure(StatusCode::SERVICE_UNAVAILABLE, "Calibration is disabled");
+    };
+    let body = serde_json::to_vec(&request).expect("a JSON value can be serialized");
+    if body.len() > limits.maximum_request_bytes {
+        return setup_failure(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "Calibration request is too large",
+        );
+    }
+    let Ok(_permit) = gateway
+        .inner
+        .configuration_slots
+        .clone()
+        .try_acquire_owned()
+    else {
+        return setup_failure(StatusCode::TOO_MANY_REQUESTS, "Calibration is busy");
+    };
+    let _guard = gateway.inner.configuration_mutation_lock.lock().await;
+    let Some(authority) = gateway.inner.configuration_authority.clone() else {
+        return setup_failure(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Setup storage is unavailable",
+        );
+    };
+    let Ok(Ok(configuration)) =
+        tokio::task::spawn_blocking(move || authority.effective_configuration()).await
+    else {
+        return setup_failure(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Unable to read setup configuration",
+        );
+    };
+    // A source write may have committed while its old producer is still
+    // draining. Do not allow it to save calibration for the superseded source.
+    let expected_revision = configuration["metadata"]["configuration_revision"].as_u64();
+    if expected_revision.is_none()
+        || request["descriptor"]["configuration_revision"].as_u64() != expected_revision
+    {
+        return setup_failure(
+            StatusCode::CONFLICT,
+            "Camera setup changed. Take a new frame.",
+        );
+    }
+    let _preview = gateway.inner.frame_preview_requests.write().await;
+    let Ok(response) = crate::calibration_control::apply_gateway_calibration(
+        settings.address,
+        settings.request_timeout,
+        limits.maximum_response_bytes,
+        &body,
+    )
+    .await
+    else {
+        return setup_failure(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Calibration could not be confirmed. Refresh setup before retrying.",
+        );
+    };
+    if response["status"] != "ok" {
+        return calibration_control_failure(response);
+    }
+    gateway.inner.setup_reload.send_replace(());
+    Json(response).into_response()
+}
+
+fn calibration_control_failure(response: Value) -> Response {
+    let status = match response["status"].as_str() {
+        Some("stale_context" | "stale_revision") => StatusCode::CONFLICT,
+        Some("invalid_request") => StatusCode::BAD_REQUEST,
+        Some("busy") => StatusCode::TOO_MANY_REQUESTS,
+        _ => StatusCode::SERVICE_UNAVAILABLE,
+    };
+    (status, Json(response)).into_response()
+}
+
+async fn setup_cameras(State(gateway): State<Gateway>) -> Response {
+    let Ok(_permit) = gateway
+        .inner
+        .configuration_slots
+        .clone()
+        .try_acquire_owned()
+    else {
+        return setup_failure(StatusCode::TOO_MANY_REQUESTS, "Camera discovery is busy");
+    };
+    let executable = match std::env::current_exe() {
+        Ok(path) => path.with_file_name("billiards-perception-camera-discovery"),
+        Err(error) => return setup_failure(StatusCode::SERVICE_UNAVAILABLE, error),
+    };
+    let result = tokio::time::timeout(
+        gateway.inner.config.tcp_read_timeout,
+        tokio::process::Command::new(executable)
+            .kill_on_drop(true)
+            .output(),
+    )
+    .await;
+    match result {
+        Ok(Ok(output)) if output.status.success() => {
+            match serde_json::from_slice::<Value>(&output.stdout) {
+                Ok(report) => Json(report).into_response(),
+                Err(error) => setup_failure(StatusCode::BAD_GATEWAY, error),
+            }
+        }
+        _ => setup_failure(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Camera discovery is unavailable",
+        ),
+    }
+}
+
+async fn supervise_setup(
+    gateway: Gateway,
+    options: LiveProcessLaunchOptions,
+    scene_address: SocketAddr,
+    diagnostics_address: Option<SocketAddr>,
+) {
+    let mut shutdown = gateway.inner.shutdown.subscribe();
+    let mut reload = gateway.inner.setup_reload.subscribe();
+    let resolve = || -> Result<Option<LiveProcessConfig>, String> {
+        let authority = gateway
+            .inner
+            .configuration_authority
+            .as_ref()
+            .ok_or("Live setup requires a configuration storage path")?;
+        let configuration = authority.effective_configuration()?;
+        if configured_setup_source(&configuration).is_none() {
+            return Ok(None);
+        }
+        let project_root = gateway
+            .inner
+            .config
+            .project_root
+            .clone()
+            .map_or_else(std::env::current_dir, Ok)
+            .map_err(|error| error.to_string())?;
+        let mut process = LiveProcessConfig::from_effective_configuration(
+            &configuration,
+            &project_root,
+            scene_address,
+            options.executable_path.as_deref(),
+            options.capture_helper_path.as_deref(),
+            options.audit_config,
+        )?;
+        if let Some(address) = diagnostics_address {
+            process = process.with_diagnostics(
+                address,
+                gateway.inner.diagnostics_policy.clone(),
+                gateway.inner.diagnostics.clone(),
+                &configuration,
+            )?;
+        }
+        Ok(Some(process))
+    };
+    while !*shutdown.borrow() {
+        let process = match resolve() {
+            Ok(process) => {
+                *lock_unpoisoned(&gateway.inner.setup_error) = None;
+                process
+            }
+            Err(error) => {
+                *lock_unpoisoned(&gateway.inner.setup_error) = Some(error);
+                None
+            }
+        };
+        let child = process.map(|process| {
+            let (stop, stopped) = watch::channel(false);
+            let error_gateway = gateway.clone();
+            (
+                stop,
+                tokio::spawn(process.supervise_with_failure(stopped, move |error| {
+                    *lock_unpoisoned(&error_gateway.inner.setup_error) = Some(error);
+                })),
+            )
+        });
+        tokio::select! {
+            _ = shutdown.changed() => {},
+            _ = reload.changed() => {},
+        }
+        if let Some((stop, child)) = child {
+            stop.send_replace(true);
+            let _ = child.await;
+            // Drop the outgoing scene immediately, even if the new source
+            // takes time to produce its first frame.
+            let mut state = lock_unpoisoned(&gateway.inner.state);
+            state.updated_at = None;
+            state.localization_received_at = None;
+            state.live_source_geometry = None;
+            state.live_configuration_revision = None;
+            gateway.inner.latest.send_replace(None);
+        }
+    }
+}
+
+/// Start the gateway and optionally supervise the capture and inference producer.
 pub async fn run_with_live(
     config: ServerConfig,
     live_options: LiveProcessLaunchOptions,
@@ -2483,8 +4193,24 @@ pub async fn run_with_live(
             .clone();
         (exporter.recorder(), run_id)
     });
+    // Resolve listener policy at process startup, not in Gateway::new: HTTP
+    // handlers must remain able to report corrupt/locked store failures.
+    let diagnostics_policy = match config.configuration_path.as_ref() {
+        Some(path) => {
+            let authority = ConfigurationAuthority::new(path, AuthorityLimits::default())
+                .map_err(std::io::Error::other)?;
+            DiagnosticsConfig::from_configuration(
+                &authority
+                    .effective_configuration()
+                    .map_err(std::io::Error::other)?,
+            )
+            .map_err(std::io::Error::other)?
+        }
+        None => DiagnosticsConfig::default(),
+    };
     let gateway =
-        Gateway::new_with_audit(config.clone(), gateway_audit).map_err(std::io::Error::other)?;
+        Gateway::new_with_audit_and_diagnostics(config.clone(), gateway_audit, diagnostics_policy)
+            .map_err(std::io::Error::other)?;
     let scene_listener =
         TcpListener::bind(SocketAddr::new(config.scene_bind, config.scene_port)).await?;
     let http_listener =
@@ -2493,34 +4219,34 @@ pub async fn run_with_live(
     let http_address = http_listener.local_addr()?;
     eprintln!("billiards Rust gateway HTTP listening on {http_address}");
     eprintln!("live v3 scene ingress listening on {scene_address}");
-    let live_process = if live_options.enabled {
-        let authority = gateway
-            .inner
-            .configuration_authority
-            .as_ref()
-            .ok_or_else(|| std::io::Error::other("live detector startup requires --config"))?;
-        let effective_configuration = authority
-            .effective_configuration()
-            .map_err(std::io::Error::other)?;
-        let project_root = config
-            .project_root
-            .clone()
-            .unwrap_or(std::env::current_dir()?);
+    let diagnostics_listener = if gateway.inner.diagnostics_policy.enabled {
         Some(
-            LiveProcessConfig::from_effective_configuration(
-                &effective_configuration,
-                &project_root,
-                scene_address,
-                live_options.executable_path.as_deref(),
-                live_options.capture_helper_path.as_deref(),
-                live_options.audit_config,
-            )
-            .map_err(std::io::Error::other)?,
+            TcpListener::bind(SocketAddr::new(
+                gateway.inner.diagnostics_policy.bind_address,
+                gateway.inner.diagnostics_policy.port,
+            ))
+            .await?,
         )
     } else {
         None
     };
-
+    let diagnostics_address = diagnostics_listener
+        .as_ref()
+        .map(TcpListener::local_addr)
+        .transpose()?;
+    gateway
+        .inner
+        .setup_enabled
+        .store(live_options.enabled, Ordering::Release);
+    let diagnostics_ingress = diagnostics_listener.map(|listener| {
+        tokio::spawn(crate::producer_diagnostics::serve(
+            listener,
+            gateway.inner.diagnostics.clone(),
+            gateway.inner.diagnostics_policy.clone(),
+            gateway.inner.config.maximum_websocket_clients,
+            gateway.inner.shutdown.subscribe(),
+        ))
+    });
     let ingress_gateway = gateway.clone();
     let ingress = tokio::spawn(async move {
         ingress_gateway
@@ -2528,9 +4254,14 @@ pub async fn run_with_live(
             .await
     });
     let freshness = tokio::spawn(run_freshness_scheduler(gateway.clone()));
-    let live_supervisor = live_process.map(|process| {
-        let shutdown = gateway.inner.shutdown.subscribe();
-        tokio::spawn(process.supervise(shutdown))
+    let diagnostics_publisher = tokio::spawn(run_diagnostics_snapshot_publisher(gateway.clone()));
+    let live_supervisor = live_options.enabled.then(|| {
+        tokio::spawn(supervise_setup(
+            gateway.clone(),
+            live_options,
+            scene_address,
+            diagnostics_address,
+        ))
     });
     let shutdown_gateway = gateway.clone();
     let server = axum::serve(http_listener, gateway.router()).with_graceful_shutdown(async move {
@@ -2540,6 +4271,11 @@ pub async fn run_with_live(
     let server_result = server.await;
     gateway.shutdown();
     freshness.abort();
+    diagnostics_publisher.abort();
+    let _ = diagnostics_publisher.await;
+    if let Some(diagnostics_ingress) = diagnostics_ingress {
+        diagnostics_ingress.await??;
+    }
     if let Some(live_supervisor) = live_supervisor {
         live_supervisor.await?;
     }
@@ -2602,6 +4338,7 @@ impl Gateway {
                 drop(stream);
                 continue;
             }
+            self.inner.producer_connection_updates.send_replace(true);
             let gateway = self.clone();
             let standard_stream = match stream.into_std() {
                 Ok(stream) => stream,
@@ -2609,6 +4346,7 @@ impl Gateway {
                     self.inner
                         .producer_connected
                         .store(false, Ordering::Release);
+                    self.inner.producer_connection_updates.send_replace(false);
                     continue;
                 }
             };
@@ -2618,6 +4356,7 @@ impl Gateway {
                     self.inner
                         .producer_connected
                         .store(false, Ordering::Release);
+                    self.inner.producer_connection_updates.send_replace(false);
                     continue;
                 }
             };
@@ -2636,7 +4375,7 @@ impl Gateway {
 mod tests {
     use super::*;
     use axum::body::{to_bytes, Body};
-    use axum::http::Request;
+    use axum::http::{header::CONTENT_TYPE, Request};
     use futures_util::StreamExt;
     use serde_json::Value;
     use socket2::{Domain, Protocol, Socket, Type};
@@ -2651,6 +4390,29 @@ mod tests {
 
     type TestWebSocket = WebSocketStream<MaybeTlsStream<TcpStream>>;
 
+    fn diagnostics_test_policy() -> DiagnosticsConfig {
+        DiagnosticsConfig {
+            heartbeat_interval_ms: 20,
+            report_expiry_ms: 100,
+            stream_heartbeat_interval_ms: 20,
+            stream_stale_after_ms: 80,
+            processing_stall_timeout_ms: 50,
+            ..DiagnosticsConfig::default()
+        }
+    }
+
+    async fn receive_diagnostics_snapshot(client: &mut TestWebSocket) -> Value {
+        let message = tokio::time::timeout(Duration::from_secs(1), client.next())
+            .await
+            .expect("timed out waiting for diagnostics snapshot")
+            .expect("diagnostics websocket closed")
+            .expect("diagnostics websocket receive failed");
+        let ClientMessage::Text(encoded) = message else {
+            panic!("expected full diagnostics JSON snapshot")
+        };
+        serde_json::from_str(&encoded).expect("diagnostics message must be valid JSON")
+    }
+
     fn test_config() -> ServerConfig {
         ServerConfig {
             http_port: 0,
@@ -2660,6 +4422,144 @@ mod tests {
             expire_after: Duration::from_millis(500),
             ..ServerConfig::default()
         }
+    }
+
+    #[test]
+    fn setup_reports_missing_precision_assets_and_rejects_invalid_optics() {
+        let (directory, configuration_path) = live_test_configuration();
+        let mut config: Value =
+            serde_json::from_slice(&std::fs::read(configuration_path).unwrap()).unwrap();
+        let missing = setup_precision_calibration(&config, directory.path());
+        assert_eq!(missing["optics"]["state"], "missing");
+        assert_eq!(missing["ball_centers"]["state"], "missing");
+
+        std::fs::write(directory.path().join("invalid-optics.json"), "not json").unwrap();
+        config["perception"]["rust_live"]["ball_localization"]["optics_profile_path"] =
+            json!("invalid-optics.json");
+        let invalid = setup_precision_calibration(&config, directory.path());
+        assert_eq!(invalid["optics"]["state"], "invalid");
+        assert_eq!(invalid["ball_centers"]["state"], "missing");
+    }
+
+    #[test]
+    fn setup_recognizes_table_calibration_without_precise_ball_coordinates() {
+        let mut status = json!({
+            "calibration_state": "unavailable",
+            "perception": {"table_visibility": {"reason": "reference_match"}}
+        });
+        assert!(setup_table_calibrated(&status));
+        status["perception"]["table_visibility"]["reason"] = json!("cloth_mismatch");
+        assert!(setup_table_calibrated(&status));
+        status["perception"]["table_visibility"]["reason"] = json!("missing_reference");
+        assert!(!setup_table_calibrated(&status));
+    }
+
+    #[tokio::test]
+    async fn setup_is_ready_with_visibility_before_ball_localization() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("config.json");
+        let gateway = Gateway::new(ServerConfig {
+            configuration_path: Some(path),
+            project_root: Some(directory.path().to_owned()),
+            ..test_config()
+        })
+        .unwrap();
+        gateway.inner.setup_enabled.store(true, Ordering::Release);
+        let source = setup_source(
+            State(gateway.clone()),
+            Json(SetupSource {
+                expected_revision: 1,
+                source: "http://localhost:8001/stream".to_owned(),
+            }),
+        )
+        .await;
+        let bytes = to_bytes(source.into_body(), 4096).await.unwrap();
+        let revision = serde_json::from_slice::<Value>(&bytes).unwrap()["configuration_revision"]
+            .as_u64()
+            .unwrap();
+        gateway
+            .activate_producer_epoch("engine".to_owned(), "session".to_owned())
+            .unwrap();
+        gateway
+            .inner
+            .producer_connected
+            .store(true, Ordering::Release);
+        {
+            let mut state = lock_unpoisoned(&gateway.inner.state);
+            state.live_configuration_revision = Some(revision);
+            state.updated_at = Some(Utc::now());
+            state
+                .lifecycle
+                .update_perception_status(
+                    "engine",
+                    "session",
+                    json!({"table_visibility":{"reason":"reference_match"}}),
+                    0,
+                    0,
+                )
+                .unwrap();
+        }
+        let status = setup_status(State(gateway.clone())).await;
+        let bytes = to_bytes(status.into_body(), 4096).await.unwrap();
+        let status: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(status["state"], "running");
+        assert_eq!(status["calibrated"], true);
+        lock_unpoisoned(&gateway.inner.state).live_configuration_revision = Some(revision - 1);
+        let status = setup_status(State(gateway)).await;
+        let bytes = to_bytes(status.into_body(), 4096).await.unwrap();
+        assert_eq!(
+            serde_json::from_slice::<Value>(&bytes).unwrap()["state"],
+            "starting"
+        );
+    }
+
+    #[tokio::test]
+    async fn first_camera_selection_is_sparse_revisioned_and_requests_reload() {
+        let directory = tempfile::TempDir::new().unwrap();
+        let path = directory.path().join("config.json");
+        let gateway = Gateway::new(ServerConfig {
+            configuration_path: Some(path.clone()),
+            project_root: Some(directory.path().to_owned()),
+            ..test_config()
+        })
+        .unwrap();
+        gateway.inner.setup_enabled.store(true, Ordering::Release);
+        let mut reload = gateway.inner.setup_reload.subscribe();
+        let response = setup_status(State(gateway.clone())).await;
+        let bytes = to_bytes(response.into_body(), 4096).await.unwrap();
+        assert_eq!(
+            serde_json::from_slice::<Value>(&bytes).unwrap()["state"],
+            "idle"
+        );
+        assert!(!path.exists());
+
+        let source = "http://127.0.0.1:9000/camera.mjpg";
+        let response = setup_source(
+            State(gateway.clone()),
+            Json(SetupSource {
+                expected_revision: 1,
+                source: source.to_owned(),
+            }),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::OK);
+        assert!(reload.has_changed().unwrap());
+        reload.borrow_and_update();
+        let saved: Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+        assert_eq!(saved["vision"]["camera"]["device_id"], source);
+        assert!(saved.get("api").is_none());
+        assert_eq!(saved["metadata"]["configuration_revision"], 2);
+
+        let stale = setup_source(
+            State(gateway),
+            Json(SetupSource {
+                expected_revision: 1,
+                source: "http://127.0.0.1:9001/other.mjpg".to_owned(),
+            }),
+        )
+        .await;
+        assert_eq!(stale.status(), StatusCode::CONFLICT);
+        assert!(!reload.has_changed().unwrap_or(false));
     }
 
     fn live_test_configuration() -> (tempfile::TempDir, PathBuf) {
@@ -2680,102 +4580,299 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn identified_mjpeg_route_forwards_capture_identity_with_the_jpeg() {
-        let preview_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let preview_address = preview_listener.local_addr().unwrap();
-        let (directory, configuration_path) = live_test_configuration();
-        let mut document: Value =
-            serde_json::from_slice(&std::fs::read(&configuration_path).unwrap()).unwrap();
-        document["perception"]["rust_live"]["frame_preview_enabled"] = json!(true);
-        document["perception"]["rust_live"]["frame_preview_bind_address"] = json!("127.0.0.1");
-        document["perception"]["rust_live"]["frame_preview_port"] = json!(preview_address.port());
-        std::fs::write(&configuration_path, serde_json::to_vec(&document).unwrap()).unwrap();
+    async fn calibration_route_rejects_a_frame_from_an_old_configuration() {
+        let (_directory, configuration_path) = live_test_configuration();
         let gateway = Gateway::new(ServerConfig {
-            http_port: 0,
-            scene_port: 0,
             configuration_path: Some(configuration_path),
             ..test_config()
         })
         .unwrap();
-
-        let preview_server = tokio::spawn(async move {
-            let (mut socket, _) = preview_listener.accept().await.unwrap();
-            let mut request = [0_u8; 8];
-            socket.read_exact(&mut request).await.unwrap();
-            assert_eq!(&request, PREVIEW_REQUEST_V1);
-            let descriptor = FramePreviewDescriptorV1 {
-                schema_version: 1,
-                engine_instance_id: "engine-a".to_owned(),
-                capture_session_id: "session-a".to_owned(),
-                source_frame_id: "frame-42".to_owned(),
-                width_px: 640,
-                height_px: 480,
-                pixel_format: "rgb8".to_owned(),
-                image_space: crate::detection_batch::ImageSpace::Raw,
-                camera_profile_id: "camera-profile".to_owned(),
-                configuration_revision: 4,
-                calibration_revision: 2,
-                rectification_revision: 3,
-                source_timestamp: None,
-                source_timestamp_semantics:
-                    crate::capture::CaptureTimestampSemantics::ReadCompletionOnly,
-                host_read_completed: crate::frame_preview::PreviewHostTimestampV1 {
-                    ticks: "123".to_owned(),
-                    unit: crate::detection_batch::TimeUnit::Nanoseconds,
-                    clock: crate::detection_batch::ClockKind::Monotonic,
-                    domain_id: "engine-a".to_owned(),
-                    stage: crate::detection_batch::TimestampStage::CameraReadComplete,
-                    semantics: "read_completion_only".to_owned(),
-                },
-            };
-            let jpeg = [0xff, 0xd8, 0xff, 0xd9];
-            let header = FramePreviewResponseHeaderV1 {
-                schema_version: 1,
-                status: FramePreviewStatusV1::Ok,
-                descriptor: Some(descriptor),
-                jpeg_bytes: jpeg.len() as u32,
-                error: None,
-            };
-            let header = serde_json::to_vec(&header).unwrap();
-            socket
-                .write_all(&(header.len() as u32).to_be_bytes())
-                .await
-                .unwrap();
-            socket.write_all(&header).await.unwrap();
-            socket.write_all(&jpeg).await.unwrap();
-        });
+        gateway.inner.setup_enabled.store(true, Ordering::Release);
+        let reload = gateway.inner.setup_reload.subscribe();
 
         let response = gateway
             .router()
             .oneshot(
                 Request::builder()
-                    .uri(IDENTIFIED_MJPEG_PATH)
+                    .method("POST")
+                    .uri("/api/v1/setup/calibration")
+                    .header(CONTENT_TYPE, "application/json")
+                    .body(Body::from(r#"{"descriptor":{"configuration_revision":0}}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::CONFLICT);
+        assert!(!reload.has_changed().unwrap());
+    }
+
+    fn test_calibration_capture(
+        capture: &ResolvedCaptureSettings,
+        jpeg: &[u8],
+    ) -> (FramePreviewDescriptorV1, Value, (String, [u8; 32])) {
+        let expected = &capture.expected;
+        let geometry = expected.output_frame_geometry().unwrap();
+        let descriptor: FramePreviewDescriptorV1 = serde_json::from_value(json!({
+            "schema_version": 1,
+            "engine_instance_id": "test-engine",
+            "capture_session_id": "test-session",
+            "source_frame_id": "1",
+            "width_px": geometry.width_px(),
+            "height_px": geometry.height_px(),
+            "pixel_format": "RGB8",
+            "image_space": "raw",
+            "camera_profile_id": expected.camera_profile_id(),
+            "configuration_revision": expected.configuration_revision(),
+            "calibration_revision": expected.calibration_revision(),
+            "rectification_revision": expected.rectification_revision(),
+            "source_timestamp": null,
+            "source_timestamp_semantics": {"kind":"read_completion_only"},
+            "host_read_completed": {
+                "ticks": "1", "unit": "nanoseconds", "clock": "monotonic",
+                "domain_id": "test-domain", "stage": "camera_read_complete",
+                "semantics": "read_completion"
+            },
+        }))
+        .unwrap();
+        let token = "test-capture".to_owned();
+        let digest = crate::browser_precision_calibration::fingerprint(&descriptor, jpeg);
+        let body = json!({
+            "descriptor": descriptor,
+            "jpeg_base64": base64::engine::general_purpose::STANDARD.encode(jpeg),
+            "capture_token": token,
+        });
+        (descriptor, body, (token, digest))
+    }
+
+    #[tokio::test]
+    async fn setup_archives_calibration_thumbnails_across_gateway_restart() {
+        let (directory, configuration_path) = live_test_configuration();
+        let new_gateway = || {
+            let gateway = Gateway::new(ServerConfig {
+                configuration_path: Some(configuration_path.clone()),
+                project_root: Some(directory.path().to_owned()),
+                ..test_config()
+            })
+            .unwrap();
+            gateway.inner.setup_enabled.store(true, Ordering::Release);
+            gateway
+        };
+        let gateway = new_gateway();
+        let configuration = gateway
+            .inner
+            .configuration_authority
+            .as_ref()
+            .unwrap()
+            .effective_configuration()
+            .unwrap();
+        let capture = precision_capture(&configuration, directory.path()).unwrap();
+        let geometry = capture.expected.output_frame_geometry().unwrap();
+        let image = image::RgbImage::from_pixel(
+            geometry.width_px(),
+            geometry.height_px(),
+            image::Rgb([15, 120, 80]),
+        );
+        let mut jpeg = Vec::new();
+        image::codecs::jpeg::JpegEncoder::new(&mut jpeg)
+            .encode_image(&image)
+            .unwrap();
+        let (_, capture_body, token) = test_calibration_capture(&capture, &jpeg);
+        lock_unpoisoned(&gateway.inner.calibration_stills).push_back(token);
+        let route = "/api/v1/setup/calibration/captures/optics";
+        let request = |method, slot: Option<usize>, body: Option<Value>| {
+            Request::builder()
+                .method(method)
+                .uri(slot.map_or_else(|| route.to_owned(), |slot| format!("{route}/{slot}")))
+                .header(CONTENT_TYPE, "application/json")
+                .body(body.map_or_else(Body::empty, |body| Body::from(body.to_string())))
+                .unwrap()
+        };
+        let response = gateway
+            .router()
+            .oneshot(request("PUT", Some(3), Some(capture_body.clone())))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.headers()[CACHE_CONTROL], "no-store");
+        let saved: Value =
+            serde_json::from_slice(&to_bytes(response.into_body(), 512 * 1024).await.unwrap())
+                .unwrap();
+        assert_eq!(saved["slot"], 3);
+        let response = gateway
+            .router()
+            .oneshot(request("PUT", Some(1), Some(capture_body)))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+
+        let restart = new_gateway();
+        assert!(lock_unpoisoned(&restart.inner.calibration_stills).is_empty());
+        let response = restart
+            .router()
+            .oneshot(request("GET", None, None))
+            .await
+            .unwrap();
+        assert_eq!(response.headers()[CACHE_CONTROL], "no-store");
+        let listed: Value =
+            serde_json::from_slice(&to_bytes(response.into_body(), 512 * 1024).await.unwrap())
+                .unwrap();
+        assert_eq!(listed["captures"], json!([saved]));
+        assert!(listed["captures"][0].get("jpeg_base64").is_none());
+
+        let response = restart
+            .router()
+            .oneshot(request("DELETE", None, None))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let response = restart
+            .router()
+            .oneshot(request("GET", None, None))
+            .await
+            .unwrap();
+        let listed: Value =
+            serde_json::from_slice(&to_bytes(response.into_body(), 4096).await.unwrap()).unwrap();
+        assert_eq!(listed["captures"], json!([]));
+    }
+
+    #[test]
+    fn setup_ball_candidate_refines_a_rendered_jpeg_near_the_measured_position() {
+        use crate::ball_localization::{BallLocalizationConfig, CameraIntrinsics};
+        use crate::ball_localization_profile::{
+            BallLocalizationSettings, CameraOpticsProfileV1, BALL_REFINER_REVISION,
+            CAMERA_OPTICS_PROFILE_VERSION,
+        };
+        use crate::browser_precision_calibration::{asset_paths, save_asset, FitContext};
+        use crate::calibration::{
+            solve_table_calibration, ImagePointPx, TableCalibrationSolverInput,
+        };
+        let (directory, configuration_path) = live_test_configuration();
+        let mut configuration: Value =
+            serde_json::from_slice(&std::fs::read(configuration_path).unwrap()).unwrap();
+        configuration["vision"]["camera"]["resolution"] = json!([480, 300]);
+        let mut capture = precision_capture(&configuration, directory.path()).unwrap();
+        let profile = capture.expected.camera_profile_id().to_owned();
+        let table = solve_table_calibration(TableCalibrationSolverInput {
+            calibration_revision: 1,
+            camera_profile_id: profile.clone(),
+            rectification_revision: capture.expected.rectification_revision(),
+            image_space: crate::ImageSpace::Raw,
+            source_width_px: 480,
+            source_height_px: 300,
+            table_width_mm: 600.0,
+            table_height_mm: 350.0,
+            corners_px: [[40.0, 34.0], [440.0, 34.0], [440.0, 266.0], [40.0, 266.0]]
+                .map(|[x_px, y_px]| ImagePointPx { x_px, y_px }),
+        })
+        .unwrap();
+        capture
+            .expected
+            .apply_calibration_store_state(1, Some(table.into_validated().unwrap()))
+            .unwrap();
+        let optics_path = asset_paths(directory.path(), &profile).0;
+        save_asset(
+            &optics_path,
+            &CameraOpticsProfileV1 {
+                schema_version: CAMERA_OPTICS_PROFILE_VERSION,
+                optics_profile_id: "test-optics".into(),
+                camera_profile_id: profile,
+                optics_revision: 1,
+                refiner_revision: BALL_REFINER_REVISION,
+                image_space: crate::ImageSpace::Raw,
+                intrinsics: CameraIntrinsics {
+                    source_width_px: 480,
+                    source_height_px: 300,
+                    fx: 260.0,
+                    fy: 260.0,
+                    cx: 240.0,
+                    cy: 150.0,
+                },
+                provenance: "Synthetic calibration fixture".into(),
+            },
+        )
+        .unwrap();
+        let ball_center = [240.0, 150.0];
+        let image = image::RgbImage::from_fn(480, 300, |x, y| {
+            let distance = (f64::from(x) - ball_center[0]).hypot(f64::from(y) - ball_center[1]);
+            let alpha = (19.5 - distance).clamp(0.0, 1.0);
+            let cloth = [24.0, 145.0, 118.0];
+            let ball = [225.0, 62.0, 35.0];
+            image::Rgb(std::array::from_fn(|ch| {
+                ((1.0 - alpha) * cloth[ch] + alpha * ball[ch]) as u8
+            }))
+        });
+        let mut jpeg = Vec::new();
+        image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg, 92)
+            .encode_image(&image)
+            .unwrap();
+        let (_, mut body, token) = test_calibration_capture(&capture, &jpeg);
+        body["table_center_mm"] = json!([0.0, 0.0]);
+        let report = FitContext {
+            root: directory.path(),
+            capture: &capture,
+            settings: BallLocalizationSettings {
+                optics_profile_path: Some(optics_path),
+                parameters: BallLocalizationConfig {
+                    reference_width_px: 480,
+                    batch_budget_ms: 1000,
+                    proposal_budget_ms: 500,
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+            tokens: &std::collections::VecDeque::from([token]),
+            maximum_jpeg_bytes: jpeg.len(),
+        }
+        .ball_candidate(serde_json::from_value(body).unwrap())
+        .unwrap();
+        let measured: [f64; 2] =
+            serde_json::from_value(report["candidate"]["image_center_px"].clone())
+                .unwrap_or_else(|_| panic!("No refined candidate: {report}"));
+        assert!((measured[0] - ball_center[0]).hypot(measured[1] - ball_center[1]) < 1.0);
+        assert!((report["candidate"]["radius_px"].as_f64().unwrap() - 19.0).abs() < 1.0);
+    }
+
+    #[tokio::test]
+    async fn setup_serves_the_checked_in_checkerboard_as_a_pdf_download() {
+        let response = Gateway::new(test_config())
+            .unwrap()
+            .router()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/setup/calibration/checkerboard.pdf")
                     .body(Body::empty())
                     .unwrap(),
             )
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
-        assert_eq!(
-            response.headers()[CONTENT_TYPE],
-            "multipart/x-mixed-replace; boundary=billiards-frame-v1"
-        );
-        let first_part = response
-            .into_body()
-            .into_data_stream()
-            .next()
-            .await
+        assert_eq!(response.headers()[CONTENT_TYPE], "application/pdf");
+        assert!(response.headers()[axum::http::header::CONTENT_DISPOSITION]
+            .to_str()
             .unwrap()
+            .starts_with("attachment;"));
+        let body = to_bytes(response.into_body(), 8192).await.unwrap();
+        assert_eq!(
+            body.as_ref(),
+            include_bytes!("../../output/pdf/ball-localization-checkerboard-letter-tiles.pdf")
+        );
+    }
+
+    #[tokio::test]
+    async fn gateway_has_no_video_stream_route() {
+        let response = Gateway::new(test_config())
+            .unwrap()
+            .router()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/video/identified.mjpg")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
             .unwrap();
-        let first_part = String::from_utf8_lossy(&first_part);
-        assert!(first_part.contains("X-Frame-Id: frame-42\r\n"));
-        assert!(first_part.contains("X-Engine-Instance-Id: engine-a\r\n"));
-        assert!(first_part.contains("X-Source-Session-Id: session-a\r\n"));
-        assert!(first_part.contains("X-Configuration-Revision: 4\r\n"));
-        assert!(first_part.contains("X-Calibration-Revision: 2\r\n"));
-        assert!(first_part.contains("X-Rectification-Revision: 3\r\n"));
-        preview_server.await.unwrap();
-        drop(directory);
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
     }
 
     #[test]
@@ -2787,6 +4884,7 @@ mod tests {
             phase: "pre_shot".into(),
             layout_revision: 3,
             layout_trusted: true,
+            layout_basis_frame_id: Some("frame-1".into()),
             empty_layout_verified: true,
             guidance_valid: false,
             trust_reason: "trusted".into(),
@@ -2821,6 +4919,10 @@ mod tests {
             perception_schema["properties"]["empty_layout_verified"]["type"],
             "boolean"
         );
+        assert_eq!(
+            perception_schema["properties"]["layout_basis_frame_id"]["type"],
+            json!(["string", "null"])
+        );
     }
 
     #[test]
@@ -2832,6 +4934,7 @@ mod tests {
             phase: "recovering".into(),
             layout_revision: 0,
             layout_trusted: false,
+            layout_basis_frame_id: None,
             empty_layout_verified: true,
             guidance_valid: false,
             trust_reason: "awaiting_settlement".into(),
@@ -2864,6 +4967,7 @@ mod tests {
             phase: "aiming".into(),
             layout_revision: 4,
             layout_trusted: true,
+            layout_basis_frame_id: Some("frame-2".into()),
             empty_layout_verified: false,
             guidance_valid: true,
             trust_reason: "trusted".into(),
@@ -3037,6 +5141,7 @@ mod tests {
             },
             layout_revision: u64::from(layout_trusted),
             layout_trusted,
+            layout_basis_frame_id: layout_trusted.then(|| "frame-1".to_owned()),
             empty_layout_verified,
             guidance_valid: false,
             trust_reason: if layout_trusted {
@@ -3059,6 +5164,25 @@ mod tests {
         }
     }
 
+    fn test_guidance_state(event_sequence: u64, guidance_valid: bool) -> PerceptionStateV1 {
+        let mut state = test_perception_state(event_sequence, true, false);
+        state.phase = "aiming".into();
+        state.guidance_valid = guidance_valid;
+        state.cue_evidence_age_ms = guidance_valid.then_some(0);
+        if guidance_valid {
+            state.cue = Some(crate::public_state_lifecycle::CueGeometryStateV1 {
+                shaft_start_px: [100.0, 200.0],
+                shaft_end_px: [500.0, 180.0],
+                axis_unit: [0.998_752, -0.049_938],
+                confidence: 0.9,
+                observation_age_ms: 0,
+                signed_direction: None,
+                source_frame_id: Some("frame-guidance".into()),
+            });
+        }
+        state
+    }
+
     fn public_state_delivery(scene: &SceneSnapshotV1) -> Vec<u8> {
         let mut lifecycle = SceneStateLifecycle::default();
         lifecycle
@@ -3069,6 +5193,25 @@ mod tests {
         let delivery =
             crate::public_state_lifecycle::PublicStateDeliveryV1::new(scene, current.as_ref());
         serde_json::to_vec(&delivery).unwrap()
+    }
+
+    fn public_state_delivery_v2(
+        scene: &SceneSnapshotV1,
+        delivery_sequence: u64,
+        perception: PerceptionStateV1,
+    ) -> Vec<u8> {
+        let legacy: Value = serde_json::from_slice(&public_state_delivery(scene)).unwrap();
+        serde_json::to_vec(&json!({
+            "delivery_type": "billiards_public_state_delivery",
+            "delivery_schema_version": 2,
+            "delivery_sequence": delivery_sequence,
+            "engine_instance_id": scene.engine_instance_id,
+            "source_session_id": scene.source.session_id,
+            "source_snapshot": legacy["source_snapshot"],
+            "current_state": legacy["current_state"],
+            "perception": perception,
+        }))
+        .unwrap()
     }
 
     fn dense_scene(sequence: u64) -> SceneSnapshotV1 {
@@ -3411,6 +5554,7 @@ mod tests {
         .unwrap();
         let calibration = calibration.into_validated().unwrap();
         let mut perception = test_perception_state(1, true, false);
+        perception.layout_basis_frame_id = Some("frame-projection".into());
         perception.image_width_px = Some(1000);
         perception.image_height_px = Some(500);
         perception.decision_calibration_revision = Some(3);
@@ -3959,19 +6103,18 @@ mod tests {
         assert_eq!(retained_again["data"]["ball_count"], 0);
         assert!(retained_again["data"]["observation_status"]["position_retention"].is_null());
 
+        let mut verified_empty_state = test_perception_state(3, true, true);
+        verified_empty_state.layout_basis_frame_id = Some("frame-empty-again".into());
         gateway
-            .accept_perception_state(
-                3,
-                "engine-retain",
-                "session-retain",
-                test_perception_state(3, true, true),
-            )
+            .accept_perception_state(3, "engine-retain", "session-retain", verified_empty_state)
             .unwrap();
         let verified_empty = receive_websocket_state(&mut client).await;
         assert_eq!(verified_empty["data"]["ball_count"], 0);
         assert_eq!(
             verified_empty["data"]["observation_status"]["perception"]["empty_layout_verified"],
-            true
+            true,
+            "verified empty state was rejected: {:?}",
+            verified_empty["data"]["observation_status"]
         );
         assert!(verified_empty["data"]["observation_status"]["position_retention"].is_null());
 
@@ -4592,6 +6735,210 @@ mod tests {
     }
 
     #[test]
+    fn v2_scene_and_partial_perception_are_published_as_one_gateway_update() {
+        let (directory, configuration_path) = live_test_configuration();
+        let gateway = Gateway::new(ServerConfig {
+            configuration_path: Some(configuration_path),
+            project_root: Some(directory.path().to_path_buf()),
+            ..test_config()
+        })
+        .unwrap();
+        let settings = gateway.resolve_live_capture_settings().unwrap();
+        let engine = "engine-atomic-scene-perception";
+        let session = "session-atomic-scene-perception";
+        let hello = json!({
+            "type": "hello",
+            "protocol_version": LIVE_PROTOCOL_VERSION,
+            "engine_instance_id": engine,
+            "source_session_id": session,
+            "capture_session_ack": live_acknowledgement(&settings, session),
+        });
+        let handshake =
+            validate_live_v3_hello(&serde_json::to_vec(&hello).unwrap(), &settings).unwrap();
+        gateway
+            .activate_producer_epoch(engine.to_owned(), session.to_owned())
+            .unwrap();
+
+        gateway
+            .accept_live_delivery(
+                &public_state_delivery_v2(
+                    &scene_for(engine, session, 1, "frame-1"),
+                    1,
+                    test_guidance_state(1, true),
+                ),
+                &handshake,
+            )
+            .unwrap();
+        let trusted = gateway
+            .inner
+            .latest
+            .borrow()
+            .as_ref()
+            .expect("the first live scene should be published")
+            .clone();
+        assert_eq!(
+            trusted.current.payload.observation_status["perception"]["guidance_valid"],
+            true
+        );
+        let publication_before_partial = trusted.publication_sequence;
+
+        gateway
+            .accept_live_delivery(
+                &public_state_delivery_v2(
+                    &scene_for(engine, session, 2, "frame-2"),
+                    2,
+                    test_perception_state(2, false, false),
+                ),
+                &handshake,
+            )
+            .unwrap();
+
+        let partial = gateway
+            .inner
+            .latest
+            .borrow()
+            .as_ref()
+            .expect("the partial scene should be published")
+            .clone();
+        assert_eq!(
+            partial.publication_sequence,
+            publication_before_partial + 1,
+            "the scene and perception envelope must cause a single watch publication"
+        );
+        assert_eq!(
+            partial.current.payload.observation_status["source_frame_id"],
+            "frame-2"
+        );
+        assert_eq!(
+            partial.current.payload.observation_status["perception"]["layout_trusted"],
+            false
+        );
+        assert_eq!(
+            partial.current.payload.observation_status["perception"]["guidance_valid"],
+            false
+        );
+        assert_eq!(partial.current.payload.balls.len(), 1);
+    }
+
+    #[test]
+    fn gateway_trust_restoration_requires_the_clean_layout_scene_to_be_accepted() {
+        let (directory, configuration_path) = live_test_configuration();
+        let gateway = Gateway::new(ServerConfig {
+            configuration_path: Some(configuration_path),
+            project_root: Some(directory.path().to_path_buf()),
+            ..test_config()
+        })
+        .unwrap();
+        let settings = gateway.resolve_live_capture_settings().unwrap();
+        let engine = "engine-layout-basis";
+        let session = "session-layout-basis";
+        let hello = json!({
+            "type": "hello",
+            "protocol_version": LIVE_PROTOCOL_VERSION,
+            "engine_instance_id": engine,
+            "source_session_id": session,
+            "capture_session_ack": live_acknowledgement(&settings, session),
+        });
+        let handshake =
+            validate_live_v3_hello(&serde_json::to_vec(&hello).unwrap(), &settings).unwrap();
+        gateway
+            .activate_producer_epoch(engine.to_owned(), session.to_owned())
+            .unwrap();
+
+        gateway
+            .accept_live_delivery(
+                &public_state_delivery_v2(
+                    &scene_for(engine, session, 1, "frame-1"),
+                    1,
+                    test_perception_state(1, false, false),
+                ),
+                &handshake,
+            )
+            .unwrap();
+
+        let mut restored = test_perception_state(2, true, false);
+        restored.layout_revision = 2;
+        restored.layout_basis_frame_id = Some("frame-2".to_owned());
+        gateway
+            .accept_perception_state(2, engine, session, restored.clone())
+            .unwrap();
+        let dropped_clean_scene = gateway
+            .inner
+            .latest
+            .borrow()
+            .as_ref()
+            .expect("the fail-closed phase event should remain publishable")
+            .clone();
+        assert_eq!(
+            dropped_clean_scene.current.payload.observation_status["source_frame_id"],
+            "frame-1"
+        );
+        assert_eq!(
+            dropped_clean_scene.current.payload.observation_status["perception"]["layout_trusted"],
+            false,
+            "phase-only trust cannot be restored before its clean scene arrives"
+        );
+        assert_eq!(
+            dropped_clean_scene.current.payload.observation_status["perception"]["guidance_valid"],
+            false
+        );
+        assert_eq!(
+            dropped_clean_scene.current.payload.balls.len(),
+            scene_for(engine, session, 1, "frame-1").balls.len(),
+            "fail-closed trust handling preserves the gateway's last-known centers"
+        );
+
+        let mut delayed_partial = restored.clone();
+        delayed_partial.event_sequence = 3;
+        gateway
+            .accept_live_delivery(
+                &public_state_delivery_v2(
+                    &scene_for(engine, session, 3, "frame-3"),
+                    3,
+                    delayed_partial,
+                ),
+                &handshake,
+            )
+            .unwrap();
+        assert_eq!(
+            gateway
+                .inner
+                .latest
+                .borrow()
+                .as_ref()
+                .unwrap()
+                .current
+                .payload
+                .observation_status["perception"]["layout_trusted"],
+            false,
+            "a later scene carrying the stale basis must not restore trust either"
+        );
+
+        restored.event_sequence = 4;
+        restored.layout_revision = 3;
+        restored.layout_basis_frame_id = Some("frame-4".to_owned());
+        gateway
+            .accept_live_delivery(
+                &public_state_delivery_v2(&scene_for(engine, session, 4, "frame-4"), 4, restored),
+                &handshake,
+            )
+            .unwrap();
+        assert_eq!(
+            gateway
+                .inner
+                .latest
+                .borrow()
+                .as_ref()
+                .unwrap()
+                .current
+                .payload
+                .observation_status["perception"]["layout_trusted"],
+            true,
+            "a clean accepted scene can establish its matching layout basis"
+        );
+    }
+
+    #[test]
     fn perception_events_do_not_renew_ball_age_or_consume_scene_sequence_space() {
         let gateway = Gateway::new(test_config()).unwrap();
         gateway
@@ -4617,6 +6964,7 @@ mod tests {
                     phase: "shot_underway".into(),
                     layout_revision: 1,
                     layout_trusted: false,
+                    layout_basis_frame_id: None,
                     empty_layout_verified: false,
                     guidance_valid: false,
                     trust_reason: "motion_detected".into(),
@@ -4684,6 +7032,7 @@ mod tests {
                     phase: "pre_shot".into(),
                     layout_revision: 0,
                     layout_trusted: false,
+                    layout_basis_frame_id: None,
                     empty_layout_verified: false,
                     guidance_valid: false,
                     trust_reason: "no_verified_layout".into(),
@@ -5104,6 +7453,253 @@ mod tests {
             panic!("expected HTTP not-ready response, got {error}")
         };
         assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    }
+
+    #[tokio::test]
+    async fn diagnostics_websocket_starts_without_scene_and_pushes_increasing_revisions() {
+        let mut config = test_config();
+        config.maximum_websocket_clients = 1;
+        let gateway =
+            Gateway::new_with_audit_and_diagnostics(config, None, diagnostics_test_policy())
+                .unwrap();
+        let snapshot_gateway = gateway.clone();
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            axum::serve(listener, gateway.router()).await.unwrap();
+        });
+        let url = format!("ws://{address}{DIAGNOSTICS_WEBSOCKET_PATH}");
+        let (mut client, _) = connect_async_with_config(&url, None, false).await.unwrap();
+        let initial = receive_diagnostics_snapshot(&mut client).await;
+        assert_eq!(initial["schema_version"], 1);
+        assert_eq!(initial["producer"]["state"], "unknown");
+        assert_eq!(initial["producer"]["metadata"], Value::Null);
+        assert_eq!(initial["stages"].as_array().unwrap().len(), 7);
+        assert_eq!(initial["stages"][5]["status"], "starting");
+        assert_eq!(initial["stages"][6]["status"], "unknown");
+
+        let second = connect_async_with_config(&url, None, false)
+            .await
+            .unwrap_err();
+        let tokio_tungstenite::tungstenite::Error::Http(response) = second else {
+            panic!("expected bounded diagnostics-client rejection, got {second}")
+        };
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+
+        // The router owns a watch receiver, so a full replacement snapshot is
+        // sent without reopening the connection or publishing scene data.
+        // This direct push also keeps the route test independent of timers.
+        // The publisher uses this same method for evidence/heartbeat updates.
+        snapshot_gateway.publish_diagnostics_snapshot();
+        let updated = receive_diagnostics_snapshot(&mut client).await;
+        assert!(
+            updated["gateway"]["revision"].as_u64().unwrap()
+                > initial["gateway"]["revision"].as_u64().unwrap()
+        );
+        drop(client);
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn diagnostics_publisher_expires_reports_without_new_packets() {
+        use crate::producer_diagnostics_contract::{
+            ProducerDiagnosticsReport, ProducerStageName, StageObservation,
+        };
+
+        let policy = diagnostics_test_policy();
+        let gateway = Gateway::new_with_audit_and_diagnostics(test_config(), None, policy).unwrap();
+        let registry = gateway.diagnostics_registry();
+        let mut report = ProducerDiagnosticsReport::decode(
+            include_bytes!("../contracts/producer-diagnostics/v1/active.json"),
+            65_536,
+        )
+        .unwrap();
+        report.generation_id = "expiry-test-generation".into();
+        report.sequence = 1;
+        report.stages = vec![StageObservation {
+            stage: ProducerStageName::CaptureProgress,
+            status: StageStatus::Healthy,
+            reason_code: "capture_frame_received".into(),
+            detail: None,
+            last_progress_age_ms: Some(120),
+            in_flight: false,
+            work_started_age_ms: None,
+            expected_jobs: None,
+            completed_jobs: None,
+            failed_jobs: None,
+            scheduler_state: None,
+            active_job_kind: None,
+            last_completion_age_ms: None,
+            last_failure_code: None,
+            last_failure_age_ms: None,
+            deadline_ms: None,
+        }];
+        registry.begin_generation(report.generation_id.clone());
+        registry.accept(report, Instant::now()).unwrap();
+
+        let mut updates = gateway.inner.diagnostics_snapshots.subscribe();
+        let publisher = tokio::spawn(run_diagnostics_snapshot_publisher(gateway.clone()));
+        let mut last_revision = updates.borrow_and_update().gateway.revision;
+        let fresh = tokio::time::timeout(Duration::from_secs(1), async {
+            loop {
+                updates.changed().await.unwrap();
+                let snapshot = updates.borrow_and_update().clone();
+                assert!(snapshot.gateway.revision > last_revision);
+                last_revision = snapshot.gateway.revision;
+                if snapshot.producer.state == ProducerReportState::Fresh {
+                    break snapshot;
+                }
+            }
+        })
+        .await
+        .expect("fresh diagnostics report was not published");
+        assert!(fresh.producer.metadata.is_some());
+
+        let expired = tokio::time::timeout(Duration::from_secs(1), async {
+            loop {
+                updates.changed().await.unwrap();
+                let snapshot = updates.borrow_and_update().clone();
+                assert!(snapshot.gateway.revision > last_revision);
+                last_revision = snapshot.gateway.revision;
+                if snapshot.producer.state == ProducerReportState::Expired {
+                    break snapshot;
+                }
+            }
+        })
+        .await
+        .expect("report expiry did not publish without another producer packet");
+        assert!(expired.producer.metadata.is_none());
+        assert!(expired.producer.report_age_ms.is_some());
+        assert_eq!(expired.producer.expires_in_ms, None);
+        let last_known = expired.producer.last_known.as_ref().unwrap();
+        assert_eq!(last_known.report.generation_id, "expiry-test-generation");
+        assert!(last_known.report.metadata.model.is_some());
+        assert!(!last_known.report.stages.is_empty());
+        for stage in expired.stages.iter().filter(|stage| {
+            matches!(
+                stage.stage,
+                DiagnosticsStageName::SourceLifecycle
+                    | DiagnosticsStageName::CaptureProgress
+                    | DiagnosticsStageName::ModelInitialization
+                    | DiagnosticsStageName::ScheduledPerceptionWork
+            )
+        }) {
+            assert_eq!(stage.status, StageStatus::Unknown);
+        }
+        gateway.shutdown();
+        publisher.await.unwrap();
+    }
+
+    #[test]
+    fn active_job_deadline_stalls_only_inflight_work_and_phase_gated_work_stays_idle() {
+        use crate::producer_diagnostics_contract::{
+            ProducerDiagnosticsReport, ProducerStageName, ScheduledJobKind, ScheduledWorkState,
+            StageObservation,
+        };
+
+        let gateway =
+            Gateway::new_with_audit_and_diagnostics(test_config(), None, diagnostics_test_policy())
+                .unwrap();
+        let registry = gateway.diagnostics_registry();
+        let mut report = ProducerDiagnosticsReport::decode(
+            include_bytes!("../contracts/producer-diagnostics/v1/active.json"),
+            65_536,
+        )
+        .unwrap();
+        report.generation_id = "active-work-generation".into();
+        report.sequence = 1;
+        report.stages = vec![StageObservation {
+            stage: ProducerStageName::ScheduledPerceptionWork,
+            status: StageStatus::Healthy,
+            reason_code: "scheduled_job_in_flight".into(),
+            detail: None,
+            last_progress_age_ms: Some(5),
+            in_flight: true,
+            work_started_age_ms: Some(60),
+            expected_jobs: Some(12),
+            completed_jobs: Some(11),
+            failed_jobs: Some(0),
+            scheduler_state: Some(ScheduledWorkState::InFlight),
+            active_job_kind: Some(ScheduledJobKind::BallDetection),
+            last_completion_age_ms: Some(50),
+            last_failure_code: None,
+            last_failure_age_ms: None,
+            deadline_ms: Some(50),
+        }];
+        registry.begin_generation(report.generation_id.clone());
+        registry.accept(report.clone(), Instant::now()).unwrap();
+        let overdue = gateway.assess_diagnostics_snapshot(2);
+        let work = overdue
+            .stages
+            .iter()
+            .find(|stage| stage.stage == DiagnosticsStageName::ScheduledPerceptionWork)
+            .unwrap();
+        assert_eq!(work.status, StageStatus::Stalled);
+        assert_eq!(work.reason_code, "active_work_deadline_exceeded");
+        assert_eq!(work.active_job_kind, Some(ScheduledJobKind::BallDetection));
+
+        report.sequence += 1;
+        report.stages[0].status = StageStatus::Idle;
+        report.stages[0].reason_code = "work_phase_gated".into();
+        report.stages[0].in_flight = false;
+        report.stages[0].work_started_age_ms = None;
+        report.stages[0].active_job_kind = None;
+        report.stages[0].scheduler_state = Some(ScheduledWorkState::PhaseGated);
+        report.stages[0].deadline_ms = None;
+        registry.accept(report, Instant::now()).unwrap();
+        let idle = gateway.assess_diagnostics_snapshot(3);
+        let work = idle
+            .stages
+            .iter()
+            .find(|stage| stage.stage == DiagnosticsStageName::ScheduledPerceptionWork)
+            .unwrap();
+        assert_eq!(work.status, StageStatus::Idle);
+        assert_eq!(work.scheduler_state, Some(ScheduledWorkState::PhaseGated));
+        assert_eq!(work.deadline_ms, None);
+    }
+
+    #[test]
+    fn supervised_exit_outcomes_distinguish_graceful_stop_from_failures() {
+        use crate::producer_diagnostics_contract::ProducerExitReason;
+
+        let gateway =
+            Gateway::new_with_audit_and_diagnostics(test_config(), None, diagnostics_test_policy())
+                .unwrap();
+        let registry = gateway.diagnostics_registry();
+        for (index, outcome, expected_status, expected_reason) in [
+            (
+                1,
+                ProducerExitReason::GracefulStop,
+                StageStatus::Stopped,
+                "producer_graceful_stop",
+            ),
+            (
+                2,
+                ProducerExitReason::ProcessExitedNonzero,
+                StageStatus::Failed,
+                "producer_process_exited_nonzero",
+            ),
+            (
+                3,
+                ProducerExitReason::SpawnFailed,
+                StageStatus::Failed,
+                "producer_spawn_failed",
+            ),
+        ] {
+            let generation = format!("exit-outcome-{index}");
+            registry.begin_generation(generation.clone());
+            registry.retire_generation(&generation, outcome);
+            let snapshot = gateway.assess_diagnostics_snapshot(index + 1);
+            let source = snapshot
+                .stages
+                .iter()
+                .find(|stage| stage.stage == DiagnosticsStageName::SourceLifecycle)
+                .unwrap();
+            assert_eq!(source.status, expected_status);
+            assert_eq!(source.reason_code, expected_reason);
+            assert_eq!(snapshot.producer.exit_reason, Some(outcome));
+            assert!(snapshot.producer.metadata.is_none());
+        }
     }
 }
 

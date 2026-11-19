@@ -25,6 +25,7 @@ use crate::frame_preview::{FramePreviewConfig, FramePreviewServer, LatestCapture
 use crate::inference::{FrameInferenceEngine, FrameInferenceOptions, ProviderSelection};
 use crate::live_audit::{LiveAuditConfig, LiveAuditExporter, LiveAuditShutdownSummary};
 use crate::phase_scheduler::{PhaseCadence, SchedulerConfig};
+use crate::producer_diagnostics_contract::{ProducerStageName, StageStatus};
 use crate::table_visibility::TableVisibilityConfig;
 use crate::tracking::TrackingConfigV1;
 use crate::{ImageSpace, SceneTransportConfig};
@@ -313,6 +314,25 @@ pub fn run_live_application_with_audit<F: CaptureSourceFactory>(
     shutdown_requested: &AtomicBool,
     audit_config: Option<LiveAuditConfig>,
 ) -> Result<()> {
+    run_live_application_with_diagnostics(
+        exact_capture_settings_json,
+        settings,
+        source_factory,
+        shutdown_requested,
+        audit_config,
+        None,
+    )
+}
+
+/// The reporter starts before initialization; library callers may omit it.
+pub fn run_live_application_with_diagnostics<F: CaptureSourceFactory>(
+    exact_capture_settings_json: &str,
+    settings: LiveApplicationSettings,
+    source_factory: F,
+    shutdown_requested: &AtomicBool,
+    audit_config: Option<LiveAuditConfig>,
+    diagnostics: Option<&crate::producer_diagnostics::ReporterHandle>,
+) -> Result<()> {
     ensure!(
         settings.provider == ProviderSelection::Openvino,
         "live application requires the OpenVINO GPU inference provider"
@@ -424,11 +444,26 @@ pub fn run_live_application_with_audit<F: CaptureSourceFactory>(
         max_detections: settings.max_detections,
         intra_op_threads: settings.intra_op_threads,
     };
-    let mut detector = FrameInferenceEngine::new_without_onnx_runtime(inference_options)
-        .context("failed to load the configured live detector")?;
+    let mut detector = match FrameInferenceEngine::new_without_onnx_runtime(inference_options) {
+        Ok(detector) => detector,
+        Err(error) => {
+            if let Some(diagnostics) = diagnostics {
+                diagnostics.model_failed();
+            }
+            return Err(error).context("failed to load the configured live detector");
+        }
+    };
 
-    warm_up_detector(&mut detector, expected, settings.warmup_runs)
-        .context("live detector warm-up failed")?;
+    if let Err(error) = warm_up_detector(&mut detector, expected, settings.warmup_runs) {
+        if let Some(diagnostics) = diagnostics {
+            diagnostics.model_failed();
+        }
+        return Err(error).context("live detector warm-up failed");
+    }
+
+    if let Some(diagnostics) = diagnostics {
+        diagnostics.activate_model(detector.diagnostics_model());
+    }
 
     let detector = LocalizedFrameDetector::new(
         detector,
@@ -556,11 +591,16 @@ pub fn run_live_application_with_audit<F: CaptureSourceFactory>(
     }
     .context("failed to start Rust live capture runtime")?;
 
+    if let Some(diagnostics) = diagnostics {
+        runtime.attach_diagnostics(diagnostics.clone());
+    }
+
     let session_result = run_ready_session(
         &mut runtime,
         settings.startup_timeout,
         settings.poll_interval,
         shutdown_requested,
+        diagnostics,
     );
     if let Some(diagnostics) = runtime.phase_diagnostics() {
         eprintln!(
@@ -602,7 +642,7 @@ pub fn run_live_application_with_audit<F: CaptureSourceFactory>(
 /// malformed, or incompatible calibration disables physical coordinates but
 /// leaves image inference and ball detection available. Capture request bytes
 /// and their digest remain unchanged for the source readiness acknowledgement.
-fn install_calibration_store_state(
+pub(crate) fn install_calibration_store_state(
     resolved: &mut crate::capture_settings_wire::ResolvedCaptureSettings,
     store: &CalibrationStore,
 ) -> Option<crate::table_visibility::TableVisibilityReference> {
@@ -828,6 +868,7 @@ fn run_ready_session<D: crate::capture_pipeline::Rgb8FrameDetector + Send + 'sta
     startup_timeout: Duration,
     poll_interval: Duration,
     shutdown_requested: &AtomicBool,
+    diagnostics: Option<&crate::producer_diagnostics::ReporterHandle>,
 ) -> Result<()> {
     let startup_deadline = Instant::now()
         .checked_add(startup_timeout)
@@ -838,17 +879,78 @@ fn run_ready_session<D: crate::capture_pipeline::Rgb8FrameDetector + Send + 'sta
             bail!("shutdown requested before live capture became ready");
         }
         let remaining = startup_deadline.saturating_duration_since(Instant::now());
-        ensure!(!remaining.is_zero(), "live capture readiness timed out");
+        if remaining.is_zero() {
+            if let Some(diagnostics) = diagnostics {
+                diagnostics.set_stage(
+                    ProducerStageName::SourceLifecycle,
+                    StageStatus::Failed,
+                    "capture_readiness_timeout",
+                    None,
+                );
+                diagnostics.set_stage(
+                    ProducerStageName::CaptureProgress,
+                    StageStatus::Failed,
+                    "capture_readiness_timeout",
+                    None,
+                );
+            }
+            bail!("live capture readiness timed out");
+        }
         let lifecycle = runtime
             .wait_until_ready(remaining.min(poll_interval))
             .clone();
         match lifecycle {
             LiveCaptureLifecycle::Pending { .. } => continue,
-            LiveCaptureLifecycle::Ready { .. } => break,
+            LiveCaptureLifecycle::Ready { session_id } => {
+                if let Some(diagnostics) = diagnostics {
+                    diagnostics.set_capture_session(session_id);
+                    diagnostics.set_stage(
+                        ProducerStageName::SourceLifecycle,
+                        StageStatus::Healthy,
+                        "capture_preflight_compatible",
+                        Some("source reported compatible capture settings"),
+                    );
+                    diagnostics.set_stage(
+                        ProducerStageName::CaptureProgress,
+                        StageStatus::Idle,
+                        "awaiting_first_capture_frame",
+                        None,
+                    );
+                }
+                break;
+            }
             LiveCaptureLifecycle::Failed { reason, .. } => {
+                if let Some(diagnostics) = diagnostics {
+                    diagnostics.set_stage(
+                        ProducerStageName::SourceLifecycle,
+                        StageStatus::Failed,
+                        "capture_preflight_failed",
+                        None,
+                    );
+                    diagnostics.set_stage(
+                        ProducerStageName::CaptureProgress,
+                        StageStatus::Failed,
+                        "capture_preflight_failed",
+                        None,
+                    );
+                }
                 bail!("live capture failed before readiness: {reason}");
             }
             LiveCaptureLifecycle::Stopping { .. } | LiveCaptureLifecycle::Stopped { .. } => {
+                if let Some(diagnostics) = diagnostics {
+                    diagnostics.set_stage(
+                        ProducerStageName::SourceLifecycle,
+                        StageStatus::Stopped,
+                        "capture_stopped_before_readiness",
+                        None,
+                    );
+                    diagnostics.set_stage(
+                        ProducerStageName::CaptureProgress,
+                        StageStatus::Stopped,
+                        "capture_stopped_before_readiness",
+                        None,
+                    );
+                }
                 bail!("live capture stopped before readiness");
             }
         }
@@ -858,16 +960,70 @@ fn run_ready_session<D: crate::capture_pipeline::Rgb8FrameDetector + Send + 'sta
         if shutdown_requested.load(Ordering::SeqCst) {
             return Ok(());
         }
-        match runtime
-            .receive_one(poll_interval)
-            .context("live capture frame processing failed")?
-        {
+        let outcome = match runtime.receive_one(poll_interval) {
+            Ok(outcome) => outcome,
+            Err(error) => {
+                if let Some(diagnostics) = diagnostics {
+                    diagnostics.set_stage(
+                        ProducerStageName::ScheduledPerceptionWork,
+                        StageStatus::Failed,
+                        "scheduled_perception_failed",
+                        None,
+                    );
+                }
+                return Err(error).context("live capture frame processing failed");
+            }
+        };
+        if let Some(diagnostics) = diagnostics {
+            match &outcome {
+                CaptureReceiveOutcome::Frame(_) => diagnostics.set_stage(
+                    ProducerStageName::CaptureProgress,
+                    StageStatus::Healthy,
+                    "capture_frame_received",
+                    None,
+                ),
+                CaptureReceiveOutcome::TimedOut => diagnostics.set_stage(
+                    ProducerStageName::CaptureProgress,
+                    StageStatus::Idle,
+                    "awaiting_next_capture_frame",
+                    None,
+                ),
+                CaptureReceiveOutcome::Closed => diagnostics.capture_source_closed(),
+                CaptureReceiveOutcome::ProducerFailed(_) => diagnostics.set_stage(
+                    ProducerStageName::SourceLifecycle,
+                    StageStatus::Failed,
+                    "capture_source_failed",
+                    None,
+                ),
+                CaptureReceiveOutcome::Cancelled => {}
+            }
+            if let CaptureReceiveOutcome::Frame(_) = &outcome {
+                diagnostics.stage_progress(ProducerStageName::CaptureProgress);
+            }
+        }
+        match outcome {
             CaptureReceiveOutcome::Frame(Ok(CapturePipelineOutcome::Published(_)))
             | CaptureReceiveOutcome::Frame(Ok(CapturePipelineOutcome::Skipped(_))) => {}
             CaptureReceiveOutcome::Frame(Ok(CapturePipelineOutcome::Rejected(rejection))) => {
+                if let Some(diagnostics) = diagnostics {
+                    diagnostics.set_stage(
+                        ProducerStageName::ScheduledPerceptionWork,
+                        StageStatus::Failed,
+                        "perception_frame_rejected",
+                        None,
+                    );
+                }
                 bail!("live capture frame was rejected: {rejection:?}");
             }
             CaptureReceiveOutcome::Frame(Err(error)) => {
+                if let Some(diagnostics) = diagnostics {
+                    diagnostics.set_stage(
+                        ProducerStageName::ScheduledPerceptionWork,
+                        StageStatus::Failed,
+                        "scheduled_perception_failed",
+                        None,
+                    );
+                }
                 return Err(error).context("live capture frame processing failed");
             }
             CaptureReceiveOutcome::TimedOut => {}
@@ -877,6 +1033,20 @@ fn run_ready_session<D: crate::capture_pipeline::Rgb8FrameDetector + Send + 'sta
             }
             CaptureReceiveOutcome::Cancelled => bail!("live capture was cancelled"),
             CaptureReceiveOutcome::ProducerFailed(reason) => {
+                if let Some(diagnostics) = diagnostics {
+                    diagnostics.set_stage(
+                        ProducerStageName::SourceLifecycle,
+                        StageStatus::Failed,
+                        "capture_source_failed",
+                        None,
+                    );
+                    diagnostics.set_stage(
+                        ProducerStageName::CaptureProgress,
+                        StageStatus::Failed,
+                        "capture_source_failed",
+                        None,
+                    );
+                }
                 bail!("live capture source failed: {reason}");
             }
         }

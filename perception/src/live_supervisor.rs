@@ -23,6 +23,8 @@ use crate::ball_localization_profile::BallLocalizationSettings;
 use crate::capture_settings_wire::build_capture_settings_v3;
 use crate::live_application::serialize_phase_schedule_config;
 use crate::live_audit::LiveAuditConfig;
+use crate::producer_diagnostics::{DiagnosticsRegistry, ReporterLaunch, REPORTER_ENV};
+use crate::producer_diagnostics_contract::{DiagnosticsConfig, ProducerExitReason};
 
 const PHYSICAL_SELECTOR_PREFIX: &str = "gstreamer-device-v1:";
 
@@ -99,6 +101,7 @@ pub struct LiveProcessConfig {
     graceful_stop_timeout: Duration,
     restart_initial_delay: Duration,
     restart_maximum_delay: Duration,
+    diagnostics: Option<(ReporterLaunch, DiagnosticsRegistry)>,
 }
 
 impl LiveProcessConfig {
@@ -174,15 +177,19 @@ impl LiveProcessConfig {
         ball_localization.validate().map_err(|error| {
             format!("invalid perception.rust_live.ball_localization: {error:#}")
         })?;
-        ball_localization.resolve_paths(&project_root);
-        let ball_localization_json = serde_json::to_string(&ball_localization)
-            .map_err(|error| format!("could not serialize ball localization settings: {error}"))?;
         let requested = capture_settings
             .get("requested")
             .and_then(Value::as_object)
             .ok_or_else(|| "capture request has no requested settings".to_owned())?;
         let image_space = required_string(requested, "image_space")?;
         let camera_profile = required_string(requested, "camera_profile_id")?;
+        crate::browser_precision_calibration::select_assets(
+            &mut ball_localization,
+            &project_root,
+            &camera_profile,
+        );
+        let ball_localization_json = serde_json::to_string(&ball_localization)
+            .map_err(|error| format!("could not serialize ball localization settings: {error}"))?;
         let configuration_revision = capture_settings
             .get("configuration_revision")
             .and_then(Value::as_u64)
@@ -194,29 +201,39 @@ impl LiveProcessConfig {
         let capture_source = capture_source(configuration)?;
         let mut arguments = Vec::new();
         let provider = required_string(live, "provider")?;
-        match provider.as_str() {
-            "openvino" => push_config_argument(
-                &mut arguments,
-                live,
-                "onnx_path",
-                "onnx",
-                &project_root,
-                true,
-            )?,
-            provider => {
-                return Err(format!(
-                    "unsupported perception.rust_live.provider: {provider}"
-                ));
-            }
+        if provider != "openvino" {
+            return Err(format!(
+                "unsupported perception.rust_live.provider: {provider}"
+            ));
         }
-        push_config_argument(
-            &mut arguments,
-            live,
-            "source_checkpoint_path",
-            "source-checkpoint",
-            &project_root,
-            true,
-        )?;
+        let canonical_onnx = "models/billiards-yolov8n.onnx";
+        let source_export = "models/exports/billiards-yolov8n.onnx";
+        let default_onnx = if project_root.join(canonical_onnx).is_file()
+            || !project_root.join(source_export).is_file()
+        {
+            canonical_onnx
+        } else {
+            source_export
+        };
+        for (key, argument, fallback) in [
+            ("onnx_path", "onnx", default_onnx),
+            (
+                "source_checkpoint_path",
+                "source-checkpoint",
+                "models/billiards-yolov8n.pt",
+            ),
+        ] {
+            let raw = live
+                .get(key)
+                .and_then(Value::as_str)
+                .filter(|value| !value.trim().is_empty())
+                .unwrap_or(fallback);
+            let path = resolve_configured_path(Path::new(raw), &project_root)?;
+            if raw == fallback && !path.is_file() {
+                return Err(format!("Model asset is missing: {}. Install the verified model bundle or configure a model path under Advanced.", path.display()));
+            }
+            push_argument(&mut arguments, argument, path.display().to_string());
+        }
         for (config_key, argument) in [
             ("provider", "provider"),
             ("image_size", "image-size"),
@@ -382,11 +399,44 @@ impl LiveProcessConfig {
             graceful_stop_timeout,
             restart_initial_delay,
             restart_maximum_delay,
+            diagnostics: None,
         })
     }
 
+    /// Bind metadata reporting to the already allocated private listener. Reuse
+    /// the scene writer's established timeout/backoff configuration.
+    pub fn with_diagnostics(
+        mut self,
+        address: SocketAddr,
+        policy: DiagnosticsConfig,
+        registry: DiagnosticsRegistry,
+        configuration: &Value,
+    ) -> Result<Self, String> {
+        let live = object_at(configuration, "perception.rust_live")?;
+        let launch = ReporterLaunch {
+            address,
+            generation_id: Uuid::new_v4().to_string(),
+            policy,
+            connect_timeout_ms: required_u64(live, "connect_timeout_ms")?,
+            write_timeout_ms: required_u64(live, "write_timeout_ms")?,
+            reconnect_initial_delay_ms: required_u64(live, "reconnect_initial_delay_ms")?,
+            reconnect_maximum_delay_ms: required_u64(live, "reconnect_maximum_delay_ms")?,
+        };
+        launch.validate()?;
+        self.diagnostics = Some((launch, registry));
+        Ok(self)
+    }
+
     /// Keep the child alive, restarting unexpected exits with bounded backoff.
-    pub async fn supervise(self, mut shutdown: watch::Receiver<bool>) {
+    pub async fn supervise(self, shutdown: watch::Receiver<bool>) {
+        self.supervise_with_failure(shutdown, |_| {}).await;
+    }
+
+    pub(crate) async fn supervise_with_failure(
+        self,
+        mut shutdown: watch::Receiver<bool>,
+        report_failure: impl Fn(String),
+    ) {
         let mut restart_delay = self.restart_initial_delay;
         loop {
             if *shutdown.borrow() {
@@ -394,23 +444,55 @@ impl LiveProcessConfig {
             }
             match self.spawn_child().await {
                 Ok(mut child) => {
+                    // Scope the active model to this exact supervised process lifetime.
+                    let mut generation = self.diagnostics.as_ref().and_then(|(_, registry)| {
+                        registry.snapshot().generation_id.map(|generation| {
+                            ActiveDiagnosticsGeneration {
+                                registry: registry.clone(),
+                                generation,
+                                exit_reason: None,
+                            }
+                        })
+                    });
                     eprintln!("live_detector_started=true");
                     tokio::select! {
                         result = child.wait() => {
                             match result {
-                                Ok(status) => eprintln!("live_detector_exited={status}"),
-                                Err(error) => eprintln!("live_detector_wait_failed={error}"),
+                                Ok(status) => {
+                                    eprintln!("live_detector_exited={status}");
+                                    report_failure(format!("Live producer exited ({status}). Check camera access, model assets, and the OpenVINO GPU runtime."));
+                                    if let Some(generation) = generation.as_mut() {
+                                        generation.set_exit_reason(if status.success() {
+                                            ProducerExitReason::ProcessExitedSuccessfully
+                                        } else {
+                                            ProducerExitReason::ProcessExitedNonzero
+                                        });
+                                    }
+                                }
+                                Err(error) => {
+                                    eprintln!("live_detector_wait_failed={error}");
+                                    report_failure(format!("Could not wait for the live producer: {error}"));
+                                    if let Some(generation) = generation.as_mut() {
+                                        generation.set_exit_reason(ProducerExitReason::ProcessWaitFailed);
+                                    }
+                                }
                             }
                         }
                         changed = shutdown.changed() => {
                             if changed.is_err() || *shutdown.borrow() {
-                                stop_child(&mut child, self.graceful_stop_timeout).await;
+                                let outcome = stop_child(&mut child, self.graceful_stop_timeout).await;
+                                if let Some(generation) = generation.as_mut() {
+                                    generation.set_exit_reason(outcome);
+                                }
                                 return;
                             }
                         }
                     }
                 }
-                Err(error) => eprintln!("live_detector_start_failed={error}"),
+                Err(error) => {
+                    eprintln!("live_detector_start_failed={error}");
+                    report_failure(error);
+                }
             }
             tokio::select! {
                 _ = sleep(restart_delay) => {},
@@ -442,25 +524,68 @@ impl LiveProcessConfig {
             "source-session-id",
             Uuid::new_v4().to_string(),
         );
-        let mut child = Command::new(&self.executable)
+        let mut command = Command::new(&self.executable);
+        let generation = if let Some((template, registry)) = &self.diagnostics {
+            let mut launch = template.clone();
+            launch.generation_id = Uuid::new_v4().to_string();
+            let settings = serde_json::to_string(&launch).map_err(|error| error.to_string())?;
+            registry.begin_generation(launch.generation_id.clone());
+            command.env(REPORTER_ENV, settings);
+            Some(launch.generation_id)
+        } else {
+            // Inherited launch routing must never register an unsupervised child.
+            command.env_remove(REPORTER_ENV);
+            None
+        };
+        let result = command
             .args(&arguments)
             .current_dir(&self.project_root)
             .stdin(Stdio::piped())
             .stdout(Stdio::inherit())
             .stderr(Stdio::inherit())
             .kill_on_drop(true)
-            .spawn()
-            .map_err(|error| format!("could not spawn {}: {error}", self.executable.display()))?;
-        let mut stdin = child
-            .stdin
-            .take()
-            .ok_or_else(|| "live detector stdin was not piped".to_owned())?;
+            .spawn();
+        let mut child = result.map_err(|error| {
+            if let (Some(generation), Some((_, registry))) = (&generation, &self.diagnostics) {
+                registry.retire_generation(generation, ProducerExitReason::SpawnFailed);
+            }
+            format!("could not spawn {}: {error}", self.executable.display())
+        })?;
+        let Some(mut stdin) = child.stdin.take() else {
+            let _ = child.kill().await;
+            if let (Some(generation), Some((_, registry))) = (&generation, &self.diagnostics) {
+                registry.retire_generation(generation, ProducerExitReason::LaunchRequestFailed);
+            }
+            return Err("live detector stdin was not piped".to_owned());
+        };
         if let Err(error) = stdin.write_all(&self.capture_request).await {
             let _ = child.kill().await;
+            if let (Some(generation), Some((_, registry))) = (&generation, &self.diagnostics) {
+                registry.retire_generation(generation, ProducerExitReason::LaunchRequestFailed);
+            }
             return Err(format!("could not send exact capture request: {error}"));
         }
         drop(stdin);
         Ok(child)
+    }
+}
+
+struct ActiveDiagnosticsGeneration {
+    registry: DiagnosticsRegistry,
+    generation: String,
+    exit_reason: Option<ProducerExitReason>,
+}
+impl ActiveDiagnosticsGeneration {
+    fn set_exit_reason(&mut self, exit_reason: ProducerExitReason) {
+        self.exit_reason = Some(exit_reason);
+    }
+}
+impl Drop for ActiveDiagnosticsGeneration {
+    fn drop(&mut self) {
+        self.registry.retire_generation(
+            &self.generation,
+            self.exit_reason.unwrap_or(ProducerExitReason::Unknown),
+        );
     }
 }
 
@@ -592,7 +717,7 @@ fn capture_source(configuration: &Value) -> Result<CaptureSource, String> {
     let Some(url) = device.as_str() else {
         return Err("live capture requires a stable camera selector or HTTP-MJPEG URL".into());
     };
-    if url.starts_with("http://") || url.starts_with("https://") {
+    if crate::configuration_authority::valid_http_uri(url) {
         return Ok(CaptureSource {
             http_mjpeg_url: Some(url.to_owned()),
         });
@@ -744,7 +869,14 @@ fn seconds_as_milliseconds(seconds: f64) -> Result<u64, String> {
     Ok((seconds * 1_000.0).round() as u64)
 }
 
-async fn stop_child(child: &mut Child, graceful_timeout: Duration) {
+async fn stop_child(child: &mut Child, graceful_timeout: Duration) -> ProducerExitReason {
+    if let Ok(Some(status)) = child.try_wait() {
+        return if status.success() {
+            ProducerExitReason::ProcessExitedSuccessfully
+        } else {
+            ProducerExitReason::ProcessExitedNonzero
+        };
+    }
     #[cfg(unix)]
     if let Some(pid) = child.id() {
         // SAFETY: pid is the live child ID returned by the OS; SIGTERM is sent
@@ -754,8 +886,14 @@ async fn stop_child(child: &mut Child, graceful_timeout: Duration) {
     #[cfg(not(unix))]
     let _ = child.start_kill();
 
-    if timeout(graceful_timeout, child.wait()).await.is_err() {
-        let _ = child.kill().await;
+    match timeout(graceful_timeout, child.wait()).await {
+        Ok(Ok(status)) if status.success() => ProducerExitReason::GracefulStop,
+        Ok(Ok(_)) => ProducerExitReason::ProcessExitedNonzero,
+        Ok(Err(_)) => ProducerExitReason::ProcessWaitFailed,
+        Err(_) => {
+            let _ = child.kill().await;
+            ProducerExitReason::ForcedTermination
+        }
     }
 }
 
@@ -763,10 +901,12 @@ async fn stop_child(child: &mut Child, graceful_timeout: Duration) {
 mod tests {
     use super::{resolve_live_executables, stop_child, LiveProcessConfig};
     use crate::live_audit::LiveAuditConfig;
-    use std::net::SocketAddr;
+    use std::net::{Ipv4Addr, SocketAddr};
     use std::path::Path;
     use std::time::Duration;
 
+    use crate::producer_diagnostics::{DiagnosticsRegistry, ReporterLaunch};
+    use crate::producer_diagnostics_contract::{DiagnosticsConfig, ProducerExitReason};
     use serde_json::Value;
     use uuid::Uuid;
 
@@ -789,6 +929,41 @@ mod tests {
             Value::String("perception/target/release/billiards-perception-live".to_owned());
         configuration["perception"]["rust_live"]["frame_preview_enabled"] = Value::Bool(false);
         configuration
+    }
+
+    #[tokio::test]
+    async fn supervisor_spawn_failure_is_recorded_and_clears_active_report() {
+        let directory = tempfile::tempdir().unwrap();
+        let registry = DiagnosticsRegistry::default();
+        let launch = ReporterLaunch {
+            address: SocketAddr::new(Ipv4Addr::LOCALHOST.into(), 45_678),
+            generation_id: "template-generation".into(),
+            policy: DiagnosticsConfig::default(),
+            connect_timeout_ms: 1_000,
+            write_timeout_ms: 1_000,
+            reconnect_initial_delay_ms: 10,
+            reconnect_maximum_delay_ms: 100,
+        };
+        let config = LiveProcessConfig {
+            executable: directory.path().join("missing-detector"),
+            project_root: directory.path().to_path_buf(),
+            capture_request: br#"{"schema_version":3}"#.to_vec(),
+            arguments: Vec::new(),
+            graceful_stop_timeout: Duration::from_millis(100),
+            restart_initial_delay: Duration::from_millis(10),
+            restart_maximum_delay: Duration::from_millis(100),
+            diagnostics: Some((launch, registry.clone())),
+        };
+
+        assert!(config.spawn_child().await.is_err());
+        let snapshot = registry.snapshot();
+        assert!(snapshot.exited);
+        assert!(snapshot.report.is_none());
+        assert_eq!(snapshot.exit_reason, Some(ProducerExitReason::SpawnFailed));
+        assert_ne!(
+            snapshot.generation_id.as_deref(),
+            Some("template-generation")
+        );
     }
 
     #[test]
@@ -1159,6 +1334,7 @@ mod tests {
             graceful_stop_timeout: Duration::from_millis(100),
             restart_initial_delay: Duration::from_millis(10),
             restart_maximum_delay: Duration::from_millis(100),
+            diagnostics: None,
         };
         for _ in 0..2 {
             let mut child = config.spawn_child().await.unwrap();

@@ -27,8 +27,12 @@ use crate::cue_geometry::{
     orient_cue_geometry_from_playing_surface, CueGeometry, CueGeometryConfig, CueProposal,
     SignedCueDirection,
 };
-use crate::cue_worker::{CueGeometryWorker, CueGeometryWorkerShutdown, CueWorkTag};
-use crate::detector_worker::{DetectorWorkTag, DetectorWorker, DetectorWorkerShutdown};
+use crate::cue_worker::{
+    CueGeometryWorker, CueGeometryWorkerShutdown, CueGeometryWorkerState, CueWorkTag,
+};
+use crate::detector_worker::{
+    DetectorWorkTag, DetectorWorker, DetectorWorkerShutdown, DetectorWorkerState,
+};
 use crate::frame_preview::LatestCapturedFrameSlot;
 use crate::live_audit::LiveAuditRecorder;
 use crate::motion_monitor::{
@@ -38,6 +42,8 @@ use crate::phase_scheduler::{
     CueEvidence, ImagePoint, LayoutObservation, MotionEvidence, Phase, PhaseScheduler,
     SchedulerConfig, SchedulerEvidence, TrustReason, WorkAvailability,
 };
+use crate::producer_diagnostics::ReporterHandle;
+use crate::producer_diagnostics_contract::{ScheduledJobKind, ScheduledWorkState};
 use crate::public_state_lifecycle::{
     CueGeometryStateV1, PerceptionStateV1, TableProjectionV1, TableVisibilityStateV1,
     TableVisibilityStatusV1,
@@ -94,13 +100,34 @@ pub struct LiveCaptureRuntime<D: Rgb8FrameDetector> {
     session_clock_origin: Instant,
     last_scheduler_tick: Option<Duration>,
     phase_stats: PhaseRuntimeStats,
+    diagnostics: Option<ReporterHandle>,
+    scheduled_work_state: ScheduledWorkState,
+    active_detector_started_at: Option<Instant>,
+    active_cue_started_at: Option<Instant>,
+    active_motion_started_at: Option<Instant>,
+    scheduler_jobs_expected: u64,
+    scheduler_jobs_completed: u64,
+    scheduler_jobs_failed: u64,
+    last_scheduled_completion_at: Option<Instant>,
+    last_scheduled_failure_code: Option<&'static str>,
+    last_scheduled_failure_at: Option<Instant>,
     recovery_started_at: Option<Duration>,
     table_visibility_config: Option<TableVisibilityConfig>,
     table_visibility_reference: Option<TableVisibilityReference>,
     latest_visibility: Option<(String, TableVisibilityAssessment)>,
     latest_visibility_observed_at: Option<Duration>,
+    latest_visibility_capture_at: Option<Duration>,
+    /// Capture-time high-water marks keep newer uncertain/contradictory
+    /// appearance evidence from being overwritten by a later assessment of a
+    /// different frame while an older detector job is still in flight.
+    latest_unconfirmed_visibility_capture_at: Option<Duration>,
+    latest_not_visible_capture_at: Option<Duration>,
     decision_frame_id: Option<String>,
     decision_frame_dimensions: Option<(u32, u32)>,
+    /// Detector frame backing the currently trusted whole-table layout. It is
+    /// carried separately from later phase decisions so the gateway can fail
+    /// closed if this clean scene expires during transport recovery.
+    layout_basis_frame_id: Option<String>,
     receiver: Option<CaptureFrameReceiver>,
     lifecycle: LiveCaptureLifecycle,
 }
@@ -468,13 +495,28 @@ impl<D: Rgb8FrameDetector + Send + 'static> LiveCaptureRuntime<D> {
             session_clock_origin,
             last_scheduler_tick: None,
             phase_stats: PhaseRuntimeStats::default(),
+            diagnostics: None,
+            scheduled_work_state: ScheduledWorkState::Unknown,
+            active_detector_started_at: None,
+            active_cue_started_at: None,
+            active_motion_started_at: None,
+            scheduler_jobs_expected: 0,
+            scheduler_jobs_completed: 0,
+            scheduler_jobs_failed: 0,
+            last_scheduled_completion_at: None,
+            last_scheduled_failure_code: None,
+            last_scheduled_failure_at: None,
             recovery_started_at: None,
             table_visibility_config,
             table_visibility_reference,
             latest_visibility: None,
             latest_visibility_observed_at: None,
+            latest_visibility_capture_at: None,
+            latest_unconfirmed_visibility_capture_at: None,
+            latest_not_visible_capture_at: None,
             decision_frame_id: None,
             decision_frame_dimensions: None,
+            layout_basis_frame_id: None,
             receiver: None,
         })
     }
@@ -483,6 +525,13 @@ impl<D: Rgb8FrameDetector + Send + 'static> LiveCaptureRuntime<D> {
     /// the source coordinator and its owner gate in this runtime.
     pub fn lifecycle(&self) -> &LiveCaptureLifecycle {
         &self.lifecycle
+    }
+
+    /// Attach the independent diagnostics reporter before readiness begins.
+    /// It never changes capture behavior and only receives compact stage data.
+    pub fn attach_diagnostics(&mut self, diagnostics: ReporterHandle) {
+        self.diagnostics = Some(diagnostics);
+        self.publish_scheduled_work_evidence();
     }
 
     pub fn session_id(&self) -> &str {
@@ -649,6 +698,113 @@ impl<D: Rgb8FrameDetector + Send + 'static> LiveCaptureRuntime<D> {
         self.coordinator.owner_status()
     }
 
+    fn note_scheduler_decision(&mut self, decision: crate::phase_scheduler::ScheduleDecision) {
+        if decision.run_motion || decision.run_ball || decision.run_cue {
+            self.scheduled_work_state = ScheduledWorkState::Due;
+        } else {
+            self.scheduled_work_state =
+                if scheduler_phase_is_gated(self.phase_schedule_config.as_ref(), decision.phase) {
+                    ScheduledWorkState::PhaseGated
+                } else {
+                    ScheduledWorkState::Idle
+                };
+        }
+        self.publish_scheduled_work_evidence();
+    }
+
+    fn start_scheduled_job(&mut self, kind: ScheduledJobKind) {
+        let started_at = Instant::now();
+        self.scheduler_jobs_expected = self.scheduler_jobs_expected.saturating_add(1);
+        match kind {
+            ScheduledJobKind::MotionAssessment => self.active_motion_started_at = Some(started_at),
+            ScheduledJobKind::BallDetection => self.active_detector_started_at = Some(started_at),
+            ScheduledJobKind::CueGeometry => self.active_cue_started_at = Some(started_at),
+        }
+        self.scheduled_work_state = ScheduledWorkState::InFlight;
+        self.publish_scheduled_work_evidence();
+    }
+
+    fn finish_scheduled_job(&mut self, kind: ScheduledJobKind, failure_code: Option<&'static str>) {
+        match kind {
+            ScheduledJobKind::MotionAssessment => self.active_motion_started_at = None,
+            ScheduledJobKind::BallDetection => self.active_detector_started_at = None,
+            ScheduledJobKind::CueGeometry => self.active_cue_started_at = None,
+        }
+        let now = Instant::now();
+        if let Some(code) = failure_code {
+            self.scheduler_jobs_failed = self.scheduler_jobs_failed.saturating_add(1);
+            self.last_scheduled_failure_code = Some(code);
+            self.last_scheduled_failure_at = Some(now);
+            self.scheduled_work_state = ScheduledWorkState::Failed;
+        } else {
+            self.scheduler_jobs_completed = self.scheduler_jobs_completed.saturating_add(1);
+            self.last_scheduled_completion_at = Some(now);
+            self.scheduled_work_state = ScheduledWorkState::Idle;
+        }
+        self.publish_scheduled_work_evidence();
+    }
+
+    fn publish_scheduled_work_evidence(&mut self) {
+        let Some(diagnostics) = self.diagnostics.as_ref() else {
+            return;
+        };
+        let detector_state = self.detector_worker.as_ref().map(DetectorWorker::state);
+        let cue_state = self.cue_worker.as_ref().map(CueGeometryWorker::state);
+        let detector_active = detector_state == Some(DetectorWorkerState::InferenceInFlight);
+        let cue_active = cue_state == Some(CueGeometryWorkerState::EstimationInFlight);
+        let mut active = Vec::with_capacity(3);
+        if let Some(started_at) = self.active_motion_started_at {
+            active.push((Some(started_at), ScheduledJobKind::MotionAssessment));
+        }
+        if detector_active {
+            active.push((
+                self.active_detector_started_at,
+                ScheduledJobKind::BallDetection,
+            ));
+        }
+        if cue_active {
+            active.push((self.active_cue_started_at, ScheduledJobKind::CueGeometry));
+        }
+        let active_without_start = active.iter().find(|(started_at, _)| started_at.is_none());
+        let earliest_active = active
+            .iter()
+            .filter_map(|(started_at, kind)| started_at.map(|started_at| (started_at, *kind)))
+            .min_by_key(|(started_at, _)| *started_at);
+        let (started_at, active_job_kind) = if let Some((_, kind)) = active_without_start {
+            (None, Some(*kind))
+        } else {
+            earliest_active
+                .map(|(started_at, kind)| (Some(started_at), Some(kind)))
+                .unwrap_or((None, None))
+        };
+        let in_flight = !active.is_empty();
+        let state = if in_flight {
+            ScheduledWorkState::InFlight
+        } else if detector_state == Some(DetectorWorkerState::ResultReady)
+            || cue_state == Some(CueGeometryWorkerState::ResultReady)
+        {
+            ScheduledWorkState::ResultReady
+        } else if detector_state == Some(DetectorWorkerState::Failed)
+            || cue_state == Some(CueGeometryWorkerState::Failed)
+        {
+            ScheduledWorkState::Failed
+        } else {
+            self.scheduled_work_state
+        };
+        diagnostics.set_scheduled_work(crate::producer_diagnostics::ScheduledWorkEvidence {
+            scheduler_state: state,
+            in_flight,
+            active_job_kind,
+            work_started_at: started_at,
+            expected_jobs: self.scheduler_jobs_expected,
+            completed_jobs: self.scheduler_jobs_completed,
+            failed_jobs: self.scheduler_jobs_failed,
+            last_completion_at: self.last_scheduled_completion_at,
+            last_failure_code: self.last_scheduled_failure_code,
+            last_failure_at: self.last_scheduled_failure_at,
+        });
+    }
+
     pub fn pipeline_stats(&self) -> CapturePipelineStats {
         self.pipeline.stats()
     }
@@ -742,7 +898,19 @@ impl<D: Rgb8FrameDetector + Send + 'static> LiveCaptureRuntime<D> {
             CaptureReceiveOutcome::Frame(frame) => {
                 self.phase_stats.captured_frames =
                     self.phase_stats.captured_frames.saturating_add(1);
-                let (no_dispatch, completion) = self.observe_and_schedule_frame(frame)?;
+                let result = self.observe_and_schedule_frame(frame);
+                let (no_dispatch, completion) = match result {
+                    Ok(result) => result,
+                    Err(error) => {
+                        if self.active_motion_started_at.is_some() {
+                            self.finish_scheduled_job(
+                                ScheduledJobKind::MotionAssessment,
+                                Some("motion_assessment_failed"),
+                            );
+                        }
+                        return Err(error);
+                    }
+                };
                 if let Some(outcome) = completion {
                     return Ok(CaptureReceiveOutcome::Frame(Ok(outcome)));
                 }
@@ -795,11 +963,13 @@ impl<D: Rgb8FrameDetector + Send + 'static> LiveCaptureRuntime<D> {
         let decision = scheduler
             .tick(now, WorkAvailability::default())
             .context("phase scheduler rejected runtime clock")?;
+        self.note_scheduler_decision(decision);
         self.accumulate_trusted_time(now);
         let motion_check_ran = decision.run_motion;
 
         if decision.run_motion {
-            let mut appearance_conflicts_with_table = false;
+            let mut visibility_requires_stale_layout = false;
+            self.start_scheduled_job(ScheduledJobKind::MotionAssessment);
             let assessment = self
                 .motion_monitor
                 .as_mut()
@@ -820,45 +990,20 @@ impl<D: Rgb8FrameDetector + Send + 'static> LiveCaptureRuntime<D> {
             // A stored appearance reference can provide an explicit known
             // occlusion signal, but its absence is not evidence of occlusion
             // and must not block calibrated geometry plus current motion data.
-            if let (Some(config), Some(reference)) = (
-                self.table_visibility_config.as_ref(),
-                self.table_visibility_reference.as_ref(),
-            ) {
-                let mut visibility = assess_table_visibility(
-                    Some(reference),
-                    Some(VisibilityRgb8Frame {
-                        width: frame.source().width_px,
-                        height: frame.source().height_px,
-                        pixels: frame.rgb8(),
-                    }),
-                    config,
-                )
-                .context("calibrated-table visibility assessment failed")?;
-                if matches!(
-                    visibility.reason,
-                    TableVisibilityReason::ExtremeBrightnessShift
-                        | TableVisibilityReason::ExtremeColorShift
-                ) {
-                    // The frame is available, but an illumination mismatch
-                    // makes this reference inconclusive rather than proving
-                    // that the table is absent.
-                    visibility.status = TableVisibilityStatus::Unknown;
-                }
-                // Appearance describes whether a clean scan may replace and
-                // trust the whole-table layout. It is not motion evidence and
-                // must not erase quiet continuity or suppress useful current
-                // ball observations when a stored reference has drifted.
-                appearance_conflicts_with_table =
-                    visibility.status == TableVisibilityStatus::NotVisible;
-                self.latest_visibility = Some((frame.source().frame_id.clone(), visibility));
-                self.latest_visibility_observed_at = Some(now);
+            if let Some(visibility) = self.assess_visibility_for_frame(&frame)? {
+                // A missing optional reference is not contradictory evidence:
+                // calibrated geometry plus current motion can still support a
+                // clean non-empty scan. An actual mismatch or inconclusive
+                // comparison makes the remembered whole-table layout stale.
+                visibility_requires_stale_layout = table_visibility_blocks_full_scan(visibility);
+                self.record_visibility_assessment(&frame, visibility, now);
             }
             self.phase_scheduler
                 .as_mut()
                 .expect("scheduler was checked above")
                 .observe_motion(now, evidence)
                 .context("phase scheduler rejected motion evidence")?;
-            if appearance_conflicts_with_table {
+            if visibility_requires_stale_layout {
                 self.phase_scheduler
                     .as_mut()
                     .expect("scheduler was checked above")
@@ -898,6 +1043,7 @@ impl<D: Rgb8FrameDetector + Send + 'static> LiveCaptureRuntime<D> {
                 });
                 eprintln!("motion_check={diagnostic}");
             }
+            self.finish_scheduled_job(ScheduledJobKind::MotionAssessment, None);
         }
 
         let phase_after_motion = self
@@ -940,6 +1086,7 @@ impl<D: Rgb8FrameDetector + Send + 'static> LiveCaptureRuntime<D> {
                 Ok(()) => {
                     self.phase_stats.cue_dispatches =
                         self.phase_stats.cue_dispatches.saturating_add(1);
+                    self.start_scheduled_job(ScheduledJobKind::CueGeometry);
                 }
                 Err(error) => {
                     if matches!(
@@ -976,17 +1123,15 @@ impl<D: Rgb8FrameDetector + Send + 'static> LiveCaptureRuntime<D> {
         if decision.run_ball {
             // Completion processing can change scheduler evidence (for
             // example, by establishing a trusted layout). Re-read it before
-            // dispatch so a stale pre-completion decision cannot cross a new
-            // motion generation or submit after the scheduler entered Shot.
+            // dispatch and tag this due scan with the current generation. A
+            // generation change limits replacement eligibility at completion;
+            // it must not cancel measured ball work for the current frame.
             let dispatch_evidence = self
                 .phase_scheduler
                 .as_ref()
                 .context("phase-aware runtime is missing its scheduler")?
                 .evidence(self.session_elapsed())
                 .context("phase scheduler evidence is unavailable before dispatch")?;
-            if dispatch_evidence.motion_generation != decision.motion_generation {
-                return Ok((CaptureSkipReason::AnalysisNotScheduled, completion));
-            }
             let tag = DetectorWorkTag {
                 source_session_id: self.session_id.clone(),
                 frame_id: frame.source().frame_id.clone(),
@@ -1002,6 +1147,7 @@ impl<D: Rgb8FrameDetector + Send + 'static> LiveCaptureRuntime<D> {
                 Ok(()) => {
                     self.phase_stats.detector_calls =
                         self.phase_stats.detector_calls.saturating_add(1);
+                    self.start_scheduled_job(ScheduledJobKind::BallDetection);
                     return Ok((CaptureSkipReason::AnalysisNotScheduled, completion));
                 }
                 Err(error) => {
@@ -1028,6 +1174,10 @@ impl<D: Rgb8FrameDetector + Send + 'static> LiveCaptureRuntime<D> {
         let Some(completion) = completion else {
             return Ok(false);
         };
+        self.finish_scheduled_job(
+            ScheduledJobKind::CueGeometry,
+            completion.result.is_err().then_some("cue_geometry_failed"),
+        );
         let now = self.session_elapsed();
         let evidence = self
             .phase_scheduler
@@ -1161,6 +1311,13 @@ impl<D: Rgb8FrameDetector + Send + 'static> LiveCaptureRuntime<D> {
         let Some(completion) = completion else {
             return Ok(None);
         };
+        self.finish_scheduled_job(
+            ScheduledJobKind::BallDetection,
+            completion
+                .result
+                .is_err()
+                .then_some("ball_detection_failed"),
+        );
         let now = self.session_elapsed();
         let evidence = self
             .phase_scheduler
@@ -1171,7 +1328,6 @@ impl<D: Rgb8FrameDetector + Send + 'static> LiveCaptureRuntime<D> {
         if completion.tag.source_session_id != self.session_id
             || completion.tag.configuration_revision != self.settings.configuration_revision
             || completion.tag.calibration_revision != self.settings.expected.calibration_revision()
-            || completion.tag.motion_generation != evidence.motion_generation
         {
             self.phase_stats.obsolete_results = self.phase_stats.obsolete_results.saturating_add(1);
             return Ok(Some(CapturePipelineOutcome::Skipped(
@@ -1184,17 +1340,13 @@ impl<D: Rgb8FrameDetector + Send + 'static> LiveCaptureRuntime<D> {
             .host_read_completed_at()
             .checked_duration_since(self.session_clock_origin)
             .unwrap_or_default();
-        if !self
+        let clean_layout_capture_is_current = self
             .phase_scheduler
             .as_ref()
             .expect("scheduler was checked above")
-            .clean_layout_capture_is_current(capture_at, now)
-        {
-            self.phase_stats.obsolete_results = self.phase_stats.obsolete_results.saturating_add(1);
-            return Ok(Some(CapturePipelineOutcome::Skipped(
-                CaptureSkipReason::ObsoleteInference,
-            )));
-        }
+            .clean_layout_capture_is_current(capture_at, now);
+        let within_observation_freshness =
+            now.saturating_sub(capture_at) <= self.settings.expected.maximum_frame_age();
 
         let completion_frame_id = completion.tag.frame_id.clone();
         let completion_frame_dimensions = (
@@ -1204,6 +1356,33 @@ impl<D: Rgb8FrameDetector + Send + 'static> LiveCaptureRuntime<D> {
         let inference = match completion.result {
             Ok(inference) => inference,
             Err(_) => {
+                // A failed inference still consumed a specific source frame.
+                // Check that frame's appearance before returning so an
+                // occluded/uncertain image cannot leave older guidance trusted
+                // merely because the detector failed to produce measurements.
+                let frame_visibility = self.assess_visibility_for_frame(&completion.frame)?;
+                let visibility_telemetry_updated = frame_visibility.is_some_and(|visibility| {
+                    self.record_visibility_assessment(&completion.frame, visibility, now)
+                });
+                let frame_coverage_is_unconfirmed =
+                    frame_visibility.is_some_and(table_visibility_blocks_full_scan);
+                let newer_unconfirmed_visibility = self
+                    .latest_unconfirmed_visibility_capture_at
+                    .is_some_and(|observed_at| observed_at > capture_at);
+                let visibility_requires_stale_layout =
+                    frame_coverage_is_unconfirmed || newer_unconfirmed_visibility;
+                if visibility_requires_stale_layout {
+                    self.phase_scheduler
+                        .as_mut()
+                        .expect("scheduler was checked above")
+                        .mark_layout_untrusted(now, TrustReason::OccludedOrUncertain)
+                        .context("phase scheduler rejected failed-frame appearance evidence")?;
+                }
+                if visibility_requires_stale_layout || visibility_telemetry_updated {
+                    self.decision_frame_id = Some(completion_frame_id.clone());
+                    self.decision_frame_dimensions = Some(completion_frame_dimensions);
+                    self.publish_perception_status(now)?;
+                }
                 self.phase_stats.detector_failures =
                     self.phase_stats.detector_failures.saturating_add(1);
                 self.phase_scheduler
@@ -1216,16 +1395,84 @@ impl<D: Rgb8FrameDetector + Send + 'static> LiveCaptureRuntime<D> {
                 )));
             }
         };
-        let appearance_conflicts_with_table = self
-            .latest_visibility
-            .as_ref()
-            .is_some_and(|(_, visibility)| visibility.status == TableVisibilityStatus::NotVisible);
+        // An empty detector result may clear the layout only when the exact
+        // frame that produced it positively showed the calibrated table. The
+        // latest motion/appearance assessment can belong to a newer frame
+        // while this detector call was in flight.
+        let inference_visibility = self.assess_visibility_for_frame(&completion.frame)?;
+        let visibility_telemetry_updated = inference_visibility.is_some_and(|visibility| {
+            self.record_visibility_assessment(&completion.frame, visibility, now)
+        });
+        let inference_is_not_visible = inference_visibility
+            .is_some_and(|visibility| visibility.status == TableVisibilityStatus::NotVisible);
+        let inference_confirms_full_table_coverage = inference_visibility
+            .is_some_and(|visibility| visibility.status == TableVisibilityStatus::Visible);
+        // Every wholesale replacement needs positive evidence that this exact
+        // frame covers the calibrated table. Missing monitor/reference data is
+        // inconclusive: current detections still publish as partial results,
+        // while unmatched last-good centers remain available.
+        let inference_coverage_is_unconfirmed = !inference_confirms_full_table_coverage;
+        // Keep contradictory capture times separately from the most recently
+        // reported assessment. A later visible frame may update diagnostics,
+        // but cannot make an older in-flight scan eligible to replace the
+        // layout after a newer uncertain or NotVisible frame was captured.
+        let newer_unconfirmed_visibility = self
+            .latest_unconfirmed_visibility_capture_at
+            .is_some_and(|observed_at| observed_at > capture_at);
+        let newer_not_visible = self
+            .latest_not_visible_capture_at
+            .is_some_and(|observed_at| observed_at > capture_at);
+        let appearance_conflicts_with_table = inference_is_not_visible || newer_not_visible;
+        let visibility_coverage_is_unconfirmed =
+            inference_coverage_is_unconfirmed || newer_unconfirmed_visibility;
+        let visibility_requires_stale_layout = visibility_coverage_is_unconfirmed;
+        if visibility_requires_stale_layout {
+            // A contradictory or inconclusive frame can arrive between motion
+            // checks or while inference is in flight. Make the remembered map
+            // stale before publication, but keep any current measurements.
+            self.phase_scheduler
+                .as_mut()
+                .expect("scheduler was checked above")
+                .mark_layout_untrusted(now, TrustReason::OccludedOrUncertain)
+                .context("phase scheduler rejected completed appearance evidence")?;
+        }
+        if visibility_requires_stale_layout || visibility_telemetry_updated {
+            self.decision_frame_id = Some(completion_frame_id.clone());
+            self.decision_frame_dimensions = Some(completion_frame_dimensions);
+            // Publish the invalidated (or explicitly uncertain) evidence
+            // before any partial scene is serialized. The pipeline carries
+            // its latest perception state into the next scene envelope, so
+            // that first wire scene cannot briefly revive stale guidance.
+            self.publish_perception_status(now)?;
+        }
+        // Motion generations and the quiet dwell control whether a scan can
+        // replace the trusted whole-table layout. Newer appearance evidence
+        // also forbids replacement, but never discards fresh measured centers
+        // from the detector frame.
+        let can_replace_layout = clean_layout_capture_is_current
+            && completion.tag.motion_generation == evidence.motion_generation
+            && inference_confirms_full_table_coverage
+            && !visibility_coverage_is_unconfirmed;
         let contains_ball_detection = self.pipeline.contains_ball_detection(&inference);
-        if appearance_conflicts_with_table && !contains_ball_detection {
+        if stale_limited_observation_is_obsolete(
+            can_replace_layout,
+            appearance_conflicts_with_table,
+            within_observation_freshness,
+        ) {
+            self.phase_stats.obsolete_results = self.phase_stats.obsolete_results.saturating_add(1);
+            return Ok(Some(CapturePipelineOutcome::Skipped(
+                CaptureSkipReason::ObsoleteInference,
+            )));
+        }
+        if !contains_ball_detection
+            && (!inference_confirms_full_table_coverage || newer_unconfirmed_visibility)
+        {
             // A clean empty result is authoritative only when the table was
-            // positively visible. Keeping this separate from motion evidence
-            // lets stable non-empty observations update remembered centers
-            // without allowing an uncertain view to erase them.
+            // positively visible. An explicitly unknown appearance is not a
+            // clear-table observation, even if motion evidence otherwise
+            // permits a full scan. Phase-aware empty replacement always
+            // requires positive coverage evidence, including when no optional
+            // appearance monitor was configured for this session.
             self.phase_stats.visibility_rejected_empty_scans = self
                 .phase_stats
                 .visibility_rejected_empty_scans
@@ -1236,7 +1483,7 @@ impl<D: Rgb8FrameDetector + Send + 'static> LiveCaptureRuntime<D> {
         }
         self.cue_proposals =
             cue_proposals_from_inference(&inference, self.cue_config.max_proposals);
-        let outcome = if appearance_conflicts_with_table {
+        let outcome = if !can_replace_layout {
             self.pipeline.process_partial_inference_result(
                 &completion.frame,
                 inference,
@@ -1266,12 +1513,24 @@ impl<D: Rgb8FrameDetector + Send + 'static> LiveCaptureRuntime<D> {
                     })
                     .collect();
                 let was_trusted = evidence.map_trusted;
-                if !appearance_conflicts_with_table {
+                if can_replace_layout && !appearance_conflicts_with_table {
                     self.phase_scheduler
                         .as_mut()
                         .expect("scheduler was checked above")
                         .observe_layout_at(now, capture_at, LayoutObservation::Success(positions))
                         .context("phase scheduler rejected successful layout")?;
+                }
+                if can_replace_layout
+                    && self
+                        .phase_scheduler
+                        .as_ref()
+                        .expect("scheduler was checked above")
+                        .map_trusted()
+                {
+                    // Bind trust restoration to this exact clean scan. The
+                    // scene write may expire during reconnect while its later
+                    // phase-only status still reaches the gateway.
+                    self.layout_basis_frame_id = Some(completion_frame_id.clone());
                 }
                 if !was_trusted
                     && self
@@ -1298,6 +1557,7 @@ impl<D: Rgb8FrameDetector + Send + 'static> LiveCaptureRuntime<D> {
                 self.publish_perception_status(now)?;
                 Ok(Some(outcome))
             }
+
             Ok(outcome) => {
                 self.phase_scheduler
                     .as_mut()
@@ -1315,6 +1575,77 @@ impl<D: Rgb8FrameDetector + Send + 'static> LiveCaptureRuntime<D> {
                 Err(error)
             }
         }
+    }
+
+    /// Assess appearance on the supplied capture pixels rather than borrowing
+    /// a decision made for another frame. This is used both for current-frame
+    /// motion diagnostics and, critically, when deciding whether an empty
+    /// detector result can replace the cached layout.
+    fn assess_visibility_for_frame(
+        &self,
+        frame: &OwnedCaptureFrame,
+    ) -> Result<Option<TableVisibilityAssessment>> {
+        let Some(config) = self.table_visibility_config.as_ref() else {
+            return Ok(None);
+        };
+        let mut visibility = assess_table_visibility(
+            self.table_visibility_reference.as_ref(),
+            Some(VisibilityRgb8Frame {
+                width: frame.source().width_px,
+                height: frame.source().height_px,
+                pixels: frame.rgb8(),
+            }),
+            config,
+        )
+        .context("calibrated-table visibility assessment failed")?;
+        if matches!(
+            visibility.reason,
+            TableVisibilityReason::ExtremeBrightnessShift
+                | TableVisibilityReason::ExtremeColorShift
+        ) {
+            // The frame is available, but an illumination mismatch makes the
+            // stored appearance reference inconclusive rather than proving
+            // that the table is absent.
+            visibility.status = TableVisibilityStatus::Unknown;
+        }
+        Ok(Some(visibility))
+    }
+
+    fn record_visibility_assessment(
+        &mut self,
+        frame: &OwnedCaptureFrame,
+        assessment: TableVisibilityAssessment,
+        observed_at: Duration,
+    ) -> bool {
+        let captured_at = frame
+            .host_read_completed_at()
+            .checked_duration_since(self.session_clock_origin)
+            .unwrap_or_default();
+
+        // Visibility telemetry describes the newest source frame, even when
+        // an older detector completion is assessed after newer frames.
+        let telemetry_updated = self
+            .latest_visibility_capture_at
+            .is_none_or(|latest| captured_at > latest);
+        if telemetry_updated {
+            self.latest_visibility = Some((frame.source().frame_id.clone(), assessment));
+            self.latest_visibility_observed_at = Some(observed_at);
+            self.latest_visibility_capture_at = Some(captured_at);
+        }
+
+        if table_visibility_blocks_full_scan(assessment) {
+            self.latest_unconfirmed_visibility_capture_at = Some(
+                self.latest_unconfirmed_visibility_capture_at
+                    .map_or(captured_at, |latest| latest.max(captured_at)),
+            );
+        }
+        if assessment.status == TableVisibilityStatus::NotVisible {
+            self.latest_not_visible_capture_at = Some(
+                self.latest_not_visible_capture_at
+                    .map_or(captured_at, |latest| latest.max(captured_at)),
+            );
+        }
+        telemetry_updated
     }
 
     fn accumulate_trusted_time(&mut self, now: Duration) {
@@ -1400,6 +1731,7 @@ impl<D: Rgb8FrameDetector + Send + 'static> LiveCaptureRuntime<D> {
             phase: phase_name(evidence.phase).to_owned(),
             layout_revision: evidence.layout_revision,
             layout_trusted: evidence.map_trusted,
+            layout_basis_frame_id: self.layout_basis_frame_id.clone(),
             empty_layout_verified: evidence.empty_layout_verified,
             guidance_valid: evidence.guidance_valid && cue.is_some(),
             trust_reason: trust_reason_name(evidence.trust_reason).to_owned(),
@@ -1496,6 +1828,19 @@ fn millis(duration: Duration) -> u64 {
     duration.as_millis().min(u128::from(u64::MAX)) as u64
 }
 
+fn scheduler_phase_is_gated(config: Option<&SchedulerConfig>, phase: Phase) -> bool {
+    let Some(config) = config else {
+        return false;
+    };
+    let cadence = match phase {
+        Phase::Recovering => config.recovering,
+        Phase::PreShot => config.pre_shot,
+        Phase::Aiming => config.aiming,
+        Phase::Shot => config.shot,
+    };
+    cadence.motion_hz == 0.0 && cadence.ball_hz == 0.0 && cadence.cue_hz == 0.0
+}
+
 fn table_visibility_reason_name(reason: TableVisibilityReason) -> &'static str {
     match reason {
         TableVisibilityReason::ReferenceMatch => "reference_match",
@@ -1510,6 +1855,24 @@ fn table_visibility_reason_name(reason: TableVisibilityReason) -> &'static str {
         TableVisibilityReason::ClothMismatch => "cloth_mismatch",
         TableVisibilityReason::RailMismatch => "rail_mismatch",
     }
+}
+
+/// Slow clean scans can still verify a quiet layout. Once motion or table
+/// appearance limits a result to partial use, its centers must also fit the
+/// configured capture-age budget.
+fn stale_limited_observation_is_obsolete(
+    can_replace_layout: bool,
+    appearance_conflicts_with_table: bool,
+    within_observation_freshness: bool,
+) -> bool {
+    !within_observation_freshness && (!can_replace_layout || appearance_conflicts_with_table)
+}
+
+/// Without a positive appearance assessment, the runtime cannot prove that a
+/// scan covered the whole table. Such scans remain useful as partial measured
+/// observations but cannot replace unmatched last-good centers.
+fn table_visibility_blocks_full_scan(assessment: TableVisibilityAssessment) -> bool {
+    assessment.status != TableVisibilityStatus::Visible
 }
 
 fn phase_name(phase: Phase) -> &'static str {
@@ -1663,6 +2026,14 @@ mod tests {
             cue_observation_age_at_poll(Duration::from_millis(200), completed, polled_later,)
                 > Duration::from_millis(250)
         );
+    }
+
+    #[test]
+    fn stale_partial_results_are_rejected_without_rejecting_slow_clean_scans() {
+        assert!(stale_limited_observation_is_obsolete(true, true, false));
+        assert!(stale_limited_observation_is_obsolete(false, false, false));
+        assert!(!stale_limited_observation_is_obsolete(true, false, false));
+        assert!(!stale_limited_observation_is_obsolete(false, true, true));
     }
 
     #[test]

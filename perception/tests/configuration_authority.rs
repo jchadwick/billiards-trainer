@@ -71,7 +71,7 @@ fn snapshot_schema_and_defaults_are_embedded_and_use_temporary_store_path() {
         .is_none());
     assert_eq!(
         defaults["configuration"]["perception"]["freshness"]["expire_after_ms"],
-        1_000
+        2_000
     );
     assert_eq!(
         schema["schema"]["properties"]["perception"]["properties"]["freshness"]["properties"]
@@ -81,7 +81,7 @@ fn snapshot_schema_and_defaults_are_embedded_and_use_temporary_store_path() {
 }
 
 #[test]
-fn capture_settings_operation_uses_defaults_but_rejects_the_default_video_file() {
+fn capture_settings_operation_accepts_live_defaults() {
     let directory = TempDir::new().expect("temporary directory");
     let (authority, _) = authority(&directory);
 
@@ -94,13 +94,8 @@ fn capture_settings_operation_uses_defaults_but_rejects_the_default_video_file()
         }),
     );
 
-    assert_eq!(response["ok"], false);
+    assert_eq!(response["ok"], true);
     assert_eq!(response["operation"], "capture_settings");
-    assert_eq!(response["error"]["code"], "invalid_capture_settings");
-    assert!(response["error"]["message"]
-        .as_str()
-        .unwrap()
-        .contains("video_file_path must be cleared"));
 }
 
 #[test]

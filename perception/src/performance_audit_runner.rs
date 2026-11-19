@@ -3422,8 +3422,8 @@ mod tests {
         .unwrap();
         std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
         let launch = ManagedServerConfig {
-            executable: script,
-            arguments: Vec::new(),
+            executable: PathBuf::from("/bin/sh"),
+            arguments: vec![script.to_str().unwrap().to_owned()],
             working_directory: None,
             startup_timeout: Duration::from_secs(1),
             readiness_probe_interval: Duration::from_millis(20),
@@ -3476,8 +3476,8 @@ mod tests {
         .unwrap();
         std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
         let launch = ManagedServerConfig {
-            executable: script,
-            arguments: Vec::new(),
+            executable: PathBuf::from("/bin/sh"),
+            arguments: vec![script.to_str().unwrap().to_owned()],
             working_directory: None,
             startup_timeout: Duration::from_secs(1),
             readiness_probe_interval: Duration::from_millis(20),

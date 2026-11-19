@@ -458,6 +458,34 @@ impl FrameInferenceEngine {
         })
     }
 
+    /// Report the already verified loaded artifact, never its configured path.
+    /// OpenVINO's EXECUTION_DEVICES was checked at construction; this does not
+    /// assert per-node assignment. ORT requests have no such proof here.
+    pub fn diagnostics_model(&self) -> crate::producer_diagnostics_contract::ActiveModel {
+        let (execution_provider, execution_device, execution_proof) = match &self.session {
+            InferenceSession::Openvino(session) => (
+                Some("openvino".to_owned()),
+                Some(session.execution_devices.join(", ")),
+                Some("compiled_model_execution_devices_gpu_only".to_owned()),
+            ),
+            InferenceSession::Ort(_) => (None, None, None),
+        };
+        crate::producer_diagnostics_contract::ActiveModel {
+            identity: self.model_identity.clone(),
+            input_width_px: self.inference_settings.input_width_px,
+            input_height_px: self.inference_settings.input_height_px,
+            requested_provider: match self.requested_provider {
+                ProviderSelection::Cpu => "cpu",
+                ProviderSelection::Auto => "auto",
+                ProviderSelection::Openvino => "openvino",
+            }
+            .to_owned(),
+            execution_provider,
+            execution_device,
+            execution_proof,
+        }
+    }
+
     pub fn model_identity(&self) -> &ModelIdentity {
         &self.model_identity
     }
@@ -4229,13 +4257,15 @@ mod tests {
         permissions.set_mode(0o755);
         fs::set_permissions(&fake_ffmpeg, permissions).unwrap();
 
+        // macOS can spend several seconds checking a newly written executable.
+        let fixture_timeout = Duration::from_secs(10);
         let short = super::decode_video_to_spool(
             &fake_ffmpeg,
             PathBuf::from("ignored-input.mp4").as_path(),
             0,
             9,
             32,
-            Duration::from_secs(1),
+            fixture_timeout,
         );
         let short_error = short.unwrap_err().to_string();
         assert!(
@@ -4249,7 +4279,7 @@ mod tests {
             0,
             5,
             32,
-            Duration::from_secs(1),
+            fixture_timeout,
         );
         assert!(extra.unwrap_err().to_string().contains("byte limit"));
     }

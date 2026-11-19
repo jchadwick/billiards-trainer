@@ -10,9 +10,10 @@ returns one JSON response on stdout. Operations include `snapshot`, `schema`,
 Mutations require the expected configuration revision. Rust validates the
 complete resulting document and atomically persists successful changes.
 
-New local examples clear `vision.camera.video_file_path` for the live camera
-path. The versioned defaults retain a recorded-video setting for existing
-configuration clients; the live capture runtime rejects a nonempty file path.
+Live defaults have no recorded-video path or selected camera. The gateway's
+setup action saves the selected source using the same revision and validation
+rules. Existing recorded-video settings are accepted by the configuration
+contract and rejected by live capture.
 
 The command bounds input/output size, stored-file size, and lock wait time.
 Warnings do not change configuration; mutations with warnings require an

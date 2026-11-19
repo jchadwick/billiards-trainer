@@ -212,6 +212,10 @@ impl CalibrationStore {
         })
     }
 
+    pub(crate) fn maximum_file_bytes(&self) -> usize {
+        self.maximum_file_bytes
+    }
+
     /// Load and validate the current record. Missing storage is an initial
     /// state, while malformed or unsupported files are returned as errors.
     pub fn load(&self) -> Result<CalibrationStoreSnapshot, CalibrationStoreError> {

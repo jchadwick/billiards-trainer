@@ -29,7 +29,7 @@
     "provider": "rust",
     "freshness": {
       "maximum_observation_age_seconds": 0.5,
-      "expire_after_ms": 1000
+      "expire_after_ms": 2000
     },
     "capture": {
       "device_selector": null,
@@ -197,7 +197,18 @@
       "capture_helper_pull_timeout_ms": 1500,
       "capture_helper_readiness_timeout_ms": 500,
       "capture_helper_child_exit_timeout_ms": 2500,
-      "capture_helper_child_exit_poll_interval_ms": 25
+      "capture_helper_child_exit_poll_interval_ms": 25,
+      "diagnostics": {
+        "enabled": true,
+        "bind_address": "127.0.0.1",
+        "port": 0,
+        "maximum_message_bytes": 65536,
+        "heartbeat_interval_ms": 1000,
+        "report_expiry_ms": 3000,
+        "stream_heartbeat_interval_ms": 1000,
+        "stream_stale_after_ms": 3000,
+        "processing_stall_timeout_ms": 30000
+      }
     }
   },
   "game_session": {
@@ -226,7 +237,7 @@
       "saturation": 0.5,
       "buffer_size": 2,
       "auto_focus": true,
-      "video_file_path": "assets/demo3.mp4",
+      "video_file_path": null,
       "loop_video": true,
       "video_start_frame": 0,
       "video_end_frame": null,
@@ -245,7 +256,6 @@
       "yolo_nms_threshold": 0.45,
       "yolo_device": "auto",
       "enable_ball_detection": true,
-      "enable_opencv_classification": false,
       "use_opencv_validation": true,
       "max_balls_on_table": 16,
       "marker_filtering": {
@@ -441,125 +451,6 @@
           "value_max": 255
         },
         "morph_kernel_size": 5
-      },
-      "ball_colors": {
-        "cue": {
-          "lower": [
-            0,
-            0,
-            150
-          ],
-          "upper": [
-            180,
-            50,
-            255
-          ]
-        },
-        "yellow": {
-          "lower": [
-            10,
-            80,
-            80
-          ],
-          "upper": [
-            35,
-            255,
-            255
-          ]
-        },
-        "blue": {
-          "lower": [
-            90,
-            80,
-            80
-          ],
-          "upper": [
-            140,
-            255,
-            255
-          ]
-        },
-        "red": {
-          "lower": [
-            0,
-            80,
-            80
-          ],
-          "upper": [
-            15,
-            255,
-            255
-          ]
-        },
-        "purple": {
-          "lower": [
-            120,
-            80,
-            80
-          ],
-          "upper": [
-            170,
-            255,
-            255
-          ]
-        },
-        "orange": {
-          "lower": [
-            8,
-            80,
-            80
-          ],
-          "upper": [
-            25,
-            255,
-            255
-          ]
-        },
-        "green": {
-          "lower": [
-            30,
-            80,
-            80
-          ],
-          "upper": [
-            90,
-            255,
-            255
-          ]
-        },
-        "maroon": {
-          "lower": [
-            0,
-            60,
-            30
-          ],
-          "upper": [
-            15,
-            255,
-            120
-          ]
-        },
-        "black": {
-          "lower": [
-            0,
-            0,
-            0
-          ],
-          "upper": [
-            180,
-            255,
-            70
-          ]
-        }
-      },
-      "brightness_filters": {
-        "min_avg_brightness": 40,
-        "min_max_brightness": 80,
-        "eight_ball_min_highlight": 150,
-        "eight_ball_max_avg": 50,
-        "ball_mask_radius_ratio": 0.7,
-        "ball_mask_inner_ratio": 0.8,
-        "region_expansion_ratio": 1.2
       },
       "debug": {
         "debug_mode": false,

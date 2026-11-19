@@ -27,7 +27,7 @@ pub(crate) const CALIBRATION_READ_REQUEST_V1: &[u8; 8] = b"BTCR0001";
 pub(crate) const CALIBRATION_APPLY_REQUEST_V1: &[u8; 8] = b"BTCA0001";
 pub(crate) const CALIBRATION_CONTROL_SCHEMA_VERSION: u8 = 1;
 const MINIMUM_CALIBRATION_REQUEST_BYTES: usize = 1_024;
-const MAXIMUM_CALIBRATION_REQUEST_BYTES: usize = 1_048_576;
+pub(crate) const MAXIMUM_CALIBRATION_REQUEST_BYTES: usize = 1_048_576;
 
 /// Rust-owned durable store and request-body bound for the control commands.
 #[derive(Debug, Clone)]
@@ -423,6 +423,76 @@ where
     T: Deserialize<'de>,
 {
     Option::<T>::deserialize(deserializer)
+}
+
+/// Read the store revision before freezing a frame for browser calibration.
+pub(crate) async fn read_gateway_snapshot(
+    address: std::net::SocketAddr,
+    timeout: Duration,
+    maximum_response_bytes: usize,
+) -> io::Result<serde_json::Value> {
+    gateway_command(address, timeout, maximum_response_bytes, None).await
+}
+
+/// Forward a bounded browser request to the producer that owns the frame.
+pub(crate) async fn apply_gateway_calibration(
+    address: std::net::SocketAddr,
+    timeout: Duration,
+    maximum_response_bytes: usize,
+    body: &[u8],
+) -> io::Result<serde_json::Value> {
+    gateway_command(address, timeout, maximum_response_bytes, Some(body)).await
+}
+
+async fn gateway_command(
+    address: std::net::SocketAddr,
+    timeout: Duration,
+    maximum_response_bytes: usize,
+    body: Option<&[u8]>,
+) -> io::Result<serde_json::Value> {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    if !address.ip().is_loopback() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "calibration requires loopback",
+        ));
+    }
+    tokio::time::timeout(timeout, async {
+        let mut stream = tokio::net::TcpStream::connect(address).await?;
+        if let Some(body) = body {
+            if body.is_empty() || body.len() > MAXIMUM_CALIBRATION_REQUEST_BYTES {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "invalid calibration request size",
+                ));
+            }
+            stream.write_all(CALIBRATION_APPLY_REQUEST_V1).await?;
+            stream.write_u32(body.len() as u32).await?;
+            stream.write_all(body).await?;
+        } else {
+            stream.write_all(CALIBRATION_READ_REQUEST_V1).await?;
+        }
+        let length = stream.read_u32().await? as usize;
+        if length == 0 || length > maximum_response_bytes {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "invalid calibration response size",
+            ));
+        }
+        let mut response = vec![0; length];
+        stream.read_exact(&mut response).await?;
+        let response: serde_json::Value = serde_json::from_slice(&response)?;
+        if response["schema_version"] != CALIBRATION_CONTROL_SCHEMA_VERSION {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "unsupported calibration response schema",
+            ));
+        }
+        Ok(response)
+    })
+    .await
+    .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "calibration request timed out"))?
 }
 
 #[cfg(test)]
